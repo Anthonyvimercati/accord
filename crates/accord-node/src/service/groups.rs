@@ -457,6 +457,23 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 .collect::<Result<Vec<_>, NodeError>>()?;
             Ok(json!({ "messages": messages }))
         }
+        "groups.history_around" => {
+            let gid = param_id16(params, "group_id")?;
+            let cid = param_id16(params, "channel_id")?;
+            let mid = param_id16(params, "msg_id")?;
+            let (msgs, found) = node.group_history_around(&gid, &cid, &mid, param_limit(params))?;
+            let messages = msgs
+                .iter()
+                .map(|m| {
+                    Ok(group_msg_json(
+                        m,
+                        &node.reactions_of(&m.msg_id)?,
+                        &node.attachments_of(&m.msg_id)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, NodeError>>()?;
+            Ok(json!({ "messages": messages, "found": found }))
+        }
         "groups.send" => {
             let gid = param_id16(params, "group_id")?;
             let cid = param_id16(params, "channel_id")?;

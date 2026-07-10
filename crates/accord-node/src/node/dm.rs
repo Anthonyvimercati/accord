@@ -1,6 +1,8 @@
 //! Messagerie directe : composition et routage des messages, éditions,
 //! suppressions et réactions (bloc `impl Node` du domaine `dm.*`).
 
+use std::collections::{BTreeSet, HashMap};
+
 use accord_core::db::DmRecord;
 use accord_core::messaging;
 use accord_proto::core_msg::{CoreMsg, FileRef};
@@ -14,6 +16,39 @@ use super::{dm_mark_key, now_ms, read_u64, Node};
 
 /// Meta key of the read-receipts privacy toggle (absent = enabled).
 const READ_RECEIPTS_KEY: &str = "dm.read_receipts";
+
+/// Direct-send attempts after which an unacked message is surfaced as
+/// `failed`. The message keeps being retried in the background (backoff) until
+/// the offline-queue expiry; `failed` is a UI hint, not a terminal state.
+const DM_FAILED_ATTEMPTS: u32 = 5;
+
+/// Offline-queue lifetime (SPEC §7, mirrors `db::outbox::QUEUE_EXPIRY_MS`):
+/// past it, an unacked message that is no longer queued is `failed`.
+const DM_QUEUE_EXPIRY_MS: u64 = 7 * 24 * 3600 * 1000;
+
+/// Per-message delivery state derived from the ack flag and the outbox.
+///
+/// - `sent`: acked by the peer (or an incoming message, delivered by definition);
+/// - `failed`: our unacked message whose direct retries are exhausted
+///   (`attempts >= DM_FAILED_ATTEMPTS`) or which is unacked, no longer queued
+///   and older than the queue expiry;
+/// - `pending`: our unacked message still in flight or being retried.
+fn dm_delivery_state(
+    rec: &DmRecord,
+    me: &[u8; 32],
+    outbox: &HashMap<[u8; 16], (u32, bool)>,
+    now: u64,
+) -> &'static str {
+    if rec.acked || rec.author != *me {
+        return "sent";
+    }
+    match outbox.get(&rec.msg_id) {
+        Some((attempts, _)) if *attempts >= DM_FAILED_ATTEMPTS => "failed",
+        Some(_) => "pending",
+        None if now.saturating_sub(rec.sent_ms) > DM_QUEUE_EXPIRY_MS => "failed",
+        None => "pending",
+    }
+}
 
 /// Rend une liste de pièces jointes en JSON (forme gelée côté UI).
 pub(super) fn attachments_json(attachments: &[FileRef]) -> Value {
@@ -258,6 +293,124 @@ impl Node {
         });
         Ok(())
     }
+
+    /// Fenêtre d'historique centrée sur `msg_id` (jump-to-message) : moitié
+    /// avant, la cible, moitié après. Rend `(fenêtre, found)` ; `found = false`
+    /// avec une fenêtre vide si la cible est inconnue localement.
+    pub fn dm_history_around(
+        &self,
+        peer_pubkey: &[u8; 32],
+        msg_id: &[u8; 16],
+        limit: usize,
+    ) -> Result<(Vec<DmRecord>, bool), NodeError> {
+        self.with_db(
+            |db| match db.dm_history_around(peer_pubkey, msg_id, limit)? {
+                Some(window) => Ok((window, true)),
+                None => Ok((Vec::new(), false)),
+            },
+        )
+    }
+
+    /// Épingle un message direct (vue locale : aucune op filaire). Le message
+    /// doit être connu localement et appartenir à cette conversation.
+    pub fn dm_pin(&self, peer_pubkey: &[u8; 32], msg_id: &[u8; 16]) -> Result<(), NodeError> {
+        self.with_db(|db| {
+            match db.dm_message(msg_id)? {
+                Some(rec) if rec.peer == *peer_pubkey => {}
+                _ => {
+                    return Err(NodeError::NotFound(
+                        "message inconnu dans cette conversation",
+                    ))
+                }
+            }
+            db.dm_pin(peer_pubkey, msg_id)?;
+            Ok(())
+        })
+    }
+
+    /// Retire l'épingle d'un message direct (sans effet si absente).
+    pub fn dm_unpin(&self, peer_pubkey: &[u8; 32], msg_id: &[u8; 16]) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(db.dm_unpin(peer_pubkey, msg_id)?))
+    }
+
+    /// Messages épinglés d'une conversation directe (hex), ordre d'identifiant.
+    pub fn dm_pins(&self, peer_pubkey: &[u8; 32]) -> Result<Vec<String>, NodeError> {
+        self.with_db(|db| {
+            Ok(db
+                .dm_pins(peer_pubkey)?
+                .iter()
+                .map(|id| hex::encode(id))
+                .collect())
+        })
+    }
+
+    /// Ensemble des messages épinglés (annotation `pinned` de l'historique).
+    pub fn dm_pinned_set(&self, peer_pubkey: &[u8; 32]) -> Result<BTreeSet<[u8; 16]>, NodeError> {
+        self.with_db(|db| Ok(db.dm_pinned_set(peer_pubkey)?))
+    }
+
+    /// État de livraison des `DirectMsg` encore en file pour un pair
+    /// (`msg_id → (tentatives, déposé en boîte)`), pour calculer `delivery`.
+    pub fn dm_outbox_states(
+        &self,
+        peer_pubkey: &[u8; 32],
+    ) -> Result<HashMap<[u8; 16], (u32, bool)>, NodeError> {
+        self.with_db(|db| {
+            let mut map = HashMap::new();
+            for item in db.outbox_for(peer_pubkey)? {
+                if let Ok(CoreMsg::DirectMsg { msg_id, .. }) =
+                    crate::maintenance::decode_core(&item.payload)
+                {
+                    map.insert(msg_id, (item.attempts, item.mailboxed));
+                }
+            }
+            Ok(map)
+        })
+    }
+
+    /// État de livraison d'un message (`"sent"` | `"pending"` | `"failed"`),
+    /// dérivé de l'accusé et de la file d'attente (`dm_outbox_states`).
+    pub fn dm_delivery(
+        &self,
+        rec: &DmRecord,
+        outbox: &HashMap<[u8; 16], (u32, bool)>,
+    ) -> &'static str {
+        dm_delivery_state(rec, &self.public_key(), outbox, now_ms())
+    }
+
+    /// Relance l'envoi d'un de nos messages directs non acquitté (jump-to-retry
+    /// d'un état `failed`/`pending`). Purge toute copie en file (backoff remis à
+    /// zéro) puis réémet sur le même chemin que [`Node::dm_send`].
+    pub fn dm_retry(&self, peer_pubkey: &[u8; 32], msg_id: &[u8; 16]) -> Result<(), NodeError> {
+        let me = self.public_key();
+        let rec = self
+            .with_db(|db| Ok(db.dm_message(msg_id)?))?
+            .ok_or(NodeError::NotFound("message inconnu"))?;
+        if rec.peer != *peer_pubkey || rec.author != me {
+            return Err(NodeError::Invalid("message non renvoyable"));
+        }
+        if rec.deleted {
+            return Err(NodeError::Invalid("message supprimé"));
+        }
+        if rec.acked {
+            return Err(NodeError::Invalid("message déjà livré"));
+        }
+        // Retire toute copie encore en file pour repartir d'un backoff neuf : la
+        // réémission ci-dessous en recréera une si le pair est injoignable.
+        self.outbox_ack(peer_pubkey, msg_id)?;
+        let msg = CoreMsg::DirectMsg {
+            msg_id: rec.msg_id,
+            lamport: rec.lamport,
+            sent_ms: rec.sent_ms,
+            kind: rec.kind,
+            body: rec.body,
+        };
+        self.outbound.send(Outbound::Core {
+            to: *peer_pubkey,
+            msg: Box::new(msg),
+        });
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -388,6 +541,61 @@ mod tests {
         node.set_read_receipts(true).unwrap();
         node.dm_mark_read(&peer, lamport + 100).unwrap();
         assert!(next_dm_of_kind(&mut rx, 6).is_some());
+    }
+
+    #[test]
+    fn pin_unpin_and_history_around_window() {
+        let (node, peer, _lamport, _rx) = node_with_incoming_dm();
+        let hex_id = node.dm_send(&peer, "à épingler", None).unwrap();
+        let mid = crate::hex::decode::<16>(&hex_id).unwrap();
+        // Pinning an unknown message fails; a known one succeeds (idempotent).
+        assert!(node.dm_pin(&peer, &[0xEE; 16]).is_err());
+        node.dm_pin(&peer, &mid).unwrap();
+        assert_eq!(node.dm_pins(&peer).unwrap(), vec![hex_id]);
+        assert!(node.dm_pinned_set(&peer).unwrap().contains(&mid));
+        node.dm_unpin(&peer, &mid).unwrap();
+        assert!(node.dm_pins(&peer).unwrap().is_empty());
+
+        // history_around centers on the target; unknown id ⇒ found = false.
+        let (window, found) = node.dm_history_around(&peer, &mid, 10).unwrap();
+        assert!(found && window.iter().any(|m| m.msg_id == mid));
+        let (empty, found) = node.dm_history_around(&peer, &[0xEE; 16], 10).unwrap();
+        assert!(!found && empty.is_empty());
+    }
+
+    #[test]
+    fn delivery_states_and_retry_reemits() {
+        let (node, peer, _lamport, mut rx) = node_with_incoming_dm();
+        let hex_id = node.dm_send(&peer, "coucou", None).unwrap();
+        let mid = crate::hex::decode::<16>(&hex_id).unwrap();
+        while rx.try_recv().is_ok() {}
+        let rec = || {
+            node.dm_history(&peer, u64::MAX, 10)
+                .unwrap()
+                .into_iter()
+                .find(|m| m.msg_id == mid)
+                .unwrap()
+        };
+        // Not queued, fresh ⇒ pending.
+        let empty: HashMap<[u8; 16], (u32, bool)> = HashMap::new();
+        assert_eq!(node.dm_delivery(&rec(), &empty), "pending");
+        // Exhausted direct retries ⇒ failed.
+        let mut map = HashMap::new();
+        map.insert(mid, (DM_FAILED_ATTEMPTS, false));
+        assert_eq!(node.dm_delivery(&rec(), &map), "failed");
+
+        // Retry re-emits the same DirectMsg (kind 0 = Text).
+        node.dm_retry(&peer, &mid).unwrap();
+        match next_dm_of_kind(&mut rx, 0).expect("réémission attendue") {
+            CoreMsg::DirectMsg { msg_id, .. } => assert_eq!(msg_id, mid),
+            other => panic!("message inattendu : {other:?}"),
+        }
+
+        // Acked ⇒ sent; retrying a delivered message is refused.
+        node.ingest_core(&peer, CoreMsg::MsgAck { msg_id: mid })
+            .unwrap();
+        assert_eq!(node.dm_delivery(&rec(), &map), "sent");
+        assert!(node.dm_retry(&peer, &mid).is_err());
     }
 
     #[test]

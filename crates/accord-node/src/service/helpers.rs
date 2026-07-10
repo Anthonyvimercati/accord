@@ -284,6 +284,8 @@ pub(super) fn dm_json(
     m: &DmRecord,
     reactions: &[(String, [u8; 32])],
     attachments: &[FileRef],
+    pinned: bool,
+    delivery: &str,
 ) -> Value {
     json!({
         "msg_id": hex::encode(&m.msg_id),
@@ -292,6 +294,9 @@ pub(super) fn dm_json(
         "sent_ms": m.sent_ms,
         "acked": m.acked,
         "deleted": m.deleted,
+        "pinned": pinned,
+        // Delivery state of our outgoing message: sent∣pending∣failed.
+        "delivery": delivery,
         "body": body_json(m.kind, &m.body),
         // Dernière édition : texte brut UTF-8, ou null.
         "edited": m.edited.as_ref().map(|b| String::from_utf8_lossy(b)),

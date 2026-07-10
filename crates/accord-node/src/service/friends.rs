@@ -94,7 +94,12 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
         }
         "search.query" => {
             let q = param_str(params, "query")?;
-            Ok(json!({ "msg_ids": node.search(q)? }))
+            // Filter grammar (from:/in:/has:/before:/after:) is parsed and
+            // resolved node-side; `hits` carry per-hit metadata and `msg_ids`
+            // mirrors their ids (recent first) for backward compatibility.
+            let hits = node.search_filtered(q)?;
+            let msg_ids: Vec<&Value> = hits.iter().filter_map(|h| h.get("msg_id")).collect();
+            Ok(json!({ "msg_ids": msg_ids, "hits": hits }))
         }
         _ => Err(NodeError::Invalid("méthode inconnue")),
     }

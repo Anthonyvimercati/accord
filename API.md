@@ -166,8 +166,13 @@ carried by their friend request.
 |---------|-----------|----------|
 | `dm.send` | `{ pubkey, text, reply_to?, attachments? }` | `{ msg_id }` |
 | `dm.history` | `{ pubkey, before_lamport?, limit? }` | `{ messages: [...], peer_read_lamport }` — `peer_read_lamport` integer∣`null`: lamport of the last own message covered by the peer's read receipt (`null` if unknown; see `dm.mark_read`) |
+| `dm.history_around` | `{ pubkey, msg_id, limit? }` | `{ messages: [...], found, peer_read_lamport }` — window centered on `msg_id`: up to `limit/2` older messages, the target, then up to `limit/2` newer, newest-first (jump-to-message). `found: false` with an empty `messages` when `msg_id` is unknown locally |
+| `dm.pin` | `{ pubkey, msg_id }` | `{ ok: true }` — local pin (no wire op); the message must be known in this conversation |
+| `dm.unpin` | `{ pubkey, msg_id }` | `{ ok: true }` |
+| `dm.pins` | `{ pubkey }` | `{ msg_ids: [msg_id] }` — pinned messages of the conversation (by id) |
 | `dm.edit` | `{ pubkey, msg_id, text }` | `{ ok: true }` — author only, rejected otherwise |
-| `dm.delete` | `{ pubkey, msg_id }` | `{ ok: true }` — author only; immediate local tombstone |
+| `dm.delete` | `{ pubkey, msg_id }` | `{ ok: true }` — author only; immediate local tombstone (also unpins) |
+| `dm.retry` | `{ pubkey, msg_id }` | `{ ok: true }` — re-attempts one of our unacked messages (`delivery` `pending`/`failed`); resets the offline-queue backoff. Rejected if the message is unknown, not ours, deleted, or already delivered |
 | `dm.react` | `{ pubkey, msg_id, emoji, remove? }` | `{ ok: true }` — `remove: true` removes the reaction |
 | `dm.typing` | `{ pubkey }` | `{ ok: true }` — **ephemeral** typing indicator: emitted only if the peer is presumed online, never persisted or queued (unreachable peer ⇒ silently ignored). When received, it triggers `event.dm_typing` |
 | `dm.mark_read` | `{ pubkey, lamport }` | `{ ok: true }` — records our local read position in the conversation (for `unread` in `friends.list`). When the mark **advances**, best-effort emission of a read receipt to the peer (**ephemeral** like `dm.typing`: online peers only, never queued offline, silent if the privacy setting is off). When received, the peer's read position is persisted and `event.dm_read` is pushed |
@@ -175,8 +180,8 @@ carried by their friend request.
 | `dm.get_read_receipts` | — | `{ enabled }` |
 
 `limit` bounded to [1, 200] (default 50). `messages` sorted from most recent to
-oldest: `{ msg_id, author, lamport, sent_ms, acked, deleted, body, edited,
-reactions, attachments }`. `body` is decoded on the node side into structured JSON:
+oldest: `{ msg_id, author, lamport, sent_ms, acked, deleted, pinned, delivery,
+body, edited, reactions, attachments }`. `body` is decoded on the node side into structured JSON:
 `{ type: "text", text, reply_to, attachments }` ∣ `{ type: "edit"|"delete"|"reaction", ... }`
 ∣ `{ type: "meta" }` ∣ `{ type: "unknown" }`. Shape details:
 
@@ -193,12 +198,23 @@ reactions, attachments }`. `body` is decoded on the node side into structured JS
   the original text.
 - `reactions` is always present: `[{ emoji, author }]` (one entry per
   emoji × author pair), `[]` if none.
+- `pinned` is a boolean: `true` when the message is pinned in this
+  conversation (see `dm.pin`/`dm.pins`). DM pins are a **local view** — no
+  wire op, stored in a local `dm_pins` table, never synchronized to the peer.
+- `delivery` is the delivery state of one of **our** outgoing messages:
+  `"sent"` once the peer acks it, `"pending"` while in flight or being retried,
+  `"failed"` when direct retries are exhausted (or the message is unacked, no
+  longer queued, and older than the 7-day offline-queue expiry). Incoming
+  messages (`author` = the peer) always report `"sent"`. `failed` is a UI hint,
+  not terminal: the offline queue keeps retrying until expiry, and `dm.retry`
+  forces an immediate re-attempt.
 
 `dm.edit`, `dm.delete` and `dm.react` apply the action locally then
 emit it to the peer over the same path as `dm.send` (direct send or
 offline queue). On ingestion at the peer, the action triggers
 `event.dm`. Group messages (`groups.history`) follow the same schema,
-plus `channel_id`, without `acked`.
+plus `channel_id`, without `acked`, `pinned` or `delivery` (group pins live in
+the op-log; see `groups.pins`).
 
 #### Attachments
 
@@ -255,6 +271,7 @@ After each applied op (local or remote), the node emits
 | `groups.unpin` | `{ group_id, channel_id, msg_id }` | `{ ok: true }` |
 | `groups.pins` | `{ group_id, channel_id }` | `{ msg_ids: [msg_id] }` |
 | `groups.history` | `{ group_id, channel_id, before_lamport?, limit? }` | `{ messages: [...] }` — same schema as `dm.history`, plus `channel_id`, without `acked` |
+| `groups.history_around` | `{ group_id, channel_id, msg_id, limit? }` | `{ messages: [...], found }` — window centered on `msg_id` (jump-to-message), same message schema as `groups.history`; `found: false` with empty `messages` when `msg_id` is unknown in this channel |
 | `groups.send` | `{ group_id, channel_id, text, reply_to?, attachments? }` | `{ msg_id }` — encrypted with the group key, broadcast to members; `reply_to` (hex 32) quotes a message and is returned in `groups.history` (`text` body, same shape as DMs) |
 | `groups.edit` | `{ group_id, channel_id, msg_id, text }` | `{ ok: true }` — author only |
 | `groups.delete` | `{ group_id, channel_id, msg_id }` | `{ ok: true }` — our message: tombstone broadcast to members; someone else's message: signed moderation op (`MANAGE_MESSAGES` required) |
@@ -327,9 +344,47 @@ there — a role denied `VIEW` on a channel cannot write to it either.
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `search.query` | `{ query }` | `{ msg_ids: [msg_id] }` |
+| `search.query` | `{ query }` | `{ msg_ids: [msg_id], hits: [...] }` |
 
-Blind local search (HMAC index); intersection of all words.
+Blind local search (HMAC word index); plain words are an intersection of all
+words. The query string also accepts **filter tokens**, parsed and resolved
+node-side, applied to the candidate messages before returning:
+
+| Token | Meaning |
+|-------|---------|
+| `from:<name-or-code>` | author is a contact whose display name (fragment, case-insensitive) or friend code matches; `from:me` (or `from:moi`) is our own identity |
+| `in:<name>` | conversation is a contact DM (by name), or a group channel (by channel name, or all channels of a group whose name matches) |
+| `has:link` | the message text contains a URL (`http://` / `https://`) |
+| `has:image` | at least one `image/*` attachment |
+| `has:file` | at least one attachment (any kind) |
+| `before:<date>` | `sent_ms` strictly before the resolved instant |
+| `after:<date>` | `sent_ms` at or after the resolved instant |
+
+`<date>` is an ISO `YYYY-MM-DD` (midnight UTC), the keyword `today`/`yesterday`,
+or a relative offset `Nd` / `Nh` / `Nm` / `Nw` counted back from now. Multiple
+`from:`/`in:` operands widen (OR within a kind); different filter kinds narrow
+(AND). A filter that resolves to nothing (unknown contact/conversation, or an
+unreadable date) — the date filter is simply skipped; an unresolved
+`from:`/`in:` matches no message. Unknown `has:` values and empty operands are
+ignored. Plain-word search keeps working unchanged.
+
+Each entry of `hits` carries per-hit metadata (recent first, capped at 200):
+
+```json
+{
+  "msg_id": "<hex32>",
+  "author": "<hex64>",
+  "lamport": 42,
+  "timestamp": 1710000000000,
+  "conversation": { "type": "dm", "peer": "<hex64>" }
+}
+```
+
+`conversation` is `{ "type": "dm", "peer" }` or `{ "type": "group", "group_id",
+"channel_id" }` — enough to render a result and jump to it via
+`dm.history_around` / `groups.history_around`. `msg_ids` mirrors the `hits`
+ids in the same order (backward compatibility). With filters but no plain word,
+candidates are drawn from the most recent messages (bounded).
 
 ### Files
 

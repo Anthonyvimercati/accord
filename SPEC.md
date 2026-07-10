@@ -298,6 +298,20 @@ tombstones are kept. ACK is mandatory; without an ACK ⇒ offline queue (§7).
 **Ephemeral kinds** (typing `5`, read receipt `6`): never ACKed, never queued
 offline — an unreachable peer simply misses them.
 
+**Delivery state** is derived locally from the ACK flag and the offline queue
+(§7), never carried on the wire: `sent` once ACKed, `failed` when direct
+retries are exhausted or the message is unacked, no longer queued and past the
+queue expiry, `pending` otherwise. `dm.retry` re-emits the stored `DirectMsg`
+(same `msg_id`/`lamport`/`sent_ms`) on the normal path and resets the queue
+backoff — it introduces **no new wire message**.
+
+**Pins (direct messages)** are a purely **local view**: unlike group pins
+(carried by the `Pin`/`Unpin` group ops in the op-log, §6.2), a DM pin is stored only in the
+local `dm_pins` table and is **never** sent to the peer. Deleting a message
+also removes its pin. "Jump-to-message" (`dm.history_around` /
+`groups.history_around`) is a read-only local query over stored history — no
+wire message either.
+
 **Read receipts** (kind=6, body `{ up_to: bytes<16> }`): `up_to` is the
 `msg_id` of the most recent message **authored by the receiver** that the
 sender has read. Emitted best-effort when the local read mark advances

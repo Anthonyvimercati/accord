@@ -833,6 +833,24 @@ impl Node {
         self.with_db(|db| Ok(db.group_history(group_id, channel_id, before_lamport, limit)?))
     }
 
+    /// Fenêtre d'historique d'un salon centrée sur `msg_id` (jump-to-message).
+    /// Rend `(fenêtre, found)` ; `found = false` avec une fenêtre vide si la
+    /// cible est inconnue dans ce salon.
+    pub fn group_history_around(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        msg_id: &[u8; 16],
+        limit: usize,
+    ) -> Result<(Vec<accord_core::db::GroupMsgRecord>, bool), NodeError> {
+        self.with_db(
+            |db| match db.group_history_around(group_id, channel_id, msg_id, limit)? {
+                Some(window) => Ok((window, true)),
+                None => Ok((Vec::new(), false)),
+            },
+        )
+    }
+
     /// Émet un indicateur de frappe éphémère dans un salon, vers les seuls
     /// membres présumés en ligne (jamais persisté, jamais mis en file — les
     /// membres injoignables sont silencieusement ignorés, SPEC §6).

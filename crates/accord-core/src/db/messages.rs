@@ -1,10 +1,107 @@
 //! Historique des messages directs et de groupe : insertion idempotente,
 //! éditions, tombstones, réactions, accusés de lecture.
 
+use std::collections::BTreeSet;
+
 use super::{blob, Db};
 use crate::error::CoreError;
 use accord_proto::core_msg::FileRef;
-use rusqlite::params;
+use rusqlite::{params, ToSql};
+
+/// Colonnes projetées d'un message direct (ordre figé pour [`to_dm_record`]).
+const DM_COLS: &str = "msg_id, peer, author, lamport, sent_ms, kind, body, acked, deleted, edited";
+
+/// Colonnes projetées d'un message de groupe (ordre figé pour [`to_group_record`]).
+const GROUP_COLS: &str =
+    "msg_id, group_id, channel_id, author, lamport, sent_ms, kind, body, deleted, edited";
+
+/// Ligne brute d'un message direct, dans l'ordre de [`DM_COLS`].
+type DmRaw = (
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    u64,
+    u64,
+    u8,
+    Vec<u8>,
+    bool,
+    bool,
+    Option<Vec<u8>>,
+);
+
+/// Ligne brute d'un message de groupe, dans l'ordre de [`GROUP_COLS`].
+type GroupRaw = (
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    u64,
+    u64,
+    u8,
+    Vec<u8>,
+    bool,
+    Option<Vec<u8>>,
+);
+
+fn dm_raw(row: &rusqlite::Row) -> rusqlite::Result<DmRaw> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+    ))
+}
+
+fn group_raw(row: &rusqlite::Row) -> rusqlite::Result<GroupRaw> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+    ))
+}
+
+fn to_dm_record(r: DmRaw) -> Result<DmRecord, CoreError> {
+    Ok(DmRecord {
+        msg_id: blob(r.0)?,
+        peer: blob(r.1)?,
+        author: blob(r.2)?,
+        lamport: r.3,
+        sent_ms: r.4,
+        kind: r.5,
+        body: r.6,
+        acked: r.7,
+        deleted: r.8,
+        edited: r.9,
+    })
+}
+
+fn to_group_record(r: GroupRaw) -> Result<GroupMsgRecord, CoreError> {
+    Ok(GroupMsgRecord {
+        msg_id: blob(r.0)?,
+        group_id: blob(r.1)?,
+        channel_id: blob(r.2)?,
+        author: blob(r.3)?,
+        lamport: r.4,
+        sent_ms: r.5,
+        kind: r.6,
+        body: r.7,
+        deleted: r.8,
+        edited: r.9,
+    })
+}
 
 /// Message direct persisté (corps encodé [`accord_proto::core_msg::MsgBody`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +171,25 @@ impl Db {
         Ok(n > 0)
     }
 
+    /// Exécute une requête projetant [`DM_COLS`] et matérialise les records.
+    fn dm_rows(&self, sql: &str, args: &[&dyn ToSql]) -> Result<Vec<DmRecord>, CoreError> {
+        let mut stmt = self.conn().prepare(sql)?;
+        let raws = stmt
+            .query_map(args, dm_raw)?
+            .collect::<Result<Vec<_>, _>>()?;
+        raws.into_iter().map(to_dm_record).collect()
+    }
+
+    /// Un message direct par identifiant (contrôles d'auteur/pair avant un
+    /// épinglage ou une nouvelle tentative d'envoi).
+    pub fn dm_message(&self, msg_id: &[u8; 16]) -> Result<Option<DmRecord>, CoreError> {
+        let sql = format!("SELECT {DM_COLS} FROM dm_messages WHERE msg_id = ?1");
+        Ok(self
+            .dm_rows(&sql, &[&msg_id.as_slice()])?
+            .into_iter()
+            .next())
+    }
+
     /// Historique d'une conversation, du plus récent au plus ancien,
     /// borné à `limit`, strictement avant `before_lamport` (pagination).
     pub fn dm_history(
@@ -82,47 +198,76 @@ impl Db {
         before_lamport: u64,
         limit: usize,
     ) -> Result<Vec<DmRecord>, CoreError> {
-        let mut stmt = self.conn().prepare(
-            "SELECT msg_id, peer, author, lamport, sent_ms, kind, body, acked, deleted, edited
-             FROM dm_messages
+        let sql = format!(
+            "SELECT {DM_COLS} FROM dm_messages
              WHERE peer = ?1 AND lamport < ?2
-             ORDER BY lamport DESC, msg_id DESC LIMIT ?3",
+             ORDER BY lamport DESC, msg_id DESC LIMIT ?3"
+        );
+        self.dm_rows(
+            &sql,
+            &[
+                &peer.as_slice(),
+                &(before_lamport.min(i64::MAX as u64) as i64),
+                &(limit as i64),
+            ],
+        )
+    }
+
+    /// Fenêtre d'historique centrée sur `msg_id` : jusqu'à `limit / 2` messages
+    /// plus anciens, la cible, puis jusqu'à `limit / 2` plus récents. Rend
+    /// `None` si la cible est inconnue dans cette conversation (fenêtre vide,
+    /// `found = false` côté API). L'ordre rendu est celui de [`Db::dm_history`]
+    /// (du plus récent au plus ancien) pour un rendu homogène.
+    pub fn dm_history_around(
+        &self,
+        peer: &[u8; 32],
+        msg_id: &[u8; 16],
+        limit: usize,
+    ) -> Result<Option<Vec<DmRecord>>, CoreError> {
+        let Some(target) = self.dm_message(msg_id)? else {
+            return Ok(None);
+        };
+        if target.peer != *peer {
+            return Ok(None);
+        }
+        let half = (limit / 2) as i64;
+        let tl = target.lamport.min(i64::MAX as u64) as i64;
+        // Plus anciens : strictement avant la cible dans l'ordre total
+        // (lamport, msg_id), du plus proche au plus lointain.
+        let older = self.dm_rows(
+            &format!(
+                "SELECT {DM_COLS} FROM dm_messages
+                 WHERE peer = ?1 AND (lamport < ?2 OR (lamport = ?2 AND msg_id < ?3))
+                 ORDER BY lamport DESC, msg_id DESC LIMIT ?4"
+            ),
+            &[&peer.as_slice(), &tl, &msg_id.as_slice(), &half],
         )?;
-        let raws = stmt
-            .query_map(
-                params![peer, before_lamport.min(i64::MAX as u64), limit as i64],
-                |row| {
-                    Ok((
-                        row.get::<_, Vec<u8>>(0)?,
-                        row.get::<_, Vec<u8>>(1)?,
-                        row.get::<_, Vec<u8>>(2)?,
-                        row.get::<_, u64>(3)?,
-                        row.get::<_, u64>(4)?,
-                        row.get::<_, u8>(5)?,
-                        row.get::<_, Vec<u8>>(6)?,
-                        row.get::<_, bool>(7)?,
-                        row.get::<_, bool>(8)?,
-                        row.get::<_, Option<Vec<u8>>>(9)?,
-                    ))
-                },
-            )?
-            .collect::<Result<Vec<_>, _>>()?;
-        raws.into_iter()
-            .map(|r| {
-                Ok(DmRecord {
-                    msg_id: blob(r.0)?,
-                    peer: blob(r.1)?,
-                    author: blob(r.2)?,
-                    lamport: r.3,
-                    sent_ms: r.4,
-                    kind: r.5,
-                    body: r.6,
-                    acked: r.7,
-                    deleted: r.8,
-                    edited: r.9,
-                })
-            })
-            .collect()
+        // Plus récents : strictement après la cible, du plus proche au plus loin.
+        let mut newer = self.dm_rows(
+            &format!(
+                "SELECT {DM_COLS} FROM dm_messages
+                 WHERE peer = ?1 AND (lamport > ?2 OR (lamport = ?2 AND msg_id > ?3))
+                 ORDER BY lamport ASC, msg_id ASC LIMIT ?4"
+            ),
+            &[&peer.as_slice(), &tl, &msg_id.as_slice(), &half],
+        )?;
+        // Fenêtre en ordre décroissant : récents (renversés) ‖ cible ‖ anciens.
+        newer.reverse();
+        let mut window = Vec::with_capacity(newer.len() + 1 + older.len());
+        window.append(&mut newer);
+        window.push(target);
+        window.extend(older);
+        Ok(Some(window))
+    }
+
+    /// Messages directs les plus récents, toutes conversations confondues,
+    /// bornés à `cap` (candidats de recherche filtrée sans mot-clé).
+    pub fn dm_recent(&self, cap: usize) -> Result<Vec<DmRecord>, CoreError> {
+        let sql = format!(
+            "SELECT {DM_COLS} FROM dm_messages
+             ORDER BY lamport DESC, msg_id DESC LIMIT ?1"
+        );
+        self.dm_rows(&sql, &[&(cap as i64)])
     }
 
     /// Marque un message direct comme acquitté.
@@ -159,8 +304,48 @@ impl Db {
         )?;
         if n > 0 {
             self.delete_msg_attachments(msg_id)?;
+            // Un message effacé ne reste jamais épinglé (vue locale du DM).
+            self.conn()
+                .execute("DELETE FROM dm_pins WHERE msg_id = ?1", [msg_id.as_slice()])?;
         }
         Ok(n > 0)
+    }
+
+    // ---- Épingles de conversation directe (vue locale, sans op filaire) ----
+
+    /// Épingle un message direct (idempotent). L'appartenance du message à la
+    /// conversation est vérifiée en amont ([`crate::Node`]).
+    pub fn dm_pin(&self, peer: &[u8; 32], msg_id: &[u8; 16]) -> Result<(), CoreError> {
+        self.conn().execute(
+            "INSERT OR IGNORE INTO dm_pins (peer, msg_id) VALUES (?1, ?2)",
+            params![peer, msg_id],
+        )?;
+        Ok(())
+    }
+
+    /// Retire l'épingle d'un message direct (sans effet si absente).
+    pub fn dm_unpin(&self, peer: &[u8; 32], msg_id: &[u8; 16]) -> Result<(), CoreError> {
+        self.conn().execute(
+            "DELETE FROM dm_pins WHERE peer = ?1 AND msg_id = ?2",
+            params![peer, msg_id],
+        )?;
+        Ok(())
+    }
+
+    /// Messages épinglés d'une conversation, dans l'ordre des identifiants.
+    pub fn dm_pins(&self, peer: &[u8; 32]) -> Result<Vec<[u8; 16]>, CoreError> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT msg_id FROM dm_pins WHERE peer = ?1 ORDER BY msg_id ASC")?;
+        let raws = stmt
+            .query_map([peer.as_slice()], |row| row.get::<_, Vec<u8>>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        raws.into_iter().map(blob).collect()
+    }
+
+    /// Ensemble des messages épinglés d'une conversation (annotation d'historique).
+    pub fn dm_pinned_set(&self, peer: &[u8; 32]) -> Result<BTreeSet<[u8; 16]>, CoreError> {
+        Ok(self.dm_pins(peer)?.into_iter().collect())
     }
 
     // ---- Pièces jointes (communes DM/groupe, indexées par msg_id) ----
@@ -414,6 +599,15 @@ impl Db {
         }))
     }
 
+    /// Exécute une requête projetant [`GROUP_COLS`] et matérialise les records.
+    fn group_rows(&self, sql: &str, args: &[&dyn ToSql]) -> Result<Vec<GroupMsgRecord>, CoreError> {
+        let mut stmt = self.conn().prepare(sql)?;
+        let raws = stmt
+            .query_map(args, group_raw)?
+            .collect::<Result<Vec<_>, _>>()?;
+        raws.into_iter().map(to_group_record).collect()
+    }
+
     /// Historique d'un salon, du plus récent au plus ancien.
     pub fn group_history(
         &self,
@@ -422,52 +616,86 @@ impl Db {
         before_lamport: u64,
         limit: usize,
     ) -> Result<Vec<GroupMsgRecord>, CoreError> {
-        let mut stmt = self.conn().prepare(
-            "SELECT msg_id, group_id, channel_id, author, lamport, sent_ms, kind, body, deleted, edited
-             FROM group_messages
+        let sql = format!(
+            "SELECT {GROUP_COLS} FROM group_messages
              WHERE group_id = ?1 AND channel_id = ?2 AND lamport < ?3
-             ORDER BY lamport DESC, msg_id DESC LIMIT ?4",
+             ORDER BY lamport DESC, msg_id DESC LIMIT ?4"
+        );
+        self.group_rows(
+            &sql,
+            &[
+                &group_id.as_slice(),
+                &channel_id.as_slice(),
+                &(before_lamport.min(i64::MAX as u64) as i64),
+                &(limit as i64),
+            ],
+        )
+    }
+
+    /// Fenêtre d'historique d'un salon centrée sur `msg_id` (cf.
+    /// [`Db::dm_history_around`]). Rend `None` si la cible est inconnue dans ce
+    /// salon.
+    pub fn group_history_around(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        msg_id: &[u8; 16],
+        limit: usize,
+    ) -> Result<Option<Vec<GroupMsgRecord>>, CoreError> {
+        let Some(target) = self.group_msg(msg_id)? else {
+            return Ok(None);
+        };
+        if target.group_id != *group_id || target.channel_id != *channel_id {
+            return Ok(None);
+        }
+        let half = (limit / 2) as i64;
+        let tl = target.lamport.min(i64::MAX as u64) as i64;
+        let older = self.group_rows(
+            &format!(
+                "SELECT {GROUP_COLS} FROM group_messages
+                 WHERE group_id = ?1 AND channel_id = ?2
+                   AND (lamport < ?3 OR (lamport = ?3 AND msg_id < ?4))
+                 ORDER BY lamport DESC, msg_id DESC LIMIT ?5"
+            ),
+            &[
+                &group_id.as_slice(),
+                &channel_id.as_slice(),
+                &tl,
+                &msg_id.as_slice(),
+                &half,
+            ],
         )?;
-        let raws = stmt
-            .query_map(
-                params![
-                    group_id,
-                    channel_id,
-                    before_lamport.min(i64::MAX as u64),
-                    limit as i64
-                ],
-                |row| {
-                    Ok((
-                        row.get::<_, Vec<u8>>(0)?,
-                        row.get::<_, Vec<u8>>(1)?,
-                        row.get::<_, Vec<u8>>(2)?,
-                        row.get::<_, Vec<u8>>(3)?,
-                        row.get::<_, u64>(4)?,
-                        row.get::<_, u64>(5)?,
-                        row.get::<_, u8>(6)?,
-                        row.get::<_, Vec<u8>>(7)?,
-                        row.get::<_, bool>(8)?,
-                        row.get::<_, Option<Vec<u8>>>(9)?,
-                    ))
-                },
-            )?
-            .collect::<Result<Vec<_>, _>>()?;
-        raws.into_iter()
-            .map(|r| {
-                Ok(GroupMsgRecord {
-                    msg_id: blob(r.0)?,
-                    group_id: blob(r.1)?,
-                    channel_id: blob(r.2)?,
-                    author: blob(r.3)?,
-                    lamport: r.4,
-                    sent_ms: r.5,
-                    kind: r.6,
-                    body: r.7,
-                    deleted: r.8,
-                    edited: r.9,
-                })
-            })
-            .collect()
+        let mut newer = self.group_rows(
+            &format!(
+                "SELECT {GROUP_COLS} FROM group_messages
+                 WHERE group_id = ?1 AND channel_id = ?2
+                   AND (lamport > ?3 OR (lamport = ?3 AND msg_id > ?4))
+                 ORDER BY lamport ASC, msg_id ASC LIMIT ?5"
+            ),
+            &[
+                &group_id.as_slice(),
+                &channel_id.as_slice(),
+                &tl,
+                &msg_id.as_slice(),
+                &half,
+            ],
+        )?;
+        newer.reverse();
+        let mut window = Vec::with_capacity(newer.len() + 1 + older.len());
+        window.append(&mut newer);
+        window.push(target);
+        window.extend(older);
+        Ok(Some(window))
+    }
+
+    /// Messages de groupe les plus récents, tous salons confondus, bornés à
+    /// `cap` (candidats de recherche filtrée sans mot-clé).
+    pub fn group_recent(&self, cap: usize) -> Result<Vec<GroupMsgRecord>, CoreError> {
+        let sql = format!(
+            "SELECT {GROUP_COLS} FROM group_messages
+             ORDER BY lamport DESC, msg_id DESC LIMIT ?1"
+        );
+        self.group_rows(&sql, &[&(cap as i64)])
     }
 
     /// Nombre de messages d'un salon strictement après `after_lamport`, écrits
@@ -686,6 +914,101 @@ mod tests {
         // La suppression du message efface aussi ses pièces jointes.
         assert!(db.delete_dm(&[1; 16], &[2; 32]).unwrap());
         assert!(db.msg_attachments(&[1; 16]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn dm_message_getter_and_history_around_window() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        // Sept messages du même pair, lamport 1..=7.
+        for i in 1..=7u8 {
+            db.insert_dm(&dm(i, i as u64)).unwrap();
+        }
+        assert_eq!(db.dm_message(&[4; 16]).unwrap().unwrap().lamport, 4);
+        assert!(db.dm_message(&[9; 16]).unwrap().is_none());
+
+        // Fenêtre centrée sur lamport 4 avec limit 4 (2 avant + cible + 2 après).
+        let win = db
+            .dm_history_around(&[1; 32], &[4; 16], 4)
+            .unwrap()
+            .unwrap();
+        let lamports: Vec<u64> = win.iter().map(|m| m.lamport).collect();
+        assert_eq!(
+            lamports,
+            vec![6, 5, 4, 3, 2],
+            "récent → ancien, cible incluse"
+        );
+
+        // Cible en bord : moins d'anciens/récents disponibles, pas de panique.
+        let win = db
+            .dm_history_around(&[1; 32], &[1; 16], 4)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            win.iter().map(|m| m.lamport).collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
+
+        // Cible inconnue ou d'un autre pair : None (found=false côté API).
+        assert!(db
+            .dm_history_around(&[1; 32], &[9; 16], 4)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .dm_history_around(&[2; 32], &[4; 16], 4)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn dm_pins_add_list_remove_and_wiped_on_delete() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.insert_dm(&dm(1, 1)).unwrap();
+        db.insert_dm(&dm(2, 2)).unwrap();
+        assert!(db.dm_pins(&[1; 32]).unwrap().is_empty());
+        db.dm_pin(&[1; 32], &[2; 16]).unwrap();
+        db.dm_pin(&[1; 32], &[1; 16]).unwrap();
+        db.dm_pin(&[1; 32], &[1; 16]).unwrap(); // idempotent
+        assert_eq!(db.dm_pins(&[1; 32]).unwrap(), vec![[1; 16], [2; 16]]);
+        assert!(db.dm_pinned_set(&[1; 32]).unwrap().contains(&[2; 16]));
+        db.dm_unpin(&[1; 32], &[1; 16]).unwrap();
+        assert_eq!(db.dm_pins(&[1; 32]).unwrap(), vec![[2; 16]]);
+        // La suppression d'un message retire aussi son épingle.
+        db.dm_pin(&[1; 32], &[2; 16]).unwrap();
+        db.delete_dm(&[2; 16], &[2; 32]).unwrap();
+        assert!(db.dm_pins(&[1; 32]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn group_history_around_scoped_to_channel() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        for i in 1..=5u8 {
+            db.insert_group_msg(&GroupMsgRecord {
+                msg_id: [i; 16],
+                group_id: [7; 16],
+                channel_id: [8; 16],
+                author: [2; 32],
+                lamport: i as u64,
+                sent_ms: 0,
+                kind: 0,
+                body: vec![i],
+                deleted: false,
+                edited: None,
+            })
+            .unwrap();
+        }
+        let win = db
+            .group_history_around(&[7; 16], &[8; 16], &[3; 16], 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            win.iter().map(|m| m.lamport).collect::<Vec<_>>(),
+            vec![4, 3, 2]
+        );
+        // Mauvais salon : None.
+        assert!(db
+            .group_history_around(&[7; 16], &[9; 16], &[3; 16], 2)
+            .unwrap()
+            .is_none());
     }
 
     #[test]

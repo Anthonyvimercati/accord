@@ -23,7 +23,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -193,7 +193,12 @@ impl Db {
                msg_id BLOB NOT NULL,
                PRIMARY KEY (token, msg_id)
              );
-             PRAGMA user_version = 2;
+             CREATE TABLE IF NOT EXISTS dm_pins (
+               peer   BLOB NOT NULL,
+               msg_id BLOB NOT NULL,
+               PRIMARY KEY (peer, msg_id)
+             );
+             PRAGMA user_version = 3;
              COMMIT;",
         )?;
         Ok(())

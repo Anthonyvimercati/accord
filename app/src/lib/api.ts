@@ -73,6 +73,9 @@ export interface Reaction {
   author: string;
 }
 
+/** Delivery state of one of our outgoing direct messages (API.md §Direct messaging). */
+export type DeliveryState = 'sent' | 'pending' | 'failed';
+
 export interface DmMessage {
   msg_id: string;
   author: string;
@@ -80,6 +83,10 @@ export interface DmMessage {
   sent_ms: number;
   acked: boolean;
   deleted: boolean;
+  /** Toujours émis (`false` par défaut) ; optionnel par tolérance. Épinglé localement (`dm.pins`). */
+  pinned?: boolean;
+  /** Toujours émis ; optionnel par tolérance. État de livraison sortante (`sent` pour l'entrant). */
+  delivery?: DeliveryState;
   body: MsgBody;
   edited: string | null;
   /** Toujours émis par le nœud (`[]` si aucune) ; optionnel par tolérance. */
@@ -101,6 +108,24 @@ export interface GroupMessage {
   reactions?: Reaction[];
   /** Pièces jointes de l'enveloppe (toujours émises, `[]` si aucune). */
   attachments?: FileAttachment[];
+}
+
+/** Conversation d'un résultat `search.query` (métadonnées côté nœud). */
+export type SearchConversation =
+  | { type: 'dm'; peer: string }
+  | { type: 'group'; group_id: string; channel_id: string };
+
+/**
+ * Résultat de `search.query` avec ses métadonnées : de quoi afficher et
+ * naviguer (via `dm.history_around` / `groups.history_around`) même vers un
+ * message hors des historiques déjà chargés.
+ */
+export interface SearchQueryHit {
+  msg_id: string;
+  author: string;
+  lamport: number;
+  timestamp: number;
+  conversation: SearchConversation;
 }
 
 /** Genre d'un salon (API.md §Groupes : `kind`, défaut `"text"`). */
@@ -477,8 +502,41 @@ export class Api {
     });
   }
 
-  dmHistory(pubkey: string, limit = 50): Promise<{ messages: DmMessage[] }> {
+  dmHistory(pubkey: string, limit = 50): Promise<{ messages: DmMessage[]; peer_read_lamport: number | null }> {
     return this.rpc.call('dm.history', { pubkey, limit });
+  }
+
+  /**
+   * Fenêtre d'historique centrée sur `msgId` (jump-to-message) : moitié avant,
+   * la cible, moitié après. `found` est `false` avec une fenêtre vide si la
+   * cible est inconnue localement.
+   */
+  dmHistoryAround(
+    pubkey: string,
+    msgId: string,
+    limit = 50,
+  ): Promise<{ messages: DmMessage[]; found: boolean; peer_read_lamport: number | null }> {
+    return this.rpc.call('dm.history_around', { pubkey, msg_id: msgId, limit });
+  }
+
+  /** Épingle un message de la conversation (vue locale, aucune op filaire). */
+  dmPin(pubkey: string, msgId: string): Promise<{ ok: true }> {
+    return this.rpc.call('dm.pin', { pubkey, msg_id: msgId });
+  }
+
+  /** Retire l'épingle d'un message direct. */
+  dmUnpin(pubkey: string, msgId: string): Promise<{ ok: true }> {
+    return this.rpc.call('dm.unpin', { pubkey, msg_id: msgId });
+  }
+
+  /** Identifiants des messages épinglés de la conversation. */
+  dmPins(pubkey: string): Promise<{ msg_ids: string[] }> {
+    return this.rpc.call('dm.pins', { pubkey });
+  }
+
+  /** Relance l'envoi d'un message non acquitté (`delivery` `pending`/`failed`). */
+  dmRetry(pubkey: string, msgId: string): Promise<{ ok: true }> {
+    return this.rpc.call('dm.retry', { pubkey, msg_id: msgId });
   }
 
   /** Modifie un de ses propres messages (le nœud refuse sinon). */
@@ -908,6 +966,24 @@ export class Api {
   }
 
   /**
+   * Fenêtre d'historique d'un salon centrée sur `msgId` (jump-to-message).
+   * `found` est `false` avec une fenêtre vide si la cible est inconnue.
+   */
+  groupsHistoryAround(
+    groupId: string,
+    channelId: string,
+    msgId: string,
+    limit = 50,
+  ): Promise<{ messages: GroupMessage[]; found: boolean }> {
+    return this.rpc.call('groups.history_around', {
+      group_id: groupId,
+      channel_id: channelId,
+      msg_id: msgId,
+      limit,
+    });
+  }
+
+  /**
    * Envoie un message de salon, éventuellement en réponse à `replyTo` (msg_id,
    * hex 32) et avec des pièces jointes déjà publiées (texte vide admis).
    */
@@ -955,7 +1031,13 @@ export class Api {
     return this.rpc.call('groups.emoji.del', { group_id: groupId, name });
   }
 
-  searchQuery(query: string): Promise<{ msg_ids: string[] }> {
+  /**
+   * Recherche locale. `query` accepte des mots simples et des filtres
+   * `from:` / `in:` / `has:link|image|file` / `before:` / `after:` (voir
+   * API.md §Search). `hits` porte les métadonnées par résultat ; `msg_ids`
+   * reprend leurs identifiants (plus récents d'abord) par compatibilité.
+   */
+  searchQuery(query: string): Promise<{ msg_ids: string[]; hits: SearchQueryHit[] }> {
     return this.rpc.call('search.query', { query });
   }
 

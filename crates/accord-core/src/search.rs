@@ -94,6 +94,152 @@ pub fn search(db: &Db, search_key: &[u8; 32], query: &str) -> Result<Vec<[u8; 16
     db.search_tokens(&tokens)
 }
 
+// ---- Grammaire de recherche filtrée (SPEC §9, résolution côté nœud) ----
+
+/// Millisecondes par jour (résolution des filtres de date).
+const MS_PER_DAY: u64 = 86_400_000;
+/// Millisecondes par heure.
+const MS_PER_HOUR: u64 = 3_600_000;
+/// Millisecondes par minute.
+const MS_PER_MIN: u64 = 60_000;
+
+/// Nature de pièce jointe d'un filtre `has:`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HasKind {
+    /// Le texte du message contient une URL (`http://` / `https://`).
+    Link,
+    /// Au moins une pièce jointe image (`image/*`).
+    Image,
+    /// Au moins une pièce jointe, quelle qu'en soit la nature.
+    File,
+}
+
+/// Requête de recherche décomposée : mots simples + jetons de filtre.
+///
+/// Les opérandes `from:`/`in:` sont laissées telles quelles (minuscule) : leur
+/// résolution contre les contacts et les groupes relève du nœud, qui seul
+/// connaît le carnet et l'état des groupes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParsedQuery {
+    /// Mots simples réinjectés dans l'index aveugle (joints par espace).
+    pub text: String,
+    /// Opérandes `from:` (fragment de nom de contact ou code ami), minuscule.
+    pub from: Vec<String>,
+    /// Opérandes `in:` (fragment de nom de contact, de salon ou de groupe).
+    pub in_conversations: Vec<String>,
+    /// Opérandes `has:`.
+    pub has: Vec<HasKind>,
+    /// Opérande `before:` brute (résolue par [`resolve_date`]).
+    pub before: Option<String>,
+    /// Opérande `after:` brute.
+    pub after: Option<String>,
+}
+
+/// Retire un préfixe insensible à la casse ASCII (les préfixes sont ASCII, donc
+/// la coupe tombe toujours sur une frontière de caractère valide).
+fn strip_ci<'a>(tok: &'a str, prefix: &str) -> Option<&'a str> {
+    let (pb, tb) = (prefix.as_bytes(), tok.as_bytes());
+    if tb.len() >= pb.len() && tb[..pb.len()].eq_ignore_ascii_case(pb) {
+        Some(&tok[pb.len()..])
+    } else {
+        None
+    }
+}
+
+/// Décompose une requête en mots simples et jetons de filtre. Les jetons
+/// inconnus (`has:` invalide, opérande vide) sont ignorés silencieusement ;
+/// tout le reste retombe en mots simples (rétrocompatibilité stricte).
+pub fn parse_query(query: &str) -> ParsedQuery {
+    let mut parsed = ParsedQuery::default();
+    let mut words: Vec<&str> = Vec::new();
+    for tok in query.split_whitespace() {
+        if let Some(v) = strip_ci(tok, "from:") {
+            if !v.is_empty() {
+                parsed.from.push(v.to_lowercase());
+            }
+        } else if let Some(v) = strip_ci(tok, "in:") {
+            if !v.is_empty() {
+                parsed.in_conversations.push(v.to_lowercase());
+            }
+        } else if let Some(v) = strip_ci(tok, "has:") {
+            match v.to_lowercase().as_str() {
+                "link" => parsed.has.push(HasKind::Link),
+                "image" => parsed.has.push(HasKind::Image),
+                "file" => parsed.has.push(HasKind::File),
+                _ => {}
+            }
+        } else if let Some(v) = strip_ci(tok, "before:") {
+            if !v.is_empty() {
+                parsed.before = Some(v.to_lowercase());
+            }
+        } else if let Some(v) = strip_ci(tok, "after:") {
+            if !v.is_empty() {
+                parsed.after = Some(v.to_lowercase());
+            }
+        } else {
+            words.push(tok);
+        }
+    }
+    parsed.text = words.join(" ");
+    parsed
+}
+
+/// Jours depuis l'époque Unix pour une date civile proleptique grégorienne
+/// (algorithme de Howard Hinnant, sans dépendance calendrier).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400; // [0, 399]
+    let mp = if m > 2 { m - 3 } else { m + 9 }; // mars = 0
+    let doy = (153 * mp + 2) / 5 + d - 1; // [0, 365]
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // [0, 146096]
+    era * 146097 + doe - 719468
+}
+
+/// Convertit une date ISO `YYYY-MM-DD` en millisecondes (minuit UTC).
+fn parse_iso_date(s: &str) -> Option<u64> {
+    let mut parts = s.split('-');
+    let y: i64 = parts.next()?.parse().ok()?;
+    let m: i64 = parts.next()?.parse().ok()?;
+    let d: i64 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if !(1970..=9999).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let days = days_from_civil(y, m, d);
+    (days >= 0).then(|| days as u64 * MS_PER_DAY)
+}
+
+/// Convertit un décalage relatif `Nd` / `Nh` / `Nm` / `Nw` en instant passé.
+fn parse_relative(s: &str, now_ms: u64) -> Option<u64> {
+    let unit = s.chars().last()?;
+    let num = &s[..s.len() - unit.len_utf8()];
+    let n: u64 = num.parse().ok()?;
+    let unit_ms = match unit {
+        'd' => MS_PER_DAY,
+        'h' => MS_PER_HOUR,
+        'm' => MS_PER_MIN,
+        'w' => MS_PER_DAY * 7,
+        _ => return None,
+    };
+    Some(now_ms.saturating_sub(n.saturating_mul(unit_ms)))
+}
+
+/// Résout une opérande de date en borne temporelle (ms Unix) : date ISO
+/// `YYYY-MM-DD` (minuit UTC), mots-clés `today`/`yesterday`, ou décalage
+/// relatif `Nd`/`Nh`/`Nm`/`Nw` (compté depuis `now_ms`). `None` si illisible.
+pub fn resolve_date(raw: &str, now_ms: u64) -> Option<u64> {
+    let s = raw.trim().to_lowercase();
+    match s.as_str() {
+        "today" => return Some(now_ms - now_ms % MS_PER_DAY),
+        "yesterday" => return Some((now_ms - now_ms % MS_PER_DAY).saturating_sub(MS_PER_DAY)),
+        _ => {}
+    }
+    parse_iso_date(&s).or_else(|| parse_relative(&s, now_ms))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,5 +284,47 @@ mod tests {
         reindex_message(&db, &key, &[1; 16], "nouveau texte").unwrap();
         assert!(search(&db, &key, "ancien").unwrap().is_empty());
         assert_eq!(search(&db, &key, "nouveau").unwrap(), vec![[1; 16]]);
+    }
+
+    #[test]
+    fn plain_query_parses_as_words_only() {
+        let p = parse_query("bonjour le monde");
+        assert_eq!(p.text, "bonjour le monde");
+        assert!(p.from.is_empty() && p.in_conversations.is_empty() && p.has.is_empty());
+        assert!(p.before.is_none() && p.after.is_none());
+    }
+
+    #[test]
+    fn filters_are_extracted_and_words_kept() {
+        let p =
+            parse_query("From:Alice in:general has:image HAS:link photo before:2026-01-01 hello");
+        assert_eq!(p.text, "photo hello");
+        assert_eq!(p.from, vec!["alice"]);
+        assert_eq!(p.in_conversations, vec!["general"]);
+        assert_eq!(p.has, vec![HasKind::Image, HasKind::Link]);
+        assert_eq!(p.before.as_deref(), Some("2026-01-01"));
+        // Jeton has: inconnu ignoré, opérande vide ignorée.
+        let p2 = parse_query("has:video from: réunion");
+        assert!(p2.has.is_empty() && p2.from.is_empty());
+        assert_eq!(p2.text, "réunion");
+    }
+
+    #[test]
+    fn resolve_date_iso_relative_and_keywords() {
+        // 2026-07-10 minuit UTC = 20644 jours depuis l'époque.
+        let iso = resolve_date("2026-07-10", 0).unwrap();
+        assert_eq!(iso, 20_644 * 86_400_000);
+        // Relatif : now - 7 jours.
+        let now = 1_000 * 86_400_000;
+        assert_eq!(resolve_date("7d", now).unwrap(), now - 7 * 86_400_000);
+        assert_eq!(resolve_date("24h", now).unwrap(), now - 86_400_000);
+        assert_eq!(resolve_date("30m", now).unwrap(), now - 30 * 60_000);
+        // Mots-clés : plancher au jour courant.
+        let mid = now + 12 * 3_600_000 + 42;
+        assert_eq!(resolve_date("today", mid).unwrap(), now);
+        assert_eq!(resolve_date("yesterday", mid).unwrap(), now - 86_400_000);
+        // Illisible.
+        assert!(resolve_date("pas-une-date", now).is_none());
+        assert!(resolve_date("2026-13-40", now).is_none());
     }
 }

@@ -384,7 +384,7 @@ async fn dm_history_renders_exact_text_shape() {
     let hist = s.call("dm.history", json!({"pubkey": peer})).await.unwrap();
     let m = &hist["messages"][0];
     // Forme exacte de l'enveloppe : pas de champ `kind`, `reactions` et
-    // `attachments` toujours présents.
+    // `attachments` toujours présents ; `pinned` et `delivery` ajoutés.
     assert_eq!(
         sorted_keys(m),
         [
@@ -393,13 +393,18 @@ async fn dm_history_renders_exact_text_shape() {
             "author",
             "body",
             "deleted",
+            "delivery",
             "edited",
             "lamport",
             "msg_id",
+            "pinned",
             "reactions",
             "sent_ms"
         ]
     );
+    // Freshly sent, unacked, not queued (null sink) ⇒ pending, not pinned.
+    assert_eq!(m["pinned"], json!(false));
+    assert_eq!(m["delivery"], json!("pending"));
     // Forme exacte du corps texte : `reply_to` présent (null si absent),
     // `attachments` est un compteur, pas de champ `kind` ; la liste détaillée
     // des pièces jointes vit au niveau de l'enveloppe.
@@ -416,6 +421,106 @@ async fn dm_history_renders_exact_text_shape() {
     assert_eq!(m["deleted"], json!(false));
     assert_eq!(m["reactions"], json!([]));
     assert_eq!(m["attachments"], json!([]));
+}
+
+#[tokio::test]
+async fn dm_pins_and_history_around_flow() {
+    let (s, peer) = service_with_friend();
+    let id = s
+        .call("dm.send", json!({"pubkey": peer, "text": "cible du saut"}))
+        .await
+        .unwrap()["msg_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Pin/list/unpin mirror the group pin API.
+    s.call("dm.pin", json!({"pubkey": peer, "msg_id": id}))
+        .await
+        .unwrap();
+    let pins = s.call("dm.pins", json!({"pubkey": peer})).await.unwrap();
+    assert_eq!(pins["msg_ids"], json!([id]));
+    // history reflects the pin flag.
+    let hist = s.call("dm.history", json!({"pubkey": peer})).await.unwrap();
+    assert_eq!(hist["messages"][0]["pinned"], json!(true));
+    s.call("dm.unpin", json!({"pubkey": peer, "msg_id": id}))
+        .await
+        .unwrap();
+    assert_eq!(
+        s.call("dm.pins", json!({"pubkey": peer})).await.unwrap()["msg_ids"],
+        json!([])
+    );
+
+    // history_around centers on the target and flags found.
+    let win = s
+        .call("dm.history_around", json!({"pubkey": peer, "msg_id": id}))
+        .await
+        .unwrap();
+    assert_eq!(win["found"], json!(true));
+    assert_eq!(win["messages"][0]["msg_id"], json!(id));
+    // Unknown target ⇒ empty window, found = false.
+    let miss = s
+        .call(
+            "dm.history_around",
+            json!({"pubkey": peer, "msg_id": "ee".repeat(16)}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(miss["found"], json!(false));
+    assert_eq!(miss["messages"], json!([]));
+}
+
+#[tokio::test]
+async fn dm_retry_rejects_delivered_message() {
+    let (node, peer_id) = node_with_friend();
+    let s = NodeService::new(Arc::clone(&node));
+    let peer = hex::encode(&peer_id.public_key());
+    let id = s
+        .call("dm.send", json!({"pubkey": peer, "text": "à renvoyer"}))
+        .await
+        .unwrap()["msg_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mid = hex::decode::<16>(&id).unwrap();
+    // Unacked ⇒ retry accepted.
+    s.call("dm.retry", json!({"pubkey": peer, "msg_id": id}))
+        .await
+        .unwrap();
+    // Once acked (delivery = sent), retry is refused.
+    node.ingest_core(&peer_id.public_key(), CoreMsg::MsgAck { msg_id: mid })
+        .unwrap();
+    let hist = s.call("dm.history", json!({"pubkey": peer})).await.unwrap();
+    assert_eq!(hist["messages"][0]["delivery"], json!("sent"));
+    assert!(s
+        .call("dm.retry", json!({"pubkey": peer, "msg_id": id}))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn search_query_returns_hits_and_msg_ids() {
+    let (s, peer) = service_with_friend();
+    s.call(
+        "dm.send",
+        json!({"pubkey": peer, "text": "rendez-vous demain"}),
+    )
+    .await
+    .unwrap();
+    let res = s
+        .call("search.query", json!({"query": "demain"}))
+        .await
+        .unwrap();
+    assert_eq!(res["hits"].as_array().unwrap().len(), 1);
+    assert_eq!(res["msg_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(res["hits"][0]["conversation"]["type"], json!("dm"));
+    assert_eq!(res["hits"][0]["conversation"]["peer"], json!(peer));
+    // A from: filter that resolves to nobody yields no hit.
+    let none = s
+        .call("search.query", json!({"query": "from:inconnu demain"}))
+        .await
+        .unwrap();
+    assert_eq!(none["hits"], json!([]));
 }
 
 #[tokio::test]
@@ -609,6 +714,68 @@ async fn group_history_renders_exact_text_shape() {
     assert_eq!(m["deleted"], json!(false));
     assert_eq!(m["reactions"], json!([]));
     assert_eq!(m["attachments"], json!([]));
+}
+
+#[tokio::test]
+async fn group_history_around_centers_on_target() {
+    let s = service();
+    let gid = s
+        .call("groups.create", json!({"name": "Guilde"}))
+        .await
+        .unwrap()["group_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let cid = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap()["channel_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut ids = Vec::new();
+    for i in 0..5 {
+        let id = s
+            .call(
+                "groups.send",
+                json!({"group_id": gid, "channel_id": cid, "text": format!("msg {i}")}),
+            )
+            .await
+            .unwrap()["msg_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        ids.push(id);
+    }
+    let target = ids[2].clone();
+    let win = s
+        .call(
+            "groups.history_around",
+            json!({"group_id": gid, "channel_id": cid, "msg_id": target, "limit": 2}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(win["found"], json!(true));
+    let got: Vec<String> = win["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["msg_id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(got.contains(&target));
+    // Unknown target ⇒ empty window, found = false.
+    let miss = s
+        .call(
+            "groups.history_around",
+            json!({"group_id": gid, "channel_id": cid, "msg_id": "ee".repeat(16)}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(miss["found"], json!(false));
+    assert_eq!(miss["messages"], json!([]));
 }
 
 // ---- Gestion de serveur : groupes, salons, rôles, modération ----

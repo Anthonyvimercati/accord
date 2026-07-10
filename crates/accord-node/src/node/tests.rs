@@ -232,6 +232,50 @@ fn friend_and_dm_flow_persists() {
 }
 
 #[test]
+fn search_filters_resolve_author_conversation_and_attachments() {
+    use accord_proto::core_msg::FileRef;
+    let n = node();
+    let peer = Identity::generate_with_pow_bits(1);
+    n.friend_request(&peer.public_key(), "Alice").unwrap();
+    n.with_db(|db| {
+        Ok(friends::ingest_friend_response(
+            db,
+            &peer.public_key(),
+            true,
+            now_ms(),
+        )?)
+    })
+    .unwrap();
+    n.dm_send(&peer.public_key(), "chat photo souvenir", None)
+        .unwrap();
+    let img = FileRef {
+        merkle_root: [1; 32],
+        name: "p.png".into(),
+        size: 10,
+        mime: "image/png".into(),
+    };
+    n.dm_send_with_attachments(&peer.public_key(), "album vacances", None, vec![img])
+        .unwrap();
+
+    // Plain word search returns metadata hits (conversation ref + author).
+    let hits = n.search_filtered("photo").unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0]["conversation"]["type"], "dm");
+    assert!(hits[0]["msg_id"].is_string() && hits[0]["timestamp"].is_number());
+
+    // has:image narrows to attachment-bearing messages even with no word.
+    assert_eq!(n.search_filtered("has:image").unwrap().len(), 1);
+
+    // from: resolves against contacts: Alice authored none of OUR messages.
+    assert!(n.search_filtered("from:alice photo").unwrap().is_empty());
+    // from:me matches our own authored messages.
+    assert_eq!(n.search_filtered("from:me photo").unwrap().len(), 1);
+    // in: resolves the DM conversation by contact name.
+    assert_eq!(n.search_filtered("in:alice souvenir").unwrap().len(), 1);
+    assert!(n.search_filtered("in:inconnu souvenir").unwrap().is_empty());
+}
+
+#[test]
 fn group_lifecycle() {
     let n = node();
     let gid_hex = n.group_create("Ma Guilde").unwrap();

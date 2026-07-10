@@ -70,6 +70,9 @@ mod voice;
 mod node_friends;
 #[path = "profile.rs"]
 mod node_profile;
+// `search` est déjà pris par l'import `accord_core::search` utilisé ci-dessous.
+#[path = "search.rs"]
+mod node_search;
 
 #[cfg(test)]
 mod tests;
