@@ -8,11 +8,13 @@ import { api, rpc } from '../lib/client';
 import type { SelfProfile } from '../lib/api';
 import {
   createIdentity,
+  lockIdentity,
   restoreIdentity,
   unlockIdentity,
   vaultStatus,
   type SessionInfo,
 } from '../lib/bridge';
+import { clearPendingConversation } from '../lib/notifications';
 
 export type Phase = 'boot' | 'setup' | 'locked' | 'starting' | 'ready' | 'offline';
 
@@ -47,6 +49,12 @@ interface SessionState {
   create: (passphrase: string) => Promise<void>;
   restore: (phrase: string, passphrase: string) => Promise<void>;
   unlock: (passphrase: string) => Promise<void>;
+  /**
+   * Logs out without quitting: stops the node (in-memory keys wiped host
+   * side), closes the RPC link and lands on the unlock screen, exactly like
+   * a fresh launch on an existing vault.
+   */
+  lock: () => Promise<void>;
   ackRecoveryPhrase: () => void;
   /** Définit le pseudo (profile.set) puis rafraîchit le profil local. */
   setName: (name: string) => Promise<void>;
@@ -141,6 +149,24 @@ export const useSession = create<SessionState>((set) => {
           phase: 'locked',
           error: e instanceof Error ? e.message : String(e),
         });
+      }
+    },
+
+    lock: async () => {
+      // Land on the unlock screen first, like a cold start on an existing
+      // vault: the RPC 'closed' status below must never bounce the phase
+      // through 'offline' (the onStatus guard only touches ready/offline).
+      set({ phase: 'locked', self: null, recoveryPhrase: null, askName: false, error: null });
+      clearPendingConversation();
+      rpc.close();
+      try {
+        const status = await lockIdentity();
+        // Vault file gone meanwhile: fall back to onboarding, like init().
+        if (status === 'absent') set({ phase: 'setup' });
+      } catch (e) {
+        // Stay on the unlock screen: a later unlock restarts the node and
+        // replaces any node that failed to stop.
+        set({ error: e instanceof Error ? e.message : String(e) });
       }
     },
 

@@ -4,8 +4,16 @@
  * exclusion systématique de ses propres messages.
  */
 
-import { describe, expect, it } from 'vitest';
-import { isNotificationEligible, type NotifyPrefs } from './notifications';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  clearPendingConversation,
+  isNotificationEligible,
+  PENDING_NAVIGATION_TTL_MS,
+  rememberNotifiedConversation,
+  takePendingConversation,
+  type ConversationRef,
+  type NotifyPrefs,
+} from './notifications';
 
 const ALL_ON: NotifyPrefs = { dms: true, groups: true, onlyWhenUnfocused: true };
 
@@ -85,5 +93,56 @@ describe('isNotificationEligible', () => {
         isOwnMessage: false,
       }),
     ).toBe(true);
+  });
+});
+
+describe('notification click navigation (pending registry)', () => {
+  const DM: ConversationRef = { kind: 'dm', peer: 'pair-1' };
+  const GROUP: ConversationRef = {
+    kind: 'group',
+    groupId: 'g-1',
+    channelId: 'c-1',
+  };
+
+  beforeEach(() => {
+    clearPendingConversation();
+  });
+
+  it('returns the remembered conversation exactly once', () => {
+    rememberNotifiedConversation(DM, 1_000);
+
+    expect(takePendingConversation(2_000)).toEqual(DM);
+    // Consumed: a second focus must not navigate again.
+    expect(takePendingConversation(2_000)).toBeNull();
+  });
+
+  it('returns null when no notification was sent', () => {
+    expect(takePendingConversation()).toBeNull();
+  });
+
+  it('expires beyond the navigation window', () => {
+    rememberNotifiedConversation(GROUP, 1_000);
+
+    expect(takePendingConversation(1_000 + PENDING_NAVIGATION_TTL_MS + 1)).toBeNull();
+  });
+
+  it('stays valid right at the navigation window boundary', () => {
+    rememberNotifiedConversation(GROUP, 1_000);
+
+    expect(takePendingConversation(1_000 + PENDING_NAVIGATION_TTL_MS)).toEqual(GROUP);
+  });
+
+  it('replaces the previous pending conversation with the latest one', () => {
+    rememberNotifiedConversation(DM, 1_000);
+    rememberNotifiedConversation(GROUP, 2_000);
+
+    expect(takePendingConversation(3_000)).toEqual(GROUP);
+  });
+
+  it('clears explicitly (logout)', () => {
+    rememberNotifiedConversation(DM, 1_000);
+    clearPendingConversation();
+
+    expect(takePendingConversation(1_500)).toBeNull();
   });
 });

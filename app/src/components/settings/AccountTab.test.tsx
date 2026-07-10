@@ -174,6 +174,49 @@ describe('AccountTab — avatar', () => {
   });
 });
 
+describe('AccountTab — logout (danger zone)', () => {
+  it('shows the logout button without any inline confirmation at first', () => {
+    render(<AccountTab />);
+
+    expect(screen.getByRole('button', { name: 'Se déconnecter' })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Oui, me déconnecter' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('asks for an inline confirmation and cancels without locking', () => {
+    const lock = vi.fn(async () => {});
+    useSession.setState({ lock });
+    render(<AccountTab />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Se déconnecter' }));
+    expect(
+      screen.getByText('Votre phrase de passe sera nécessaire pour vous reconnecter.'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler' }));
+
+    expect(lock).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole('button', { name: 'Oui, me déconnecter' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Se déconnecter' })).toBeEnabled();
+  });
+
+  it('locks the vault and closes the settings modal on confirmation', async () => {
+    const lock = vi.fn(async () => {});
+    useSession.setState({ lock });
+    useUi.setState({ modal: { kind: 'settings' } });
+    render(<AccountTab />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Se déconnecter' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Oui, me déconnecter' }));
+
+    await waitFor(() => expect(lock).toHaveBeenCalledTimes(1));
+    expect(useUi.getState().modal).toBeNull();
+  });
+});
+
 describe('AccountTab — identité et phrase de récupération', () => {
   it('affiche le code ami, son bouton de copie et la clé publique abrégée', () => {
     render(<AccountTab />);

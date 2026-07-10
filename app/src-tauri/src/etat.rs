@@ -133,6 +133,23 @@ mod tests {
     }
 
     #[test]
+    fn lock_without_running_node_is_idempotent_and_keeps_vault_locked() {
+        // The `lock` command boils down to `arreter_noeud` + `statut_coffre`:
+        // with no node running it must be a harmless no-op, and the vault on
+        // disk must still report `locked` so the UI lands on the unlock
+        // screen exactly like a fresh launch.
+        let dossier = tempfile::tempdir().unwrap();
+        accord_node::identity::create(&Paths::new(dossier.path()), "phrase-de-passe", POW_TEST)
+            .unwrap();
+        let etat = EtatHote::new(dossier.path().to_path_buf());
+
+        etat.arreter_noeud();
+        etat.arreter_noeud();
+
+        assert_eq!(etat.statut_coffre(), StatutCoffre::Verrouille);
+    }
+
+    #[test]
     fn identite_creee_serialise_selon_le_contrat_du_pont() {
         // `bridge.ts` attend { session: { port, token }, recovery_phrase }.
         let cree = IdentiteCreee {

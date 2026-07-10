@@ -47,7 +47,8 @@ pub fn executer() -> ExitCode {
             commandes::vault_status,
             commandes::create_identity,
             commandes::restore_identity,
-            commandes::unlock
+            commandes::unlock,
+            commandes::lock
         ])
         .build(tauri::generate_context!());
 

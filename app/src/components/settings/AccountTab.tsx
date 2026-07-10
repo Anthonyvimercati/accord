@@ -329,6 +329,66 @@ function BioSection() {
   );
 }
 
+/**
+ * Danger zone: logs out without quitting the app. Locking drops the node's
+ * in-memory keys host-side and lands on the unlock screen, exactly like a
+ * fresh launch — hence the inline confirmation before anything happens.
+ */
+function LogoutSection() {
+  const t = useT();
+  const closeModal = useUi((s) => s.closeModal);
+  const lock = useSession((s) => s.lock);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const logout = (): void => {
+    if (busy) return;
+    setBusy(true);
+    // Close settings first: the unlock screen must never sit under a modal.
+    closeModal();
+    // `lock` reports failures through the session store, never rejects.
+    void lock();
+  };
+
+  return (
+    <SettingsSection title={t.settings.dangerZoneTitle} hint={t.settings.logoutHint}>
+      <div className="rounded-lg border border-red/40 bg-sidebar p-4">
+        {!confirming ? (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="rounded bg-red px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90"
+          >
+            {t.settings.logout}
+          </button>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="min-w-0 flex-1 text-sm text-norm">
+              {t.settings.logoutConfirmText}
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={logout}
+              className="rounded bg-red px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 disabled:opacity-50"
+            >
+              {t.settings.logoutConfirm}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirming(false)}
+              className="rounded bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-150 hover:bg-input disabled:opacity-50"
+            >
+              {t.app.cancel}
+            </button>
+          </div>
+        )}
+      </div>
+    </SettingsSection>
+  );
+}
+
 export function AccountTab() {
   const t = useT();
   const toast = useUi((s) => s.toast);
@@ -433,6 +493,8 @@ export function AccountTab() {
           {t.settings.recoveryNote}
         </p>
       </SettingsSection>
+
+      <LogoutSection />
     </div>
   );
 }

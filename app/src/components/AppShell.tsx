@@ -4,7 +4,13 @@ import { useCallback, useEffect } from 'react';
 import { dictionaries, interpolate } from '../i18n';
 import type { AccordEvent } from '../lib/api';
 import { rpc } from '../lib/client';
-import { isNotificationEligible, sendNativeNotification } from '../lib/notifications';
+import {
+  isNotificationEligible,
+  rememberNotifiedConversation,
+  sendNativeNotification,
+  takePendingConversation,
+  type ConversationRef,
+} from '../lib/notifications';
 import { usePushToTalk } from '../hooks/usePushToTalk';
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
@@ -24,18 +30,19 @@ import { Sidebar } from './Sidebar';
  * Notification native « Nouveau message de <nom> » si les réglages
  * l'autorisent — jamais le contenu du message, jamais ses propres messages.
  */
-function notifyNewMessage(kind: 'dm' | 'group', author: string): void {
+function notifyNewMessage(ref: ConversationRef, author: string): void {
   const self = useSession.getState().self;
   if (self === null) return;
   const ui = useUi.getState();
+  const windowFocused = document.hasFocus();
   const eligible = isNotificationEligible({
-    kind,
+    kind: ref.kind,
     prefs: {
       dms: ui.notifyDms,
       groups: ui.notifyGroups,
       onlyWhenUnfocused: ui.notifyOnlyUnfocused,
     },
-    windowFocused: document.hasFocus(),
+    windowFocused,
     isOwnMessage: author === self.pubkey,
   });
   if (!eligible) return;
@@ -44,7 +51,30 @@ function notifyNewMessage(kind: 'dm' | 'group', author: string): void {
   void sendNativeNotification(
     dict.app.name,
     interpolate(dict.notifications.newMessageFrom, { name }),
-  );
+  ).then((sent) => {
+    // Notification shown while the window was unfocused: arm navigation on
+    // the next focus, so clicking it (which activates the window on macOS
+    // and Windows) opens the conversation — see lib/notifications.ts for the
+    // per-platform behaviour of the Tauri notification plugin.
+    if (sent && !windowFocused) rememberNotifiedConversation(ref);
+  });
+}
+
+/**
+ * Notification click fallback: when the window regains focus shortly after a
+ * native notification, navigate to the conversation that triggered it.
+ * `ConversationRef` is structurally a `View`, so the UI store's `setView`
+ * routes directly (home rail + DM, or server rail + channel).
+ */
+function useNotificationNavigation() {
+  useEffect(() => {
+    const onFocus = (): void => {
+      const ref = takePendingConversation();
+      if (ref !== null) useUi.getState().setView(ref);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 }
 
 /** Câble les événements temps réel du nœud vers les stores. */
@@ -64,7 +94,9 @@ function useNodeEvents() {
               const message = (useDms.getState().conversations[peer] ?? []).find(
                 (m) => m.msg_id === msgId,
               );
-              if (message !== undefined) notifyNewMessage('dm', message.author);
+              if (message !== undefined) {
+                notifyNewMessage({ kind: 'dm', peer }, message.author);
+              }
             })
             .catch(() => {
               // Best effort : le fil sera rechargé au prochain événement.
@@ -122,7 +154,9 @@ function useNodeEvents() {
               const message = (useGroups.getState().messages[key] ?? []).find(
                 (m) => m.msg_id === msgId,
               );
-              if (message !== undefined) notifyNewMessage('group', message.author);
+              if (message !== undefined) {
+                notifyNewMessage({ kind: 'group', groupId, channelId }, message.author);
+              }
             })
             .catch(() => {
               // Best effort : l'historique sera rechargé au prochain événement.
@@ -158,6 +192,9 @@ function useNodeEvents() {
         case 'event.voice_speaking':
           useVoice.getState().applySpeaking(event.params);
           break;
+        case 'event.voice_mute':
+          useVoice.getState().applyMuteState(event.params);
+          break;
         case 'event.desynchronise': {
           void useFriends.getState().load();
           void useGroups.getState().loadList();
@@ -177,6 +214,7 @@ export function AppShell() {
   const loadGroups = useGroups((s) => s.loadList);
   const syncVoice = useVoice((s) => s.sync);
   useNodeEvents();
+  useNotificationNavigation();
 
   // Appui-pour-parler global : actif dès qu'un salon vocal est rejoint.
   const onPttError = useCallback(() => toast('error', t.errors.actionFailed), [toast, t]);

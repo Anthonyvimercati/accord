@@ -64,14 +64,73 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 /**
  * Envoie une notification native si l'autorisation est accordée. Best effort :
  * hors Tauri ou sans autorisation, ne fait rien (aucune erreur remontée).
+ * Rend `true` si la notification a réellement été envoyée.
  */
-export async function sendNativeNotification(title: string, body: string): Promise<void> {
-  if (!isTauri()) return;
+export async function sendNativeNotification(title: string, body: string): Promise<boolean> {
+  if (!isTauri()) return false;
   try {
     const plugin = await import('@tauri-apps/plugin-notification');
-    if (!(await plugin.isPermissionGranted())) return;
+    if (!(await plugin.isPermissionGranted())) return false;
     plugin.sendNotification({ title, body });
+    return true;
   } catch {
     // Best effort : une notification manquée ne doit pas casser l'app.
+    return false;
   }
+}
+
+/**
+ * Conversation that triggered a native notification. Structurally compatible
+ * with the UI store's `View` union, so `useUi.setView(ref)` routes directly
+ * (home rail + DM for `dm`, server rail + channel for `group`).
+ */
+export type ConversationRef =
+  | { kind: 'dm'; peer: string }
+  | { kind: 'group'; groupId: string; channelId: string };
+
+/**
+ * Notification click → open conversation: per-platform reality check
+ * (tauri-plugin-notification 2.3.x, desktop backends inspected).
+ *
+ * The plugin's `onAction`/`onNotificationReceived` listeners are wired by the
+ * iOS/Android implementations only. On desktop the Rust side is
+ * fire-and-forget (`notify-rust` on macOS/Linux, `winrt` toasts on Windows):
+ * no click, action or dismiss event ever reaches the webview, on any desktop
+ * platform. What the OS does on click:
+ *   - macOS: activates the app (main window regains focus);
+ *   - Windows: activates the app (toast activation);
+ *   - Linux: depends on the notification daemon — often dismiss only, the
+ *     window may not be focused at all.
+ *
+ * Fallback implemented here: when a notification is shown while the window is
+ * unfocused, the target conversation is remembered for a short while; the
+ * next window `focus` event consumes it and navigates there. On macOS and
+ * Windows this makes a notification click open the conversation; on Linux it
+ * degrades to "first refocus after a notification opens it". If the plugin
+ * ever emits desktop click events, replace this registry with `onAction`.
+ */
+export const PENDING_NAVIGATION_TTL_MS = 120_000;
+
+let pendingConversation: { ref: ConversationRef; at: number } | null = null;
+
+/** Arms navigation-on-next-focus towards the notified conversation. */
+export function rememberNotifiedConversation(ref: ConversationRef, now = Date.now()): void {
+  pendingConversation = { ref, at: now };
+}
+
+/**
+ * Consumes (and returns) the pending conversation if the notification is
+ * recent enough; `null` otherwise. At most one navigation per notification.
+ */
+export function takePendingConversation(now = Date.now()): ConversationRef | null {
+  const pending = pendingConversation;
+  pendingConversation = null;
+  if (pending === null) return null;
+  if (now - pending.at > PENDING_NAVIGATION_TTL_MS) return null;
+  return pending.ref;
+}
+
+/** Forgets any pending navigation (logout, tests). */
+export function clearPendingConversation(): void {
+  pendingConversation = null;
 }

@@ -65,6 +65,21 @@ pub async fn unlock(
     demarrer(&etat, deverrouille).await
 }
 
+/// Locks the vault without quitting the app: the exact inverse of `unlock`.
+///
+/// Stops the running node (network, API, database) and drops it; the
+/// in-memory secrets (`Unlocked` seed, SQLCipher key) are `Zeroizing` and are
+/// wiped on that drop. Returns the fresh vault status so the UI lands on the
+/// same screen as a cold start (`"locked"`, or `"absent"` if the vault file
+/// disappeared meanwhile). Async so the WebView thread never blocks on the
+/// node shutdown; infallible in practice but typed as `Result` because async
+/// Tauri commands borrowing `State` require it.
+#[tauri::command]
+pub async fn lock(etat: State<'_, EtatHote>) -> Result<StatutCoffre, ErreurHote> {
+    etat.arreter_noeud();
+    Ok(etat.statut_coffre())
+}
+
 /// Exécute un travail CPU lourd hors du fil principal.
 async fn en_arriere_plan<T, F>(travail: F) -> Result<T, ErreurHote>
 where

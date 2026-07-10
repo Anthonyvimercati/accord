@@ -75,3 +75,14 @@ export async function unlockIdentity(passphrase: string): Promise<SessionInfo> {
   }
   return invoke<SessionInfo>('unlock', { passphrase });
 }
+
+/**
+ * Locks the vault without quitting the app: stops the embedded node and wipes
+ * its in-memory keys, then returns the fresh vault status so the UI can land
+ * on the same screen as a cold start. Outside Tauri (browser development)
+ * nothing runs locally, so the status is derived from the dev session alone.
+ */
+export async function lockIdentity(): Promise<VaultStatus> {
+  if (!isTauri()) return devSession() ? 'locked' : 'absent';
+  return invoke<VaultStatus>('lock');
+}
