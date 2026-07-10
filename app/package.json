@@ -1,8 +1,8 @@
 {
   "name": "accord-app",
   "private": true,
-  "version": "0.2.0",
-  "description": "Interface de bureau d'Accord (Tauri + React)",
+  "version": "0.3.0",
+  "description": "Accord desktop app (Tauri + React)",
   "type": "module",
   "scripts": {
     "dev": "vite",
