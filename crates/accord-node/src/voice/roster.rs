@@ -18,6 +18,12 @@ pub(crate) const ACTIVE_TIMEOUT_MS: u64 = 10_000;
 /// signal d'état reçu (ms) : trois diffusions d'état manquées.
 pub(crate) const PASSIVE_TTL_MS: u64 = 90_000;
 
+/// Intervalle minimal entre deux événements mute/deafen émis pour un même
+/// participant (ms). Anti-abus : un pair qui inonde de bascules d'état ne peut
+/// pas noyer le bus d'événements local — l'état interne reste à jour (le
+/// snapshot est correct), seules les émissions rapprochées sont coalescées.
+pub(crate) const MUTE_EVENT_MIN_INTERVAL_MS: u64 = 300;
+
 /// Transition observable de l'état du salon.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RosterEvent {
@@ -47,6 +53,8 @@ struct PeerState {
     muted: bool,
     /// Output deafened, as broadcast by the participant (VoiceSignal).
     deafened: bool,
+    /// Wall-clock (ms) of the last EMITTED mute/deafen transition (throttle).
+    last_mute_event_ms: u64,
 }
 
 /// Snapshot of a participant as exposed by [`Roster::participants`].
@@ -120,18 +128,23 @@ impl Roster {
                 speaking: false,
                 muted: false,
                 deafened: false,
+                last_mute_event_ms: 0,
             },
         );
         Ok(true)
     }
 
     /// Records the broadcast mute/deafen state of a participant. Returns the
-    /// transition event when the state actually changed.
+    /// transition event when the state changed AND at least
+    /// [`MUTE_EVENT_MIN_INTERVAL_MS`] elapsed since the last emitted one
+    /// (anti-abuse throttle). The internal state is always updated so the
+    /// [`Roster::participants`] snapshot stays correct even when coalesced.
     pub(crate) fn set_mute_state(
         &mut self,
         pubkey: &[u8; 32],
         muted: bool,
         deafened: bool,
+        now_ms: u64,
     ) -> Option<RosterEvent> {
         let peer = self.peers.get_mut(pubkey)?;
         if peer.muted == muted && peer.deafened == deafened {
@@ -139,6 +152,10 @@ impl Roster {
         }
         peer.muted = muted;
         peer.deafened = deafened;
+        if now_ms.saturating_sub(peer.last_mute_event_ms) < MUTE_EVENT_MIN_INTERVAL_MS {
+            return None; // état enregistré, émission coalescée (anti-flood)
+        }
+        peer.last_mute_event_ms = now_ms;
         Some(RosterEvent::MuteState(*pubkey, muted, deafened))
     }
 
@@ -295,22 +312,44 @@ mod tests {
         let mut r = Roster::default();
         r.join(pk(1), 0).unwrap();
         // Initial state: unmuted, undeafened — setting it again is a no-op.
-        assert_eq!(r.set_mute_state(&pk(1), false, false), None);
+        assert_eq!(r.set_mute_state(&pk(1), false, false, 0), None);
         assert_eq!(
-            r.set_mute_state(&pk(1), true, false),
+            r.set_mute_state(&pk(1), true, false, 1_000),
             Some(RosterEvent::MuteState(pk(1), true, false))
         );
         // Idempotent while unchanged.
-        assert_eq!(r.set_mute_state(&pk(1), true, false), None);
+        assert_eq!(r.set_mute_state(&pk(1), true, false, 2_000), None);
         assert_eq!(
-            r.set_mute_state(&pk(1), true, true),
+            r.set_mute_state(&pk(1), true, true, 2_000),
             Some(RosterEvent::MuteState(pk(1), true, true))
         );
         // Unknown participant: ignored.
-        assert_eq!(r.set_mute_state(&pk(9), true, true), None);
+        assert_eq!(r.set_mute_state(&pk(9), true, true, 2_000), None);
         let peers = r.participants();
         assert_eq!(peers.len(), 1);
         assert!(peers[0].muted && peers[0].deafened);
+    }
+
+    #[test]
+    fn rapid_mute_flips_are_throttled_but_state_stays_current() {
+        let mut r = Roster::default();
+        r.join(pk(1), 0).unwrap();
+        // First change emits.
+        assert_eq!(
+            r.set_mute_state(&pk(1), true, false, 1_000),
+            Some(RosterEvent::MuteState(pk(1), true, false))
+        );
+        // A flip within the interval is coalesced (no event) but recorded.
+        assert_eq!(r.set_mute_state(&pk(1), false, false, 1_100), None);
+        assert!(!r.participants()[0].muted);
+        // Another flip still within the interval: still coalesced.
+        assert_eq!(r.set_mute_state(&pk(1), true, true, 1_200), None);
+        assert!(r.participants()[0].muted && r.participants()[0].deafened);
+        // After the interval, the next change emits the settled state.
+        assert_eq!(
+            r.set_mute_state(&pk(1), false, false, 1_600),
+            Some(RosterEvent::MuteState(pk(1), false, false))
+        );
     }
 
     #[test]

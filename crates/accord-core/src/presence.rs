@@ -111,6 +111,26 @@ pub fn validate_custom_status(text: &str) -> Result<String, CoreError> {
     Ok(trimmed.to_string())
 }
 
+/// Sanitizes a custom status text announced by a *peer*. Unlike the local
+/// path (`validate_custom_status`, which rejects bad input from our own UI), a
+/// friend's text is untrusted and best-effort: control characters are stripped
+/// and the result is trimmed and bounded, rather than dropping the whole
+/// presence update. Length/UTF-8 bounds are already enforced at wire decode;
+/// this is defense in depth. Returns `None` when nothing meaningful remains.
+pub fn sanitize_peer_custom(text: &str) -> Option<String> {
+    let cleaned: String = text
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_CUSTOM_STATUS_BYTES)
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 /// Persists the own presence status. `custom`: `None` keeps the current
 /// text, `Some("")` (after trim) clears it, `Some(text)` replaces it.
 /// All-or-nothing: the custom text is validated before any write.
@@ -204,6 +224,20 @@ mod tests {
             assert_eq!(OwnStatus::parse(s.as_str()).unwrap(), s);
         }
         assert!(OwnStatus::parse("offline").is_err());
+    }
+
+    #[test]
+    fn sanitize_peer_custom_strips_control_chars_and_bounds() {
+        assert_eq!(sanitize_peer_custom("  hi  "), Some("hi".into()));
+        // Control characters removed, surrounding content kept.
+        assert_eq!(sanitize_peer_custom("a\u{0007}\nb"), Some("ab".into()));
+        // Only control characters / whitespace: nothing meaningful remains.
+        assert_eq!(sanitize_peer_custom("\u{0000}\t\n"), None);
+        assert_eq!(sanitize_peer_custom(""), None);
+        // Bounded to the wire limit.
+        let long = "x".repeat(MAX_CUSTOM_STATUS_BYTES + 50);
+        let cleaned = sanitize_peer_custom(&long).unwrap();
+        assert!(cleaned.len() <= MAX_CUSTOM_STATUS_BYTES);
     }
 
     #[test]

@@ -464,6 +464,7 @@ impl Engine {
             active.deafened,
         );
         let me = self.node.public_key();
+        let now = self.now_ms();
         let mut events = Vec::new();
         if let Some(roster) = self.rooms.get_mut(&key) {
             if muted {
@@ -471,7 +472,7 @@ impl Engine {
                     events.push(event);
                 }
             }
-            if let Some(event) = roster.set_mute_state(&me, muted, deafened) {
+            if let Some(event) = roster.set_mute_state(&me, muted, deafened, now) {
                 events.push(event);
             }
         }
@@ -724,7 +725,7 @@ impl Engine {
                             return;
                         }
                     }
-                    if let Some(event) = roster.set_mute_state(&from, mute, peer_deafened) {
+                    if let Some(event) = roster.set_mute_state(&from, mute, peer_deafened, now) {
                         events.push(event);
                     }
                 }

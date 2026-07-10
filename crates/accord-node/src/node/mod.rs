@@ -243,6 +243,11 @@ impl Node {
             self.set_presence(peer, false);
             return;
         }
+        // Untrusted peer text: strip control characters (defense in depth —
+        // the local path sanitizes, this mirrors it for incoming presence).
+        let custom = custom
+            .as_deref()
+            .and_then(accord_core::presence::sanitize_peer_custom);
         let before = self.effective_presence(peer);
         self.online
             .lock()

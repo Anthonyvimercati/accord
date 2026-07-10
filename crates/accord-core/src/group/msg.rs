@@ -278,9 +278,14 @@ pub fn ingest_group_message(
 ) -> Result<GroupMsgEvent, CoreError> {
     let state = group_state(db, group_id)?;
     // Groupe inconnu (aucune op) ou contexte invalide : silence, pas d'oracle.
+    // Le droit d'écriture effectif exige VIEW ET SEND (overrides de salon
+    // compris) — symétrique avec `require_send` côté émission : un membre à qui
+    // le salon est masqué (deny VIEW) ne peut pas non plus y injecter via un
+    // client modifié qui aurait gardé le bit SEND.
+    let needed = perms::VIEW | perms::SEND;
     if state.founder.is_none()
         || !state.channels.contains_key(channel_id)
-        || state.permissions_in(sender, channel_id) & perms::SEND == 0
+        || state.permissions_in(sender, channel_id) & needed != needed
     {
         return Ok(GroupMsgEvent::Ignored);
     }
@@ -660,6 +665,81 @@ mod tests {
             3_003,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn ingest_rejects_sender_denied_view_even_if_send_kept() {
+        // Sécurité : un membre à qui le salon est masqué (deny VIEW, SEND encore
+        // positionné) ne doit pas pouvoir y injecter via un client modifié. Le
+        // récepteur doit ignorer le message à l'ingestion, symétriquement à
+        // `require_send` côté émission.
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        // Bob, membre normal, compose pendant qu'il a encore VIEW+SEND.
+        let msg = compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "coucou",
+            None,
+            vec![],
+            2_000,
+        )
+        .expect("composition");
+
+        // Alice masque le salon à Bob (deny VIEW), SEND laissé intact.
+        for (op, lamport) in [
+            GroupOpBody::AddRole {
+                role_id: [7; 16],
+                name: "Masqué".into(),
+                color: 0,
+                position: 1,
+                permissions: 0,
+            },
+            GroupOpBody::AssignRole {
+                member: bob.public_key(),
+                role_id: [7; 16],
+            },
+            GroupOpBody::SetChannelPerms {
+                channel_id: chan,
+                role_id: [7; 16],
+                allow: perms::SEND,
+                deny: perms::VIEW,
+            },
+        ]
+        .into_iter()
+        .zip(3_000..)
+        {
+            let signed = author_op(&db_a, &alice, &gid, &op, lamport).unwrap();
+            ingest_op(&db_a, &signed).unwrap();
+        }
+
+        // Le message de Bob (VIEW refusé) est ignoré par Alice.
+        let (g, c, id, lam, ms, epoch, enc) = parts(msg);
+        let event = ingest_group_message(
+            &db_a,
+            &[1; 32],
+            &bob.public_key(),
+            &g,
+            &c,
+            &id,
+            lam,
+            ms,
+            epoch,
+            &enc,
+        )
+        .expect("ingestion");
+        assert_eq!(event, GroupMsgEvent::Ignored);
+        assert!(db_a
+            .group_history(&gid, &chan, u64::MAX, 10)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

@@ -266,9 +266,42 @@ impl Db {
 
     // ---- Accusés de lecture ----
 
-    /// Enregistre le dernier message lu par un pair.
+    /// Enregistre le dernier message lu par un pair (accusé de lecture entrant).
+    ///
+    /// Défense en profondeur : la cible doit être un message que *nous* lui
+    /// avons envoyé dans cette conversation (`author <> peer`), et la marque ne
+    /// fait qu'avancer — un accusé forgé ou rembobiné (`up_to` inconnu, ou dont
+    /// le lamport n'est pas strictement supérieur au précédent) est ignoré
+    /// silencieusement.
     pub fn set_read_mark(&self, peer: &[u8; 32], up_to: &[u8; 16]) -> Result<(), CoreError> {
-        self.conn().execute(
+        let conn = self.conn();
+        // Appartenance : la cible acquittée doit être un de nos messages sortants
+        // vers ce pair (dans un DM 1:1, `author <> peer` ⇒ auteur = nous).
+        let mut stmt = conn.prepare(
+            "SELECT lamport FROM dm_messages WHERE peer = ?1 AND msg_id = ?2 AND author <> ?1",
+        )?;
+        let mut rows = stmt.query(params![peer, up_to])?;
+        let Some(row) = rows.next()? else {
+            return Ok(()); // cible inconnue/étrangère : ignorée
+        };
+        let new_lamport: u64 = row.get(0)?;
+        drop(rows);
+        drop(stmt);
+        // Monotonie : ne jamais reculer la position de lecture du pair.
+        let mut cur = conn.prepare(
+            "SELECT m.lamport FROM read_marks r
+             JOIN dm_messages m ON m.msg_id = r.up_to
+             WHERE r.peer = ?1",
+        )?;
+        let mut cur_rows = cur.query(params![peer])?;
+        if let Some(current) = cur_rows.next()? {
+            if new_lamport <= current.get::<_, u64>(0)? {
+                return Ok(());
+            }
+        }
+        drop(cur_rows);
+        drop(cur);
+        conn.execute(
             "INSERT INTO read_marks (peer, up_to) VALUES (?1, ?2)
              ON CONFLICT(peer) DO UPDATE SET up_to = excluded.up_to",
             params![peer, up_to],
@@ -562,9 +595,36 @@ mod tests {
         db.set_reaction(&[1; 16], &[2; 32], "👍", false).unwrap();
         assert_eq!(db.reactions(&[1; 16]).unwrap().len(), 1);
 
+        // Read marks: the target must be one of OUR outgoing messages to the
+        // peer, and the mark only advances (defense in depth).
         assert_eq!(db.read_mark(&[1; 32]).unwrap(), None);
+        db.insert_dm(&dm(4, 4)).unwrap(); // ours (author [2;32]), lamport 4
+        db.insert_dm(&dm(5, 8)).unwrap(); // ours, lamport 8
         db.set_read_mark(&[1; 32], &[4; 16]).unwrap();
-        db.set_read_mark(&[1; 32], &[5; 16]).unwrap();
+        assert_eq!(db.read_mark(&[1; 32]).unwrap(), Some([4; 16]));
+        db.set_read_mark(&[1; 32], &[5; 16]).unwrap(); // advances (8 > 4)
+        assert_eq!(db.read_mark(&[1; 32]).unwrap(), Some([5; 16]));
+        // Rewind ignored: [4;16] has a lower lamport than the current mark.
+        db.set_read_mark(&[1; 32], &[4; 16]).unwrap();
+        assert_eq!(db.read_mark(&[1; 32]).unwrap(), Some([5; 16]));
+        // Forged/unknown target ignored (never one of our messages).
+        db.set_read_mark(&[1; 32], &[99; 16]).unwrap();
+        assert_eq!(db.read_mark(&[1; 32]).unwrap(), Some([5; 16]));
+        // A message the PEER authored (not ours) is not a valid ack target.
+        db.insert_dm(&DmRecord {
+            msg_id: [7; 16],
+            peer: [1; 32],
+            author: [1; 32],
+            lamport: 20,
+            sent_ms: 0,
+            kind: 0,
+            body: vec![7],
+            acked: true,
+            deleted: false,
+            edited: None,
+        })
+        .unwrap();
+        db.set_read_mark(&[1; 32], &[7; 16]).unwrap();
         assert_eq!(db.read_mark(&[1; 32]).unwrap(), Some([5; 16]));
     }
 

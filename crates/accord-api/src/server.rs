@@ -124,6 +124,11 @@ pub struct ApiServer {
     local_addr: SocketAddr,
     hub: NotificationHub,
     accept_task: JoinHandle<()>,
+    /// Signal d'arrêt diffusé aux connexions établies : à l'émission, chaque
+    /// connexion authentifiée se ferme et relâche son `Arc<Service>`. Sans lui,
+    /// une connexion ouverte avant le verrouillage garderait le nœud (et donc
+    /// l'identité + la clé SQLCipher) vivant après `lock`.
+    shutdown_tx: broadcast::Sender<()>,
 }
 
 impl ApiServer {
@@ -150,11 +155,20 @@ impl ApiServer {
         let listener = TcpListener::bind(("127.0.0.1", port)).await?;
         let local_addr = listener.local_addr()?;
         let tx = hub.tx.clone();
-        let accept_task = tokio::spawn(accept_loop(listener, token, service, tx, limits));
+        let (shutdown_tx, _) = broadcast::channel(1);
+        let accept_task = tokio::spawn(accept_loop(
+            listener,
+            token,
+            service,
+            tx,
+            shutdown_tx.clone(),
+            limits,
+        ));
         Ok(Self {
             local_addr,
             hub,
             accept_task,
+            shutdown_tx,
         })
     }
 
@@ -168,15 +182,23 @@ impl ApiServer {
         self.hub.clone()
     }
 
-    /// Arrête l'acceptation de connexions (les connexions établies se
-    /// terminent à leur fermeture).
+    /// Arrête l'acceptation de connexions ET ferme les connexions établies.
+    ///
+    /// Le signal d'arrêt réveille chaque connexion authentifiée pour qu'elle se
+    /// ferme et relâche son `Arc<Service>` : sans cela, une connexion ouverte
+    /// avant le verrouillage garderait le nœud (identité + clé SQLCipher) vivant
+    /// après `lock`, contredisant la garantie de zéroïsation du coffre.
     pub fn shutdown(&self) {
+        let _ = self.shutdown_tx.send(());
         self.accept_task.abort();
     }
 }
 
 impl Drop for ApiServer {
     fn drop(&mut self) {
+        // Le `shutdown_tx` est droppé avec la structure : les connexions
+        // reçoivent `Closed` et se ferment. On coupe aussi l'acceptation.
+        let _ = self.shutdown_tx.send(());
         self.accept_task.abort();
     }
 }
@@ -186,6 +208,7 @@ async fn accept_loop<S: Service>(
     token: AuthToken,
     service: Arc<S>,
     tx: broadcast::Sender<String>,
+    shutdown_tx: broadcast::Sender<()>,
     limits: ServerLimits,
 ) {
     // Un permis par connexion active : borne les connexions simultanées.
@@ -207,10 +230,12 @@ async fn accept_loop<S: Service>(
         let token = token.clone();
         let service = Arc::clone(&service);
         let rx = tx.subscribe();
+        let shutdown_rx = shutdown_tx.subscribe();
         tokio::spawn(async move {
             // Le permis est relâché à la fin de la connexion (Drop).
             let _permit = permit;
-            if let Err(e) = handle_connection(stream, token, service, rx, limits).await {
+            if let Err(e) = handle_connection(stream, token, service, rx, shutdown_rx, limits).await
+            {
                 tracing::debug!(erreur = %e, "api: connexion terminée");
             }
         });
@@ -224,6 +249,7 @@ async fn handle_connection<S: Service>(
     token: AuthToken,
     service: Arc<S>,
     mut notifications: broadcast::Receiver<String>,
+    mut shutdown: broadcast::Receiver<()>,
     limits: ServerLimits,
 ) -> Result<(), tokio_tungstenite::tungstenite::Error> {
     let config = WebSocketConfig {
@@ -241,13 +267,28 @@ async fn handle_connection<S: Service>(
         Err(_) => return Ok(()),     // délai dépassé : abandon silencieux
     };
 
-    if !authenticate(&mut ws, &token, limits.auth_timeout).await? {
-        let _ = ws.close(None).await;
-        return Ok(());
+    // Une connexion peut être fermée avant même de s'authentifier (verrouillage
+    // pendant le handshake/l'auth).
+    tokio::select! {
+        authed = authenticate(&mut ws, &token, limits.auth_timeout) => {
+            if !authed? {
+                let _ = ws.close(None).await;
+                return Ok(());
+            }
+        }
+        _ = shutdown.recv() => {
+            let _ = ws.close(None).await;
+            return Ok(());
+        }
     }
 
     loop {
         tokio::select! {
+            _ = shutdown.recv() => {
+                // Verrouillage/arrêt : fermeture propre et relâche de `Arc<Service>`.
+                let _ = ws.close(None).await;
+                return Ok(());
+            }
             incoming = ws.next() => {
                 let Some(msg) = incoming else { return Ok(()) };
                 match msg? {
@@ -659,6 +700,48 @@ mod tests {
         }
         drop(a);
         drop(b);
+    }
+
+    #[tokio::test]
+    async fn shutdown_closes_established_authenticated_connections() {
+        // Faille sécurité (lock/logout) : une connexion déjà authentifiée doit
+        // être fermée par `shutdown()`, sinon son `Arc<Service>` maintiendrait
+        // le nœud (identité + clé SQLCipher) vivant après le verrouillage.
+        let token = AuthToken::generate();
+        let server = ApiServer::bind(0, token.clone(), Arc::new(Echo), NotificationHub::new())
+            .await
+            .unwrap();
+        let hub = server.hub();
+        let mut ws = connect(server.local_addr()).await;
+        send_recv(&mut ws, auth_msg(token.expose())).await;
+        assert_eq!(hub.subscriber_count(), 1);
+
+        server.shutdown();
+
+        // Le serveur ferme activement la connexion (close/EOF), sans attendre
+        // que le client la ferme.
+        let closed = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match ws.next().await {
+                    None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(_)) => continue,
+                }
+            }
+        })
+        .await;
+        assert!(
+            closed.is_ok(),
+            "la connexion établie n'a pas été fermée par shutdown"
+        );
+
+        // Et l'abonnement disparaît : la tâche de connexion a rendu son Arc.
+        for _ in 0..200 {
+            if hub.subscriber_count() == 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("l'abonné survit après shutdown : Arc<Service> non relâché");
     }
 
     #[tokio::test]
