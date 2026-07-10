@@ -40,6 +40,7 @@ import {
   useGroups,
   channelKey,
   channelsByCategory,
+  handleMentionNodeEvent,
   hasPerm,
   highestRolePosition,
   memberColor,
@@ -118,6 +119,7 @@ beforeEach(() => {
     loadingOlder: {},
     pins: {},
     unread: {},
+    mentions: {},
   });
   for (const mock of [
     listMock,
@@ -571,6 +573,48 @@ describe('useGroups — non-lus', () => {
     // Assert
     expect(useGroups.getState().unread).toEqual({ g1: { c2: 1 } });
     expect(stateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useGroups — mentions', () => {
+  it('mémorise les mentions par groupe au chargement', async () => {
+    listMock.mockResolvedValueOnce({ groups: ['g1'], unread: {}, mentions: { g1: 3 } });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().loadList();
+
+    expect(useGroups.getState().mentions).toEqual({ g1: 3 });
+  });
+
+  it('replie sur aucune mention quand le champ est omis', async () => {
+    useGroups.setState({ mentions: { g1: 2 } });
+    listMock.mockResolvedValueOnce({ groups: [] });
+
+    await useGroups.getState().loadList();
+
+    expect(useGroups.getState().mentions).toEqual({});
+  });
+
+  it('refreshUnread met aussi à jour les mentions', async () => {
+    listMock.mockResolvedValueOnce({ groups: ['g1'], unread: {}, mentions: { g1: 4 } });
+
+    await useGroups.getState().refreshUnread();
+
+    expect(useGroups.getState().mentions).toEqual({ g1: 4 });
+  });
+
+  it('event.mention rafraîchit les compteurs de mentions', async () => {
+    listMock.mockResolvedValue({ groups: [], unread: {}, mentions: { g9: 5 } });
+
+    handleMentionNodeEvent('event.mention');
+
+    await vi.waitFor(() => expect(useGroups.getState().mentions).toEqual({ g9: 5 }));
+  });
+
+  it('ignore les événements autres que event.mention', () => {
+    handleMentionNodeEvent('event.dm');
+
+    expect(listMock).not.toHaveBeenCalled();
   });
 });
 

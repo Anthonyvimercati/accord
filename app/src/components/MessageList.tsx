@@ -12,16 +12,18 @@
  * auteurs (couleur du rôle le plus haut en salon).
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { DeliveryState, FileAttachment, MsgBody, Reaction } from '../lib/api';
 import { formatDay, formatTimestamp } from '../lib/format';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
+import { useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
-import { useUi, useT, type AncrePopover } from '../stores/ui';
+import { useUi, useT, type AncrePopover, type View } from '../stores/ui';
 import { AttachmentRow } from './Attachments';
 import { Avatar } from './Avatar';
+import { ForwardPicker } from './ForwardPicker';
 import { MarkdownText } from './MarkdownText';
 import { MessageActions } from './MessageActions';
 import { ReactionRow } from './Reactions';
@@ -86,14 +88,29 @@ function displayText(message: DisplayMessage): string | null {
   return message.edited ?? (message.body.type === 'text' ? message.body.text : null);
 }
 
+/**
+ * Lien `accord:` copiable vers un message : `accord:msg/<conversation>/<id>`
+ * où la conversation est `dm:<pair>` ou `group:<groupe>:<salon>`. Aucun
+ * gestionnaire d'ouverture n'existe encore (copier suffit — voir le suivi).
+ */
+export function messageLink(view: View, msgId: string): string | null {
+  if (view.kind === 'dm') return `accord:msg/dm:${view.peer}/${msgId}`;
+  if (view.kind === 'group') {
+    return `accord:msg/group:${view.groupId}:${view.channelId ?? ''}/${msgId}`;
+  }
+  return null;
+}
+
 function BodyText({
   message,
   emojiMap,
   knownMentions,
+  roleColors,
 }: {
   message: DisplayMessage;
   emojiMap?: ReadonlyMap<string, string> | undefined;
   knownMentions?: ReadonlySet<string> | undefined;
+  roleColors?: ReadonlyMap<string, number> | undefined;
 }) {
   const t = useT();
   if (message.deleted) {
@@ -109,6 +126,7 @@ function BodyText({
         text={text}
         emojis={emojiMap}
         knownMentions={knownMentions}
+        roleColors={roleColors}
         hint={message.author}
       />
       {message.edited !== null && (
@@ -251,10 +269,34 @@ export function MessageList({
   const lang = useUi((s) => s.lang);
   const openProfile = useUi((s) => s.openProfile);
   const requestJump = useUi((s) => s.requestJump);
+  const toast = useUi((s) => s.toast);
   const view = useUi((s) => s.view);
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
   const t = useT();
+  // Rôles du groupe (nom minuscule → couleur) pour les pastilles `@rôle`.
+  const groupRoles = useGroups((s) => (groupId !== null ? s.states[groupId]?.roles : undefined));
+  const roleColors = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const role of groupRoles ?? []) map.set(role.name.toLowerCase(), role.color);
+    return map;
+  }, [groupRoles]);
+  /** Message en cours de transfert (null : aucun). */
+  const [forwarding, setForwarding] = useState<DisplayMessage | null>(null);
+
+  /** Copie le lien `accord:` du message et confirme par un toast. */
+  const copyLink = (message: DisplayMessage): void => {
+    const link = messageLink(view, message.msg_id);
+    if (link === null) return;
+    try {
+      void navigator.clipboard
+        .writeText(link)
+        .then(() => toast('info', t.dm.linkCopied))
+        .catch(() => toast('error', t.errors.actionFailed));
+    } catch {
+      // Presse-papiers indisponible (environnement restreint) : ignoré.
+    }
+  };
   // Accusés de lecture : uniquement en conversation directe (jamais en salon).
   const dmPeer = groupId === null && view.kind === 'dm' ? view.peer : null;
   const peerReadLamport = useDms((s) =>
@@ -369,6 +411,7 @@ export function MessageList({
   };
 
   return (
+    <>
     <div
       ref={containerRef}
       onScroll={handleScroll}
@@ -433,6 +476,8 @@ export function MessageList({
                   }
                   onEdit={() => setEditingId(m.msg_id)}
                   onDelete={() => actions.onDelete(m)}
+                  onForward={() => setForwarding(m)}
+                  onCopyLink={() => copyLink(m)}
                   onTogglePin={
                     actions.onTogglePin === undefined
                       ? undefined
@@ -510,6 +555,7 @@ export function MessageList({
                         message={m}
                         emojiMap={emojiMap}
                         knownMentions={knownMentions}
+                        roleColors={roleColors}
                       />
                     </div>
                   )
@@ -562,5 +608,13 @@ export function MessageList({
         );
       })}
     </div>
+      {forwarding !== null && (
+        <ForwardPicker
+          text={displayText(forwarding) ?? ''}
+          attachments={forwarding.attachments}
+          onClose={() => setForwarding(null)}
+        />
+      )}
+    </>
   );
 }

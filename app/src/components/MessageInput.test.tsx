@@ -8,11 +8,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MAX_TAILLE_PIECE } from '../lib/attachments';
+import type { Contact, GroupStateJson } from '../lib/api';
+import { useFriends } from '../stores/friends';
+import { useGroups } from '../stores/groups';
+import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 import { MessageInput } from './MessageInput';
 
 vi.mock('../lib/client', () => ({
-  rpc: { onEvent: vi.fn(() => () => {}) },
+  rpc: { onEvent: vi.fn(() => () => {}), onStatus: vi.fn(() => () => {}) },
   api: { filesShareBytes: vi.fn() },
 }));
 
@@ -22,6 +26,9 @@ const shareMock = api.filesShareBytes as unknown as Mock;
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
+  useGroups.setState({ states: {} });
+  useFriends.setState({ contacts: [] });
+  useSession.setState({ self: null });
   shareMock.mockReset();
 });
 
@@ -174,5 +181,94 @@ describe('MessageInput — envoi', () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(screen.getByRole('textbox')).toHaveValue('oups');
     expect(screen.getByText('photo.png')).toBeInTheDocument();
+  });
+});
+
+/** Installe un groupe (deux membres, un rôle) et un contact nommé « Alice ». */
+function setupGroup(): void {
+  const state = {
+    group_id: 'g1',
+    name: 'G',
+    icon: null,
+    founder: null,
+    members: [
+      { pubkey: 'pk_alice', roles: [] },
+      { pubkey: 'pk_bob', roles: [] },
+    ],
+    bans: [],
+    channels: [],
+    categories: [],
+    roles: [{ role_id: 'r1', name: 'Mods', color: 0xff0000, position: 1, permissions: 0 }],
+    invites: [],
+    my_permissions: 0,
+  } satisfies GroupStateJson;
+  useGroups.setState({ states: { g1: state } });
+  useFriends.setState({
+    contacts: [{ pubkey: 'pk_alice', display_name: 'Alice' }] as unknown as Contact[],
+  });
+}
+
+/** Édite la valeur du champ en plaçant le curseur en fin de texte. */
+function typeInput(value: string): void {
+  fireEvent.change(screen.getByRole('textbox'), {
+    target: { value, selectionStart: value.length },
+  });
+}
+
+describe('MessageInput — autocomplétion de mentions', () => {
+  it('ouvre la liste avec membres, rôles et @everyone/@here en salon', () => {
+    setupGroup();
+    render(<MessageInput placeholder="p" onSend={vi.fn()} groupId="g1" />);
+
+    typeInput('@');
+
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /@everyone/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /@here/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Mods/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Alice/ })).toBeInTheDocument();
+  });
+
+  it('filtre les suggestions au fil de la saisie', () => {
+    setupGroup();
+    render(<MessageInput placeholder="p" onSend={vi.fn()} groupId="g1" />);
+
+    typeInput('@al');
+
+    expect(screen.getByRole('option', { name: /Alice/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /@everyone/ })).not.toBeInTheDocument();
+  });
+
+  it('insère la suggestion à Entrée sans envoyer le message', () => {
+    setupGroup();
+    const onSend = vi.fn();
+    render(<MessageInput placeholder="p" onSend={onSend} groupId="g1" />);
+
+    typeInput('@al');
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+
+    expect(screen.getByRole('textbox')).toHaveValue('@Alice ');
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('navigue au clavier puis insère avec Tab', () => {
+    setupGroup();
+    render(<MessageInput placeholder="p" onSend={vi.fn()} groupId="g1" />);
+
+    typeInput('@');
+    const box = screen.getByRole('textbox');
+    fireEvent.keyDown(box, { key: 'ArrowDown' }); // everyone -> here
+    fireEvent.keyDown(box, { key: 'Tab' });
+
+    expect(box).toHaveValue('@here ');
+  });
+
+  it('n’ouvre aucune liste en message privé (aucun candidat)', () => {
+    render(<MessageInput placeholder="p" onSend={vi.fn()} />);
+
+    typeInput('@');
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 });

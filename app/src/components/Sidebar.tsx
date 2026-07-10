@@ -4,19 +4,39 @@
  * (les sans-catégorie d'abord), boutons gérés par les permissions.
  */
 
+import { useState } from 'react';
 import type { GroupChannel } from '../lib/api';
 import { presenceOf, useFriends } from '../stores/friends';
 import { useGroups, channelsByCategory, hasPerm, PERMISSIONS } from '../stores/groups';
 import { useUi, useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
+import { MentionInbox } from './MentionInbox';
 import { PresenceDot } from './PresenceDot';
 import { SearchBar } from './SearchBar';
-import { UnreadBadge } from './UnreadBadge';
+import { MentionBadge, UnreadBadge } from './UnreadBadge';
 import { UserPanel } from './UserPanel';
 import { VoiceSection } from './VoiceSection';
 
-function HomeSidebar() {
+/** Bouton d'ouverture de la boîte de mentions (icône « @ »). */
+function InboxButton({ onOpen }: { onOpen: () => void }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      aria-label={t.mentions.open}
+      title={t.mentions.open}
+      onClick={onOpen}
+      className="shrink-0 rounded p-1.5 text-muted hover:bg-chat-hover hover:text-norm"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+        <path d="M12 2a10 10 0 0 0 0 20 9.9 9.9 0 0 0 5-1.3 1 1 0 1 0-1-1.7A7.9 7.9 0 0 1 12 20a8 8 0 1 1 8-8v1a1.5 1.5 0 0 1-3 0V8a1 1 0 1 0-2 0v.5A4 4 0 1 0 16 14a3.5 3.5 0 0 0 6-2v-.9A10 10 0 0 0 12 2Zm0 12a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z" />
+      </svg>
+    </button>
+  );
+}
+
+function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
   const t = useT();
   const view = useUi((s) => s.view);
   const setView = useUi((s) => s.setView);
@@ -42,12 +62,16 @@ function HomeSidebar() {
           {t.friends.title}
         </button>
 
-        <div className="px-2 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-faint">
-          {t.dm.directMessages}
+        <div className="flex items-center justify-between px-2 pb-1 pt-4">
+          <span className="text-xs font-semibold uppercase tracking-wide text-faint">
+            {t.dm.directMessages}
+          </span>
+          <InboxButton onOpen={onOpenInbox} />
         </div>
         {friends.map((c) => {
           const active = view.kind === 'dm' && view.peer === c.pubkey;
           const status = presenceOf(c);
+          const mentionCount = c.mention_count ?? 0;
           return (
             <button
               key={c.pubkey}
@@ -76,7 +100,12 @@ function HomeSidebar() {
               <span className="min-w-0 truncate font-medium">
                 {c.display_name || c.friend_code}
               </span>
-              <UnreadBadge count={c.unread ?? 0} />
+              {/* Une mention prime sur le simple non-lu (pastille distincte). */}
+              {mentionCount > 0 ? (
+                <MentionBadge count={mentionCount} />
+              ) : (
+                <UnreadBadge count={c.unread ?? 0} />
+              )}
             </button>
           );
         })}
@@ -140,7 +169,13 @@ function ChannelRow({
   );
 }
 
-function GroupSidebar({ groupId }: { groupId: string }) {
+function GroupSidebar({
+  groupId,
+  onOpenInbox,
+}: {
+  groupId: string;
+  onOpenInbox: () => void;
+}) {
   const t = useT();
   const view = useUi((s) => s.view);
   const setView = useUi((s) => s.setView);
@@ -148,6 +183,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
   const toast = useUi((s) => s.toast);
   const state = useGroups((s) => s.states[groupId]);
   const unread = useGroups((s) => s.unread[groupId]);
+  const mentionCount = useGroups((s) => s.mentions[groupId]) ?? 0;
   const joinVoice = useVoice((s) => s.join);
 
   const myPerms = state?.my_permissions ?? 0;
@@ -172,6 +208,8 @@ function GroupSidebar({ groupId }: { groupId: string }) {
         <span className="min-w-0 flex-1 truncate font-semibold text-header">
           {state?.name ?? '…'}
         </span>
+        {mentionCount > 0 && <MentionBadge count={mentionCount} />}
+        <InboxButton onOpen={onOpenInbox} />
         {hasPerm(myPerms, PERMISSIONS.INVITE) && (
           <button
             type="button"
@@ -257,10 +295,17 @@ function GroupSidebar({ groupId }: { groupId: string }) {
 
 export function Sidebar() {
   const view = useUi((s) => s.view);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const openInbox = (): void => setInboxOpen(true);
   return (
     <aside className="flex h-full w-60 flex-col bg-sidebar">
-      {view.kind === 'group' ? <GroupSidebar groupId={view.groupId} /> : <HomeSidebar />}
+      {view.kind === 'group' ? (
+        <GroupSidebar groupId={view.groupId} onOpenInbox={openInbox} />
+      ) : (
+        <HomeSidebar onOpenInbox={openInbox} />
+      )}
       <UserPanel />
+      {inboxOpen && <MentionInbox onClose={() => setInboxOpen(false)} />}
     </aside>
   );
 }

@@ -23,6 +23,7 @@ import {
   mergeRecentPage,
   sortAscending,
 } from '../lib/history';
+import { useFriends } from './friends';
 
 /** Clé d'index des historiques de salon (aussi comprise par lib/search). */
 export function channelKey(groupId: string, channelId: string): string {
@@ -226,6 +227,8 @@ interface GroupsState {
   pins: Record<string, string[]>;
   /** Non-lus par groupe puis salon (`groups.list`) : seuls les > 0 figurent. */
   unread: Record<string, Record<string, number>>;
+  /** Mentions non lues par groupe (`groups.list`) : seuls les > 0 figurent. */
+  mentions: Record<string, number>;
   loadList: () => Promise<void>;
   /** Recharge uniquement les compteurs de non-lus (sans recharger les états). */
   refreshUnread: () => Promise<void>;
@@ -359,16 +362,17 @@ export const useGroups = create<GroupsState>((set, get) => ({
   loadingOlder: {},
   pins: {},
   unread: {},
+  mentions: {},
 
   loadList: async () => {
-    const { groups, unread } = await api.groupsList();
-    set({ ids: groups, unread: unread ?? {} });
+    const { groups, unread, mentions } = await api.groupsList();
+    set({ ids: groups, unread: unread ?? {}, mentions: mentions ?? {} });
     await Promise.all(groups.map((id) => get().loadState(id)));
   },
 
   refreshUnread: async () => {
-    const { unread } = await api.groupsList();
-    set({ unread: unread ?? {} });
+    const { unread, mentions } = await api.groupsList();
+    set({ unread: unread ?? {}, mentions: mentions ?? {} });
   },
 
   markRead: async (groupId, channelId, lamport) => {
@@ -565,6 +569,9 @@ export const useGroups = create<GroupsState>((set, get) => ({
       unread: Object.fromEntries(
         Object.entries(s.unread).filter(([id]) => id !== groupId),
       ),
+      mentions: Object.fromEntries(
+        Object.entries(s.mentions).filter(([id]) => id !== groupId),
+      ),
     }));
   },
 
@@ -676,3 +683,33 @@ export const useGroups = create<GroupsState>((set, get) => ({
     await get().loadState(groupId);
   },
 }));
+
+/**
+ * Événement `event.mention` : une mention vient d'être détectée localement.
+ * Rafraîchit les compteurs de mentions/non-lus par groupe et la liste des
+ * contacts (le compteur de mentions par MP y est plié) pour actualiser les
+ * pastilles en direct. Exporté pour les tests ; câblé au chargement du module.
+ */
+export function handleMentionNodeEvent(method: string): void {
+  if (method !== 'event.mention') return;
+  void useGroups
+    .getState()
+    .refreshUnread()
+    .catch(() => {
+      // Best effort : les compteurs seront corrigés au prochain passage.
+    });
+  void useFriends
+    .getState()
+    .load()
+    .catch(() => {
+      // Best effort : la liste sera rechargée au prochain événement.
+    });
+}
+
+// Garde d'environnement : les tests qui simulent `../lib/client` sans
+// `rpc.onEvent` doivent pouvoir importer ce module sans câblage.
+try {
+  rpc.onEvent(handleMentionNodeEvent);
+} catch {
+  // Client simulé (tests) : pas d'événements à câbler.
+}

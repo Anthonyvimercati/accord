@@ -214,6 +214,44 @@ describe('MarkdownText — highlighted code blocks', () => {
   });
 });
 
+describe('MarkdownText — mentions étendues', () => {
+  it('rend @everyone en pastille distincte (accent jaune)', () => {
+    render(<MarkdownText text="@everyone" />);
+    expect(screen.getByText('@everyone').className).toContain('text-yellow');
+  });
+
+  it('rend @here en pastille distincte (accent jaune)', () => {
+    render(<MarkdownText text="@here" />);
+    expect(screen.getByText('@here').className).toContain('text-yellow');
+  });
+
+  it('rend une mention de rôle avec la couleur du rôle', () => {
+    render(<MarkdownText text="@Mods" roleColors={new Map([['mods', 0xff0000]])} />);
+    const el = screen.getByText('@Mods');
+    expect(el.getAttribute('style')).toMatch(/color/);
+    expect(el.className).not.toContain('text-yellow');
+  });
+
+  it('rend un rôle sans couleur en pastille blurple', () => {
+    render(<MarkdownText text="@Neutre" roleColors={new Map([['neutre', 0]])} />);
+    const el = screen.getByText('@Neutre');
+    expect(el.className).toContain('text-blurple');
+    expect(el.getAttribute('style')).toBeNull();
+  });
+
+  it('préfère le rôle au simple membre pour un nom homonyme', () => {
+    render(
+      <MarkdownText
+        text="@Mods"
+        knownMentions={new Set(['mods'])}
+        roleColors={new Map([['mods', 0x00ff00]])}
+      />,
+    );
+    // Le style couleur du rôle prime sur la pastille membre par défaut.
+    expect(screen.getByText('@Mods').getAttribute('style')).toMatch(/color/);
+  });
+});
+
 describe('MarkdownText — émojis custom', () => {
   it('rend l’émoji en image quand le serveur le connaît', async () => {
     render(<MarkdownText text=":parrot:" emojis={new Map([['parrot', 'racine']])} />);

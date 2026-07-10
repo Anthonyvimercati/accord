@@ -2,6 +2,15 @@
  * Pièces jointes côté saisie : bornes du contrat (10 pièces au plus par
  * message, 8 Mio décodés au plus par pièce — borne `files.share_bytes` et
  * `files.read`), validation pure des ajouts et encodage base64 des octets.
+ *
+ * La borne des 8 Mio est le VRAI plafond du chemin d'envoi disponible :
+ * l'UI ne dispose que d'octets (objets `File`), publiés via `files.share_bytes`
+ * (8 Mio décodés). Le chemin `files.share` monte à 2 Gio mais exige un chemin
+ * disque, donc un sélecteur natif Tauri (plugin dialog) et une enveloppe
+ * `api.filesShare` — non câblés (aucune dépendance ajoutée dans cette vague).
+ * Tant qu'ils manquent, dépasser 8 Mio produirait un envoi voué à l'échec ;
+ * la borne reste donc appliquée et le message d'erreur la mentionne clairement.
+ * Suivi : câbler le sélecteur de fichier natif + `files.share` (voir SPEC.md).
  */
 
 /** Nombre maximal de pièces jointes par message (contrat dm/groups.send). */

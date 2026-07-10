@@ -13,6 +13,7 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { analyserMarkdown, type MdNode } from '../lib/markdown';
 import { highlightCode, type TokenKind } from '../lib/highlight';
+import { roleColorCss } from '../stores/groups';
 import { useT } from '../stores/ui';
 import { CustomEmoji } from './CustomEmoji';
 
@@ -22,6 +23,8 @@ export interface MarkdownTextProps {
   emojis?: ReadonlyMap<string, string> | undefined;
   /** Noms connus (en minuscules) rendus en « pill » de mention. */
   knownMentions?: ReadonlySet<string> | undefined;
+  /** Rôles connus (nom minuscule → couleur `0xRRGGBB`) rendus en pastille colorée. */
+  roleColors?: ReadonlyMap<string, number> | undefined;
   /** Pair source probable pour le téléchargement des images d'émoji. */
   hint?: string | undefined;
 }
@@ -30,7 +33,16 @@ export interface MarkdownTextProps {
 interface Ctx {
   emojis?: ReadonlyMap<string, string> | undefined;
   knownMentions?: ReadonlySet<string> | undefined;
+  roleColors?: ReadonlyMap<string, number> | undefined;
   hint?: string | undefined;
+}
+
+/** Style « pill » d'un rôle : texte à sa couleur, fond translucide assorti. */
+function roleMentionStyle(color: number): { color: string; backgroundColor: string } {
+  const r = (color >> 16) & 0xff;
+  const g = (color >> 8) & 0xff;
+  const b = color & 0xff;
+  return { color: roleColorCss(color), backgroundColor: `rgba(${r}, ${g}, ${b}, 0.16)` };
 }
 
 /** N'accepte que les schémas http/https (les autres sont rendus en texte). */
@@ -199,7 +211,35 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       );
     }
     case 'mention': {
-      const connu = ctx.knownMentions?.has(node.name.toLowerCase()) ?? false;
+      const lower = node.name.toLowerCase();
+      // Broadcast mentions always read as a pill (distinct amber accent).
+      if (lower === 'everyone' || lower === 'here') {
+        return (
+          <span className="rounded bg-yellow/20 px-0.5 font-semibold text-yellow">
+            @{node.name}
+          </span>
+        );
+      }
+      // Role mention: coloured pill using the role's own colour when set.
+      const roleColor = ctx.roleColors?.get(lower);
+      if (roleColor !== undefined) {
+        if (roleColor === 0) {
+          return (
+            <span className="rounded bg-blurple/20 px-0.5 font-medium text-blurple">
+              @{node.name}
+            </span>
+          );
+        }
+        return (
+          <span
+            className="rounded px-0.5 font-medium"
+            style={roleMentionStyle(roleColor)}
+          >
+            @{node.name}
+          </span>
+        );
+      }
+      const connu = ctx.knownMentions?.has(lower) ?? false;
       return (
         <span
           className={
@@ -221,7 +261,13 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
 }
 
 /** Rend un texte de message en nœuds React (markdown + émojis + mentions). */
-export function MarkdownText({ text, emojis, knownMentions, hint }: MarkdownTextProps) {
+export function MarkdownText({
+  text,
+  emojis,
+  knownMentions,
+  roleColors,
+  hint,
+}: MarkdownTextProps) {
   const nodes = analyserMarkdown(text);
-  return <>{renderNodes(nodes, { emojis, knownMentions, hint })}</>;
+  return <>{renderNodes(nodes, { emojis, knownMentions, roleColors, hint })}</>;
 }

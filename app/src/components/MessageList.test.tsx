@@ -6,8 +6,15 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { MessageList, type DisplayMessage, type MessageListActions } from './MessageList';
+import {
+  MessageList,
+  messageLink,
+  type DisplayMessage,
+  type MessageListActions,
+} from './MessageList';
 import { useDms } from '../stores/dms';
+import { useFriends } from '../stores/friends';
+import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 
@@ -51,8 +58,65 @@ function makeActions(): MessageListActions {
 }
 
 beforeEach(() => {
-  useUi.setState({ lang: 'fr' });
+  useUi.setState({ lang: 'fr', view: { kind: 'friends' } });
   useSession.setState({ self: null });
+  useFriends.setState({ contacts: [] });
+  useGroups.setState({ ids: [], states: {} });
+});
+
+describe('messageLink', () => {
+  it('encode un lien de message privé', () => {
+    expect(messageLink({ kind: 'dm', peer: 'pk' }, 'm1')).toBe('accord:msg/dm:pk/m1');
+  });
+
+  it('encode un lien de salon de groupe', () => {
+    expect(messageLink({ kind: 'group', groupId: 'g', channelId: 'c' }, 'm1')).toBe(
+      'accord:msg/group:g:c/m1',
+    );
+  });
+
+  it('rend null pour la vue Amis (aucune conversation)', () => {
+    expect(messageLink({ kind: 'friends' }, 'm1')).toBeNull();
+  });
+});
+
+describe('MessageList — transfert et lien', () => {
+  it('expose les actions Transférer et Copier le lien', () => {
+    render(<MessageList messages={[textMsg('m1', BASE_MS, 'salut')]} actions={makeActions()} />);
+
+    expect(screen.getByLabelText('Transférer')).toBeInTheDocument();
+    expect(screen.getByLabelText('Copier le lien')).toBeInTheDocument();
+  });
+
+  it('ouvre le sélecteur de transfert', () => {
+    render(<MessageList messages={[textMsg('m1', BASE_MS, 'salut')]} actions={makeActions()} />);
+
+    fireEvent.click(screen.getByLabelText('Transférer'));
+
+    expect(
+      screen.getByRole('dialog', { name: 'Transférer le message' }),
+    ).toBeInTheDocument();
+  });
+
+  it('copie le lien du message dans le presse-papiers', () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    useUi.setState({ view: { kind: 'dm', peer: 'pk' } });
+    render(
+      <MessageList
+        messages={[textMsg('m1', BASE_MS, 'salut')]}
+        actions={makeActions()}
+        groupId={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Copier le lien'));
+
+    expect(writeText).toHaveBeenCalledWith('accord:msg/dm:pk/m1');
+  });
 });
 
 describe('MessageList — rendu', () => {

@@ -25,6 +25,10 @@ interface MessageActionsProps {
   onReply?: (() => void) | undefined;
   onEdit: () => void;
   onDelete: () => void;
+  /** Transfert du message vers une autre conversation (MP et salons). */
+  onForward?: (() => void) | undefined;
+  /** Copie d'un lien `accord:` vers le message dans le presse-papiers. */
+  onCopyLink?: (() => void) | undefined;
   /** Épinglage — absent hors salon ou sans MANAGE_MESSAGES. */
   onTogglePin?: (() => void) | undefined;
   /** Vrai si le message est épinglé (le libellé devient « Désépingler »). */
@@ -68,6 +72,8 @@ export function MessageActions({
   onReply,
   onEdit,
   onDelete,
+  onForward,
+  onCopyLink,
   onTogglePin,
   pinned = false,
   groupId = null,
@@ -205,6 +211,44 @@ export function MessageActions({
               aria-hidden
             >
               <path d="M10 8.3V4.9c0-.8-1-1.3-1.6-.7L1.7 10.3a1 1 0 0 0 0 1.5l6.7 6.1c.6.6 1.6.1 1.6-.7v-3.4c4.9 0 8.5 1.2 11 4.6-.1-6.1-3.3-9.6-11-10.1Z" />
+            </svg>
+          </ActionButton>
+        )}
+        {onForward !== undefined && (
+          <ActionButton
+            label={t.dm.forward}
+            onClick={() => {
+              closePanels();
+              onForward();
+            }}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden
+            >
+              <path d="M14 8.3V4.9c0-.8 1-1.3 1.6-.7l6.7 6.1a1 1 0 0 1 0 1.5l-6.7 6.1c-.6.6-1.6.1-1.6-.7v-3.4c-4.9 0-8.5 1.2-11 4.6.1-6.1 3.3-9.6 11-10.1Z" />
+            </svg>
+          </ActionButton>
+        )}
+        {onCopyLink !== undefined && (
+          <ActionButton
+            label={t.dm.copyLink}
+            onClick={() => {
+              closePanels();
+              onCopyLink();
+            }}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden
+            >
+              <path d="M10.6 13.4a1 1 0 0 0 1.4 0l4.2-4.2a2 2 0 0 1 2.8 2.8l-4.2 4.2a1 1 0 0 0 1.4 1.4l4.2-4.2a4 4 0 0 0-5.6-5.6l-4.2 4.2a1 1 0 0 0 0 1.4Zm2.8-2.8a1 1 0 0 0-1.4 0l-4.2 4.2a2 2 0 1 1-2.8-2.8l4.2-4.2A1 1 0 0 0 7.8 6.4l-4.2 4.2a4 4 0 0 0 5.6 5.6l4.2-4.2a1 1 0 0 0 0-1.4Z" />
             </svg>
           </ActionButton>
         )}

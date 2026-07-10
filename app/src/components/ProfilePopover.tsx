@@ -12,6 +12,7 @@ import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
 import { roleColorCss, sortRoles, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
+import { api } from '../lib/client';
 import { lireFichier } from '../lib/files';
 import { Avatar } from './Avatar';
 import { PresenceDot } from './PresenceDot';
@@ -80,6 +81,9 @@ export function ProfilePopover() {
   const openModal = useUi((s) => s.openModal);
   /** Confirmation en ligne du retrait d'ami (deux temps, distinct du blocage). */
   const [confirmRemove, setConfirmRemove] = useState(false);
+  /** Note privée locale du contact (chargée à l'ouverture, jamais émise). */
+  const [note, setNote] = useState('');
+  const [noteLoaded, setNoteLoaded] = useState(false);
   const self = useSession((s) => s.self);
   const state = useGroups((s) =>
     profile?.groupId != null ? s.states[profile.groupId] : undefined,
@@ -97,6 +101,31 @@ export function ProfilePopover() {
   useEffect(() => {
     setConfirmRemove(false);
   }, [profile]);
+
+  // Charge la note privée locale du contact à l'ouverture (source de vérité :
+  // le nœud). Purement locale — jamais envoyée au pair.
+  useEffect(() => {
+    setNote('');
+    setNoteLoaded(false);
+    if (profile === null) return undefined;
+    const target = profile.pubkey;
+    if (self !== null && target === self.pubkey) return undefined;
+    let alive = true;
+    api
+      .friendsGetNote(target)
+      .then(({ note: value }) => {
+        if (alive) {
+          setNote(value ?? '');
+          setNoteLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (alive) setNoteLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [profile, self]);
 
   useEffect(() => {
     if (profile === null) return undefined;
@@ -165,6 +194,16 @@ export function ProfilePopover() {
     block(pubkey).catch(() => toast('error', t.errors.actionFailed));
     closeProfile();
   };
+
+  /** Enregistre la note privée (au blur) si elle a changé ; jamais émise. */
+  const enregistrerNote = (): void => {
+    if (!noteLoaded) return;
+    api
+      .friendsSetNote(pubkey, note.trim())
+      .catch(() => toast('error', t.errors.actionFailed));
+  };
+
+  const canNote = !isSelf && contact !== undefined;
 
   return (
     <div
@@ -246,6 +285,28 @@ export function ProfilePopover() {
                   );
                 })}
               </div>
+            </>
+          )}
+
+          {canNote && (
+            <>
+              <div className="mt-3 h-px bg-input" role="separator" />
+              <label
+                htmlFor="profil-note"
+                className="mt-2 block text-xs font-semibold uppercase tracking-wide text-faint"
+              >
+                {t.profil.noteLabel}
+              </label>
+              <textarea
+                id="profil-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onBlur={enregistrerNote}
+                maxLength={4096}
+                rows={2}
+                placeholder={t.profil.notePlaceholder}
+                className="mt-1 w-full resize-none rounded bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-blurple"
+              />
             </>
           )}
 

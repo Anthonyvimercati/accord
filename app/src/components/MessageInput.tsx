@@ -6,7 +6,7 @@
  * « publication… »), puis le message part avec ses références.
  */
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { FileAttachment } from '../lib/api';
 import {
@@ -16,11 +16,23 @@ import {
   validerAjout,
 } from '../lib/attachments';
 import { jetonTexteEmoji, type EmojiPick } from '../lib/emoji';
+import {
+  findActiveMention,
+  filterMentions,
+  groupMentionCandidates,
+  insertMention,
+  type ActiveMention,
+  type MentionCandidate,
+} from '../lib/mentions';
 import { api } from '../lib/client';
 import { tailleLisible } from '../lib/format';
 import { useTypingEmitter, type TypingTarget } from '../hooks/useTypingEmitter';
+import { useFriends, displayNameOf } from '../stores/friends';
+import { sortRoles, useGroups } from '../stores/groups';
+import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { EmojiPicker } from './EmojiPicker';
+import { MentionAutocomplete } from './MentionAutocomplete';
 
 /** Pièce en attente d'envoi (aperçu local, avant publication). */
 interface PieceEnAttente {
@@ -59,6 +71,48 @@ export function MessageInput({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  /* @mention autocomplete: candidates from the group state (members, roles
+   * and the two broadcasts); no candidates in a direct message. */
+  const groupState = useGroups((s) => (groupId !== null ? s.states[groupId] : undefined));
+  const contacts = useFriends((s) => s.contacts);
+  const self = useSession((s) => s.self);
+  const candidates = useMemo<MentionCandidate[]>(() => {
+    if (groupState === undefined) return [];
+    const nameOf = (pubkey: string): string =>
+      self !== null && pubkey === self.pubkey
+        ? selfDisplayName(self)
+        : displayNameOf(contacts, pubkey);
+    return groupMentionCandidates(groupState.members, sortRoles(groupState.roles), nameOf);
+  }, [groupState, contacts, self]);
+
+  const [mention, setMention] = useState<ActiveMention | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const suggestions =
+    mention !== null ? filterMentions(candidates, mention.query) : [];
+  const mentionOpen = suggestions.length > 0;
+  const activeIndex = Math.min(mentionIndex, suggestions.length - 1);
+
+  /** Recomputes the active mention from the caret without resetting the
+   * highlighted index (used on caret moves; typing resets it separately). */
+  const syncCaret = (el: HTMLTextAreaElement): void => {
+    setMention(findActiveMention(el.value, el.selectionStart ?? el.value.length));
+  };
+
+  /** Inserts the chosen candidate and closes the popup. */
+  const chooseMention = (candidate: MentionCandidate | undefined): void => {
+    if (candidate === undefined || mention === null) return;
+    const { text: next, caret } = insertMention(text, mention, candidate);
+    setText(next);
+    setMention(null);
+    const el = textareaRef.current;
+    if (el !== null) {
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(caret, caret);
+      });
+    }
+  };
 
   /** Insère le jeton d'un émoji choisi à la position du curseur. */
   const insererEmoji = (pick: EmojiPick): void => {
@@ -220,7 +274,7 @@ export function MessageInput({
         </p>
       )}
       <div
-        className={`flex items-end rounded-lg bg-input ${
+        className={`relative flex items-end rounded-lg bg-input ${
           survol ? 'ring-2 ring-blurple' : ''
         }`}
         onDragOver={(e) => {
@@ -235,6 +289,14 @@ export function MessageInput({
           ajouter(Array.from(e.dataTransfer.files));
         }}
       >
+        {mentionOpen && (
+          <MentionAutocomplete
+            candidates={suggestions}
+            activeIndex={activeIndex}
+            onSelect={chooseMention}
+            onHover={setMentionIndex}
+          />
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -267,8 +329,18 @@ export function MessageInput({
           value={text}
           rows={1}
           onChange={(e) => {
-            setText(e.target.value);
-            notifyTyping(e.target.value);
+            const value = e.target.value;
+            setText(value);
+            notifyTyping(value);
+            // Real edits recompute the mention and reset the highlight.
+            setMention(findActiveMention(value, e.target.selectionStart ?? value.length));
+            setMentionIndex(0);
+          }}
+          onClick={(e) => syncCaret(e.currentTarget)}
+          onKeyUp={(e) => {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+              syncCaret(e.currentTarget);
+            }
           }}
           onPaste={(e) => {
             const fichiers = Array.from(e.clipboardData.files);
@@ -277,6 +349,29 @@ export function MessageInput({
             ajouter(fichiers);
           }}
           onKeyDown={(e) => {
+            // The autocomplete captures navigation keys before send/newline.
+            if (mentionOpen) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setMentionIndex((i) => (i + 1) % suggestions.length);
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setMentionIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+                return;
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                chooseMention(suggestions[activeIndex]);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setMention(null);
+                return;
+              }
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               void submit();
