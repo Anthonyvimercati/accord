@@ -373,23 +373,89 @@ fn candidate_ports(preferred: Option<u16>) -> Vec<u16> {
     ports
 }
 
-/// Lie le socket UDP P2P en essayant les ports candidats dans l'ordre. Le
-/// port `0` final garantit qu'une adresse est toujours obtenue (sauf échec
-/// d'E/S système, propagé tel quel).
-async fn bind_p2p(ip: IpAddr, preferred: Option<u16>) -> Result<UdpDatagram, NodeError> {
+/// Nombre de tentatives sur le premier port candidat (préféré, ou par défaut)
+/// avant de passer au port de repli suivant.
+///
+/// Absorbe la course bénigne où le port d'une précédente instance du même
+/// profil vient tout juste d'être libéré par le système (fin de processus en
+/// cours de réclamation par l'OS lors d'un relancement rapide) : la toute
+/// première tentative peut échouer de quelques dizaines de millisecondes.
+/// Sans cette retenue, un seul échec transitoire faisait immédiatement
+/// dériver le port stable vers le suivant de la plage (48016 → 48017) au lieu
+/// de converger vers une valeur unique — d'où la dérive observée d'un
+/// lancement à l'autre.
+///
+/// Volontairement *sans* `SO_REUSEADDR`/`SO_REUSEPORT` ici : ces options
+/// permettraient à deux instances **réellement distinctes et actives** de
+/// partager silencieusement le même port UDP (le noyau se met alors à
+/// répartir les datagrammes entre elles), au lieu de faire échouer
+/// proprement la seconde et de la faire replier sur le port suivant. C'est
+/// exactement le cas de deux nœuds de test sur `127.0.0.1` (voir
+/// `tests/fichiers_e2e.rs`) ou de deux profils lancés volontairement en
+/// parallèle sur la même machine : la réutilisation y romprait le transport
+/// au lieu de le stabiliser.
+const PREFERRED_PORT_BIND_ATTEMPTS: u32 = 5;
+/// Délai entre deux tentatives sur le premier port candidat.
+const PREFERRED_PORT_BIND_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(30);
+
+/// Essaie chaque port de `ports` dans l'ordre via `try_bind`, avec
+/// `attempts_first` tentatives (séparées de `delay`) sur le premier port de
+/// la liste avant de passer au suivant (un seul essai chacun, vrai repli).
+///
+/// Fonction pure paramétrée par `try_bind` pour rester testable sans socket
+/// réel (voir les tests ci-dessous).
+async fn bind_candidates<F, Fut, T>(
+    ports: &[u16],
+    attempts_first: u32,
+    delay: std::time::Duration,
+    mut try_bind: F,
+) -> Result<T, std::io::Error>
+where
+    F: FnMut(u16) -> Fut,
+    Fut: std::future::Future<Output = std::io::Result<T>>,
+{
     let mut last_err: Option<std::io::Error> = None;
-    for port in candidate_ports(preferred) {
-        match UdpDatagram::bind(SocketAddr::new(ip, port)).await {
-            Ok(socket) => return Ok(socket),
-            Err(e) => last_err = Some(e),
+    for (idx, port) in ports.iter().enumerate() {
+        let attempts = if idx == 0 { attempts_first.max(1) } else { 1 };
+        for attempt in 0..attempts {
+            match try_bind(*port).await {
+                Ok(v) => return Ok(v),
+                Err(e) => last_err = Some(e),
+            }
+            if attempt + 1 < attempts {
+                tokio::time::sleep(delay).await;
+            }
         }
     }
-    Err(NodeError::Io(last_err.unwrap_or_else(|| {
+    Err(last_err.unwrap_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::AddrNotAvailable,
             "aucun port disponible",
         )
-    })))
+    }))
+}
+
+/// Lie le socket UDP P2P en essayant les ports candidats dans l'ordre (B2).
+///
+/// Le premier port (préféré — retenu au précédent lancement — ou
+/// [`node::network::DEFAULT_P2P_PORT`] à défaut) est retenté plusieurs fois
+/// avec un court délai avant tout repli (voir
+/// [`PREFERRED_PORT_BIND_ATTEMPTS`]) : un échec transitoire (port tout juste
+/// libéré par l'OS) ne le fait donc plus dériver immédiatement vers le
+/// suivant de la plage. Un port réellement occupé de façon durable continue
+/// d'échouer et déclenche normalement le repli sur la plage stable puis, en
+/// dernier recours, un port éphémère (`0`), qui garantit qu'une adresse est
+/// toujours obtenue (sauf échec d'E/S système, propagé tel quel).
+async fn bind_p2p(ip: IpAddr, preferred: Option<u16>) -> Result<UdpDatagram, NodeError> {
+    let ports = candidate_ports(preferred);
+    bind_candidates(
+        &ports,
+        PREFERRED_PORT_BIND_ATTEMPTS,
+        PREFERRED_PORT_BIND_RETRY_DELAY,
+        move |port| UdpDatagram::bind(SocketAddr::new(ip, port)),
+    )
+    .await
+    .map_err(NodeError::Io)
 }
 
 #[cfg(test)]
@@ -421,5 +487,79 @@ mod tests {
 
         // Préférence nulle : ignorée (équivalent à None).
         assert_eq!(candidate_ports(Some(0)), sans);
+    }
+
+    /// Documente le cœur du correctif B2 : un échec transitoire sur le
+    /// premier port (port stable) est retenté sur le MÊME port plusieurs
+    /// fois avant tout repli — il ne dérive pas immédiatement vers le port
+    /// suivant de la plage.
+    #[tokio::test]
+    async fn retente_le_port_prefere_avant_de_deriver() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Mutex;
+
+        let ports = [48016u16, 48017, 48018];
+        let tried: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+        let echecs_restants = AtomicUsize::new(2); // Réussit à la 3e tentative.
+        let echecs_restants = &echecs_restants; // Référence `Copy` : capturable par l'`async move`.
+
+        let resultat: Result<u16, std::io::Error> =
+            bind_candidates(&ports, 3, std::time::Duration::from_millis(1), |port| {
+                tried.lock().unwrap().push(port);
+                async move {
+                    if port == 48016
+                        && echecs_restants
+                            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                            .is_ok()
+                    {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::AddrInUse,
+                            "port temporairement occupé",
+                        ));
+                    }
+                    Ok(port)
+                }
+            })
+            .await;
+
+        assert_eq!(resultat.unwrap(), 48016, "converge sur le port stable");
+        assert_eq!(
+            *tried.lock().unwrap(),
+            vec![48016, 48016, 48016],
+            "3 tentatives sur le même port, aucun incrément vers 48017"
+        );
+    }
+
+    /// Une fois les tentatives sur le port préféré épuisées, le repli
+    /// avance bien vers le port candidat suivant (dernier recours).
+    #[tokio::test]
+    async fn replie_sur_le_port_suivant_apres_epuisement() {
+        use std::sync::Mutex;
+
+        let ports = [48016u16, 48017, 48018];
+        let tried: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+
+        let resultat: Result<u16, std::io::Error> =
+            bind_candidates(&ports, 2, std::time::Duration::from_millis(1), |port| {
+                tried.lock().unwrap().push(port);
+                async move {
+                    if port == 48016 {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::AddrInUse,
+                            "toujours occupé",
+                        ))
+                    } else {
+                        Ok(port)
+                    }
+                }
+            })
+            .await;
+
+        assert_eq!(resultat.unwrap(), 48017);
+        assert_eq!(
+            *tried.lock().unwrap(),
+            vec![48016, 48016, 48017],
+            "2 tentatives sur le port préféré, puis repli unique sur le suivant"
+        );
     }
 }
