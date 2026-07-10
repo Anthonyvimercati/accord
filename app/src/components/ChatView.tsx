@@ -16,11 +16,68 @@ import {
 } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { dmTypingKey, groupTypingKey } from '../stores/typing';
-import { useUi, useT } from '../stores/ui';
+import { useUi, useT, type JumpRequest } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
 import { TypingIndicator } from './TypingIndicator';
+
+/**
+ * Traite la demande de saut de l'UI qui vise la vue courante : charge la
+ * fenêtre du message (via `load`) puis rend la cible à révéler (défilement +
+ * surbrillance dans `MessageList`). Une cible absente déclenche un toast.
+ */
+function useMessageJump(
+  matches: (jump: JumpRequest) => boolean,
+  load: (msgId: string) => Promise<boolean>,
+): { msgId: string; nonce: number } | null {
+  const jump = useUi((s) => s.jump);
+  const clearJump = useUi((s) => s.clearJump);
+  const toast = useUi((s) => s.toast);
+  const t = useT();
+  const [scrollTarget, setScrollTarget] = useState<{
+    msgId: string;
+    nonce: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (jump === null || !matches(jump)) return;
+    const req = jump;
+    let cancelled = false;
+    void (async () => {
+      let found = false;
+      try {
+        found = await load(req.msgId);
+      } catch {
+        found = false;
+      }
+      if (cancelled) return;
+      if (found) setScrollTarget({ msgId: req.msgId, nonce: req.nonce });
+      else toast('error', t.dm.messageUnavailable);
+      clearJump();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // `matches`/`load` capturent la vue courante ; seul un nouveau saut relance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jump]);
+
+  return scrollTarget;
+}
+
+/** Messages épinglés résolus dans l'historique chargé + nombre hors-page. */
+function resolvePins(
+  pinnedIds: readonly string[],
+  messages: readonly DisplayMessage[],
+): { resolved: DisplayMessage[]; unresolved: number } {
+  const byId = new Map(messages.map((m) => [m.msg_id, m]));
+  const resolved = pinnedIds.flatMap((id) => {
+    const message = byId.get(id);
+    return message !== undefined && !message.deleted ? [message] : [];
+  });
+  return { resolved, unresolved: pinnedIds.length - resolved.length };
+}
 
 /** Noms (en minuscules) reconnus comme mentions : contacts nommés + soi-même. */
 function mentionSet(contacts: Contact[], self: SelfProfile | null): Set<string> {
@@ -72,17 +129,37 @@ export function DmView({ peer }: { peer: string }) {
   const edit = useDms((s) => s.edit);
   const deleteMessage = useDms((s) => s.deleteMessage);
   const toggleReaction = useDms((s) => s.toggleReaction);
+  const pins = useDms((s) => s.pins[peer]) ?? [];
+  const loadPins = useDms((s) => s.loadPins);
+  const togglePin = useDms((s) => s.togglePin);
+  const retry = useDms((s) => s.retry);
   const markRead = useFriends((s) => s.markRead);
+  const requestJump = useUi((s) => s.requestJump);
   const name = displayNameOf(contacts, peer);
+  /** Volet des messages épinglés (fermé par défaut). */
+  const [pinsOpen, setPinsOpen] = useState(false);
   /** Message auquel la prochaine saisie répondra (null : envoi simple). */
   const [replyTo, setReplyTo] = useState<DisplayMessage | null>(null);
   /** Lamport du dernier message affiché (`null` : fil vide). */
   const lastLamport = messages.at(-1)?.lamport ?? null;
 
+  const scrollTarget = useMessageJump(
+    (jump) => jump.view.kind === 'dm' && jump.view.peer === peer,
+    (msgId) => useDms.getState().jumpTo(peer, msgId),
+  );
+
   useEffect(() => {
+    setPinsOpen(false);
     setReplyTo(null);
-    refresh(peer).catch(() => toast('error', t.errors.loadFailed));
-  }, [peer, refresh, toast, t]);
+    // Un saut vers cette conversation charge lui-même la fenêtre du message
+    // ciblé : on évite alors le rechargement récent qui l'écraserait.
+    const jump = useUi.getState().jump;
+    const jumpingHere = jump?.view.kind === 'dm' && jump.view.peer === peer;
+    if (!jumpingHere) {
+      refresh(peer).catch(() => toast('error', t.errors.loadFailed));
+    }
+    loadPins(peer).catch(() => {});
+  }, [peer, refresh, loadPins, toast, t]);
 
   // Conversation affichée : marquée lue jusqu'au dernier message connu, à
   // l'ouverture comme à chaque arrivée — le badge de non-lus retombe. Seule
@@ -96,6 +173,15 @@ export function DmView({ peer }: { peer: string }) {
 
   const onActionError = (): void => toast('error', t.errors.actionFailed);
   const knownMentions = mentionSet(contacts, self);
+  const pinnedIds = new Set(pins);
+  const nameOf = (author: string): string =>
+    self && author === self.pubkey
+      ? `${selfDisplayName(self)} (${t.app.you})`
+      : displayNameOf(contacts, author);
+  const { resolved: resolvedPins, unresolved: unresolvedPins } = resolvePins(
+    pins,
+    messages,
+  );
 
   const ouvrirProfil = (target: HTMLElement): void => {
     const r = target.getBoundingClientRect();
@@ -108,7 +194,7 @@ export function DmView({ peer }: { peer: string }) {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <header className="flex h-12 items-center gap-3 border-b border-rail px-4 shadow-sm">
         <button
           type="button"
@@ -130,10 +216,44 @@ export function DmView({ peer }: { peer: string }) {
           />
           <span className="font-semibold text-header">{name}</span>
         </button>
+        <div className="ml-auto">
+          <button
+            type="button"
+            aria-label={t.serveur.pinnedTitle}
+            title={t.serveur.pinnedTitle}
+            aria-expanded={pinsOpen}
+            onClick={() => setPinsOpen((open) => !open)}
+            className={`rounded p-1.5 hover:bg-chat-hover ${
+              pinsOpen ? 'text-header' : 'text-muted hover:text-norm'
+            }`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M14.6 2.6a1 1 0 0 1 1.4 0l5.4 5.4a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1 .3l-.7-.2-3.7 3.7.4 2.7a1 1 0 0 1-.3.9l-.9.9a1 1 0 0 1-1.4 0l-3.2-3.2-4.7 4.7a1 1 0 0 1-1.5-1.5l4.8-4.7-3.3-3.2a1 1 0 0 1 0-1.4l1-.9a1 1 0 0 1 .8-.3l2.7.4 3.7-3.7-.2-.7a1 1 0 0 1 .3-1l1.6-.8Z" />
+            </svg>
+          </button>
+        </div>
       </header>
+      {pinsOpen && (
+        <PinnedPanel
+          resolved={resolvedPins}
+          unresolved={unresolvedPins}
+          canUnpin
+          onUnpin={(msgId) => {
+            togglePin(peer, msgId, true).catch(onActionError);
+          }}
+          onJump={(msgId) => {
+            setPinsOpen(false);
+            requestJump({ kind: 'dm', peer }, msgId);
+          }}
+          onClose={() => setPinsOpen(false)}
+          nameOf={nameOf}
+        />
+      )}
       <MessageList
         messages={messages}
         hasMore={hasMore}
+        scrollTarget={scrollTarget}
+        pinnedIds={pinnedIds}
         knownMentions={knownMentions}
         onLoadOlder={() => {
           loadOlder(peer).catch(() => toast('error', t.errors.loadFailed));
@@ -149,6 +269,12 @@ export function DmView({ peer }: { peer: string }) {
           },
           onDelete: (message) => {
             deleteMessage(peer, message.msg_id).catch(onActionError);
+          },
+          onTogglePin: (message, pinned) => {
+            togglePin(peer, message.msg_id, pinned).catch(onActionError);
+          },
+          onRetry: (message) => {
+            retry(peer, message.msg_id).catch(onActionError);
           },
         }}
       />
@@ -260,41 +386,29 @@ function MemberList({ groupId }: { groupId: string }) {
 }
 
 /**
- * Volet des messages épinglés du salon : identifiants de `groups.pins`
- * croisés avec l'historique chargé (les hors-page sont juste comptés).
+ * Volet des messages épinglés (MP ou salon) : messages déjà résolus dans
+ * l'historique chargé + nombre d'épinglés hors-page. Chaque entrée saute vers
+ * le message d'un clic ; `canUnpin` expose le retrait de l'épingle.
  */
 function PinnedPanel({
-  groupId,
-  channelId,
-  canModerate,
+  resolved,
+  unresolved,
+  canUnpin,
+  onUnpin,
+  onJump,
   onClose,
+  nameOf,
 }: {
-  groupId: string;
-  channelId: string;
-  canModerate: boolean;
+  resolved: readonly DisplayMessage[];
+  unresolved: number;
+  canUnpin: boolean;
+  onUnpin: (msgId: string) => void;
+  onJump: (msgId: string) => void;
   onClose: () => void;
+  nameOf: (author: string) => string;
 }) {
   const t = useT();
   const lang = useUi((s) => s.lang);
-  const toast = useUi((s) => s.toast);
-  const contacts = useFriends((s) => s.contacts);
-  const self = useSession((s) => s.self);
-  const key = channelKey(groupId, channelId);
-  const pins = useGroups((s) => s.pins[key]) ?? [];
-  const messages = useGroups((s) => s.messages[key]) ?? [];
-  const togglePin = useGroups((s) => s.togglePin);
-
-  const byId = new Map(messages.map((m) => [m.msg_id, m]));
-  const resolved = pins.flatMap((id) => {
-    const message = byId.get(id);
-    return message !== undefined && !message.deleted ? [message] : [];
-  });
-  const unresolved = pins.length - resolved.length;
-
-  const nameOf = (author: string): string =>
-    self && author === self.pubkey
-      ? `${selfDisplayName(self)} (${t.app.you})`
-      : displayNameOf(contacts, author);
 
   return (
     <div
@@ -319,26 +433,28 @@ function PinnedPanel({
         <p className="py-3 text-center text-sm text-muted">{t.serveur.noPins}</p>
       )}
       {resolved.map((m) => (
-        <div key={m.msg_id} className="mb-1 rounded bg-sidebar px-3 py-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-sm font-medium text-header">
-              {nameOf(m.author)}
-            </span>
-            <span className="shrink-0 text-xs text-faint">
-              {formatTimestamp(m.sent_ms, lang)}
-            </span>
-          </div>
-          <div className="break-words text-sm text-norm">
-            {m.edited ?? (m.body.type === 'text' ? m.body.text : t.dm.unsupported)}
-          </div>
-          {canModerate && (
+        <div key={m.msg_id} className="group/pin mb-1 rounded bg-sidebar px-3 py-2">
+          <button
+            type="button"
+            onClick={() => onJump(m.msg_id)}
+            className="block w-full text-left"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-sm font-medium text-header">
+                {nameOf(m.author)}
+              </span>
+              <span className="shrink-0 text-xs text-faint">
+                {formatTimestamp(m.sent_ms, lang)}
+              </span>
+            </div>
+            <div className="break-words text-sm text-norm">
+              {m.edited ?? (m.body.type === 'text' ? m.body.text : t.dm.unsupported)}
+            </div>
+          </button>
+          {canUnpin && (
             <button
               type="button"
-              onClick={() => {
-                togglePin(groupId, channelId, m.msg_id, true).catch(() =>
-                  toast('error', t.errors.actionFailed),
-                );
-              }}
+              onClick={() => onUnpin(m.msg_id)}
               className="mt-1 text-xs font-medium text-muted hover:text-red"
             >
               {t.serveur.unpin}
@@ -380,12 +496,24 @@ export function GroupView({
   const toggleReaction = useGroups((s) => s.toggleReaction);
   const togglePin = useGroups((s) => s.togglePin);
   const markRead = useGroups((s) => s.markRead);
+  const requestJump = useUi((s) => s.requestJump);
   /** Volet des messages épinglés (fermé par défaut). */
   const [pinsOpen, setPinsOpen] = useState(false);
   /** Message auquel la prochaine saisie répondra (null : envoi simple). */
   const [replyTo, setReplyTo] = useState<DisplayMessage | null>(null);
   /** Lamport du dernier message affiché (`null` : fil vide). */
   const lastLamport = messages.at(-1)?.lamport ?? null;
+
+  const scrollTarget = useMessageJump(
+    (jump) =>
+      jump.view.kind === 'group' &&
+      jump.view.groupId === groupId &&
+      jump.view.channelId === channelId,
+    (msgId) =>
+      channelId === null
+        ? Promise.resolve(false)
+        : useGroups.getState().jumpTo(groupId, channelId, msgId),
+  );
 
   const channel = state?.channels.find((c) => c.channel_id === channelId);
   const canModerate = hasPerm(state?.my_permissions ?? 0, PERMISSIONS.MANAGE_MESSAGES);
@@ -394,7 +522,18 @@ export function GroupView({
     setPinsOpen(false);
     setReplyTo(null);
     if (channelId !== null) {
-      refreshHistory(groupId, channelId).catch(() => toast('error', t.errors.loadFailed));
+      // Un saut vers ce salon charge lui-même la fenêtre du message ciblé :
+      // on évite alors le rechargement récent qui l'écraserait.
+      const jump = useUi.getState().jump;
+      const jumpingHere =
+        jump?.view.kind === 'group' &&
+        jump.view.groupId === groupId &&
+        jump.view.channelId === channelId;
+      if (!jumpingHere) {
+        refreshHistory(groupId, channelId).catch(() =>
+          toast('error', t.errors.loadFailed),
+        );
+      }
       // Épinglés en best effort : le volet affichera ce qui est connu.
       loadPins(groupId, channelId).catch(() => {});
     }
@@ -433,6 +572,14 @@ export function GroupView({
   for (const m of state?.members ?? []) {
     knownMentions.add(displayNameOf(contacts, m.pubkey).toLowerCase());
   }
+  const nameOf = (author: string): string =>
+    self && author === self.pubkey
+      ? `${selfDisplayName(self)} (${t.app.you})`
+      : displayNameOf(contacts, author);
+  const { resolved: resolvedPins, unresolved: unresolvedPins } = resolvePins(
+    pins ?? [],
+    messages,
+  );
 
   return (
     <div className="flex h-full">
@@ -475,15 +622,27 @@ export function GroupView({
         </header>
         {pinsOpen && (
           <PinnedPanel
-            groupId={groupId}
-            channelId={channelId}
-            canModerate={canModerate}
+            resolved={resolvedPins}
+            unresolved={unresolvedPins}
+            canUnpin={canModerate}
+            onUnpin={(msgId) => {
+              togglePin(groupId, channelId, msgId, true).catch(onActionError);
+            }}
+            onJump={(msgId) => {
+              setPinsOpen(false);
+              requestJump(
+                { kind: 'group', groupId, channelId },
+                msgId,
+              );
+            }}
             onClose={() => setPinsOpen(false)}
+            nameOf={nameOf}
           />
         )}
         <MessageList
           messages={messages}
           hasMore={hasMore}
+          scrollTarget={scrollTarget}
           onLoadOlder={() => {
             loadOlderHistory(groupId, channelId).catch(() =>
               toast('error', t.errors.loadFailed),

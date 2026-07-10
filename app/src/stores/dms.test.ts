@@ -14,6 +14,11 @@ vi.mock('../lib/client', () => ({
     dmEdit: vi.fn(),
     dmDelete: vi.fn(),
     dmReact: vi.fn(),
+    dmHistoryAround: vi.fn(),
+    dmPins: vi.fn(),
+    dmPin: vi.fn(),
+    dmUnpin: vi.fn(),
+    dmRetry: vi.fn(),
   },
 }));
 
@@ -27,6 +32,11 @@ const sendMock = api.dmSend as unknown as Mock;
 const editMock = api.dmEdit as unknown as Mock;
 const deleteMock = api.dmDelete as unknown as Mock;
 const reactMock = api.dmReact as unknown as Mock;
+const historyAroundMock = api.dmHistoryAround as unknown as Mock;
+const pinsMock = api.dmPins as unknown as Mock;
+const pinMock = api.dmPin as unknown as Mock;
+const unpinMock = api.dmUnpin as unknown as Mock;
+const retryMock = api.dmRetry as unknown as Mock;
 
 function dmMsg(id: string, lamport: number): DmMessage {
   return {
@@ -53,12 +63,23 @@ function conversation(peer: string): DmMessage[] {
 }
 
 beforeEach(() => {
-  useDms.setState({ conversations: {}, hasMore: {}, loadingOlder: {}, peerRead: {} });
+  useDms.setState({
+    conversations: {},
+    hasMore: {},
+    loadingOlder: {},
+    pins: {},
+    peerRead: {},
+  });
   callMock.mockReset();
   sendMock.mockReset();
   editMock.mockReset();
   deleteMock.mockReset();
   reactMock.mockReset();
+  historyAroundMock.mockReset();
+  pinsMock.mockReset();
+  pinMock.mockReset();
+  unpinMock.mockReset();
+  retryMock.mockReset();
 });
 
 describe('useDms.refresh', () => {
@@ -322,5 +343,94 @@ describe('accusés de lecture (peerRead)', () => {
     handleDmsNodeEvent('event.dm', { peer: 'pair', msg_id: 'x' });
     handleDmsNodeEvent('event.dm_read', { peer: 'pair' });
     expect(useDms.getState().peerRead['pair']).toBe(12);
+  });
+});
+
+describe('useDms.jumpTo (saut au message)', () => {
+  it('rend true sans requête quand la cible est déjà chargée', async () => {
+    useDms.setState({ conversations: { pair: [dmMsg('a', 1), dmMsg('b', 2)] } });
+
+    const found = await useDms.getState().jumpTo('pair', 'b');
+
+    expect(found).toBe(true);
+    expect(historyAroundMock).not.toHaveBeenCalled();
+  });
+
+  it('fusionne la fenêtre du nœud et capture peer_read_lamport quand found', async () => {
+    useDms.setState({ conversations: { pair: [dmMsg('recent', 100)] } });
+    historyAroundMock.mockResolvedValueOnce({
+      messages: [dmMsg('cible', 10), dmMsg('voisin', 11)],
+      found: true,
+      peer_read_lamport: 11,
+    });
+
+    const found = await useDms.getState().jumpTo('pair', 'cible');
+
+    expect(found).toBe(true);
+    expect(historyAroundMock).toHaveBeenCalledWith('pair', 'cible');
+    expect(conversation('pair').map((m) => m.msg_id)).toEqual([
+      'cible',
+      'voisin',
+      'recent',
+    ]);
+    expect(useDms.getState().peerRead['pair']).toBe(11);
+  });
+
+  it('rend false et ne touche à rien quand found est false', async () => {
+    historyAroundMock.mockResolvedValueOnce({
+      messages: [],
+      found: false,
+      peer_read_lamport: null,
+    });
+
+    const found = await useDms.getState().jumpTo('pair', 'inconnu');
+
+    expect(found).toBe(false);
+    expect(conversation('pair')).toEqual([]);
+  });
+});
+
+describe('useDms — épingles', () => {
+  it('loadPins mémorise les identifiants du nœud', async () => {
+    pinsMock.mockResolvedValueOnce({ msg_ids: ['a', 'b'] });
+
+    await useDms.getState().loadPins('pair');
+
+    expect(pinsMock).toHaveBeenCalledWith('pair');
+    expect(useDms.getState().pins['pair']).toEqual(['a', 'b']);
+  });
+
+  it('togglePin épingle un message non épinglé puis recharge', async () => {
+    pinMock.mockResolvedValueOnce({ ok: true });
+    pinsMock.mockResolvedValueOnce({ msg_ids: ['a'] });
+
+    await useDms.getState().togglePin('pair', 'a', false);
+
+    expect(pinMock).toHaveBeenCalledWith('pair', 'a');
+    expect(unpinMock).not.toHaveBeenCalled();
+    expect(useDms.getState().pins['pair']).toEqual(['a']);
+  });
+
+  it('togglePin désépingle un message déjà épinglé puis recharge', async () => {
+    unpinMock.mockResolvedValueOnce({ ok: true });
+    pinsMock.mockResolvedValueOnce({ msg_ids: [] });
+
+    await useDms.getState().togglePin('pair', 'a', true);
+
+    expect(unpinMock).toHaveBeenCalledWith('pair', 'a');
+    expect(pinMock).not.toHaveBeenCalled();
+    expect(useDms.getState().pins['pair']).toEqual([]);
+  });
+});
+
+describe('useDms.retry (relance d’envoi)', () => {
+  it('relance côté nœud puis rafraîchit la page récente', async () => {
+    retryMock.mockResolvedValueOnce({ ok: true });
+    callMock.mockResolvedValueOnce({ messages: [dmMsg('x', 1)] });
+
+    await useDms.getState().retry('pair', 'x');
+
+    expect(retryMock).toHaveBeenCalledWith('pair', 'x');
+    expect(conversation('pair').map((m) => m.msg_id)).toEqual(['x']);
   });
 });

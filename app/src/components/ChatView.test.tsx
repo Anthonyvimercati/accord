@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 vi.mock('../lib/client', () => ({
   rpc: { call: vi.fn(), onEvent: vi.fn(() => () => {}), onStatus: vi.fn() },
@@ -14,6 +14,11 @@ vi.mock('../lib/client', () => ({
     dmMarkRead: vi.fn(),
     friendsList: vi.fn(),
     filesShareBytes: vi.fn(),
+    dmPins: vi.fn(),
+    dmPin: vi.fn(),
+    dmUnpin: vi.fn(),
+    dmHistoryAround: vi.fn(),
+    dmRetry: vi.fn(),
   },
 }));
 
@@ -28,6 +33,9 @@ import { DmView } from './ChatView';
 const callMock = rpc.call as unknown as Mock;
 const markReadMock = api.dmMarkRead as unknown as Mock;
 const friendsListMock = api.friendsList as unknown as Mock;
+const pinsMock = api.dmPins as unknown as Mock;
+const unpinMock = api.dmUnpin as unknown as Mock;
+const historyAroundMock = api.dmHistoryAround as unknown as Mock;
 
 const PEER = 'pair-pk';
 
@@ -59,15 +67,19 @@ function dmMsg(id: string, lamport: number): DmMessage {
 }
 
 beforeEach(() => {
-  useUi.setState({ lang: 'fr', view: { kind: 'dm', peer: PEER }, toasts: [] });
-  useDms.setState({ conversations: {}, hasMore: {}, loadingOlder: {} });
+  useUi.setState({ lang: 'fr', view: { kind: 'dm', peer: PEER }, toasts: [], jump: null });
+  useDms.setState({ conversations: {}, hasMore: {}, loadingOlder: {}, pins: {} });
   useFriends.setState({ contacts: [contact(PEER, 'Alice')], loaded: false });
   useTyping.setState({ writers: {} });
   callMock.mockReset();
   markReadMock.mockReset();
   friendsListMock.mockReset();
+  pinsMock.mockReset();
+  unpinMock.mockReset();
+  historyAroundMock.mockReset();
   markReadMock.mockResolvedValue({ ok: true });
   friendsListMock.mockResolvedValue({ contacts: [contact(PEER, 'Alice')] });
+  pinsMock.mockResolvedValue({ msg_ids: [] });
 });
 
 describe('DmView — marquage lu', () => {
@@ -111,6 +123,70 @@ describe('DmView — marquage lu', () => {
 
     // Assert
     await waitFor(() => expect(markReadMock).toHaveBeenCalledWith(PEER, 9));
+  });
+});
+
+describe('DmView — épingles', () => {
+  it('ouvre le volet et y liste le message épinglé résolu', async () => {
+    callMock.mockResolvedValue({ messages: [dmMsg('p1', 3)] });
+    pinsMock.mockResolvedValue({ msg_ids: ['p1'] });
+
+    render(<DmView peer={PEER} />);
+    await waitFor(() => expect(useDms.getState().pins[PEER]).toEqual(['p1']));
+
+    const toggle = screen.getByRole('button', { name: 'Messages épinglés' });
+    await act(async () => {
+      toggle.click();
+    });
+
+    const dialog = screen.getByRole('dialog', { name: 'Messages épinglés' });
+    expect(within(dialog).getByText('message p1')).toBeInTheDocument();
+  });
+
+  it('désépingle depuis le volet (dm.unpin puis rechargement)', async () => {
+    callMock.mockResolvedValue({ messages: [dmMsg('p1', 3)] });
+    pinsMock.mockResolvedValueOnce({ msg_ids: ['p1'] });
+    unpinMock.mockResolvedValue({ ok: true });
+    pinsMock.mockResolvedValueOnce({ msg_ids: [] });
+
+    render(<DmView peer={PEER} />);
+    await waitFor(() => expect(useDms.getState().pins[PEER]).toEqual(['p1']));
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Messages épinglés' }).click();
+    });
+    const dialog = screen.getByRole('dialog', { name: 'Messages épinglés' });
+    await act(async () => {
+      within(dialog).getByRole('button', { name: 'Désépingler' }).click();
+    });
+
+    expect(unpinMock).toHaveBeenCalledWith(PEER, 'p1');
+    await waitFor(() => expect(useDms.getState().pins[PEER]).toEqual([]));
+  });
+});
+
+describe('DmView — saut au message', () => {
+  it('signale un message indisponible quand la fenêtre est introuvable', async () => {
+    callMock.mockResolvedValue({ messages: [dmMsg('a', 5)] });
+    historyAroundMock.mockResolvedValue({
+      messages: [],
+      found: false,
+      peer_read_lamport: null,
+    });
+
+    render(<DmView peer={PEER} />);
+    await waitFor(() => expect(callMock).toHaveBeenCalled());
+
+    await act(async () => {
+      useUi.getState().requestJump({ kind: 'dm', peer: PEER }, 'ghost');
+    });
+
+    await waitFor(() =>
+      expect(
+        useUi.getState().toasts.some((t) => t.text === 'Message indisponible'),
+      ).toBe(true),
+    );
+    expect(historyAroundMock).toHaveBeenCalledWith(PEER, 'ghost');
   });
 });
 

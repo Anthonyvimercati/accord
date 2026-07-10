@@ -23,6 +23,8 @@ interface DmsState {
   hasMore: Record<string, boolean>;
   /** Garde anti-rafale du chargement vers le haut. */
   loadingOlder: Record<string, boolean>;
+  /** Identifiants épinglés par pair (vue locale, `dm.pins`). */
+  pins: Record<string, string[]>;
   /**
    * Position de lecture du pair par conversation (lamport du dernier de nos
    * messages couvert par son accusé de lecture) ; absente = inconnue.
@@ -34,6 +36,18 @@ interface DmsState {
   refresh: (peer: string) => Promise<void>;
   /** Charge la page précédant le plus ancien message connu. */
   loadOlder: (peer: string) => Promise<void>;
+  /**
+   * S'assure que `msgId` est chargé (fenêtre `dm.history_around` fusionnée si
+   * besoin). Rend `true` si le message est disponible localement au retour,
+   * `false` si le nœud l'ignore (fenêtre `found: false`).
+   */
+  jumpTo: (peer: string, msgId: string) => Promise<boolean>;
+  /** Charge les identifiants épinglés de la conversation (`dm.pins`). */
+  loadPins: (peer: string) => Promise<void>;
+  /** Épingle ou désépingle selon l'état courant `pinned`, puis recharge. */
+  togglePin: (peer: string, msgId: string, pinned: boolean) => Promise<void>;
+  /** Relance l'envoi d'un message non acquitté (`dm.retry`), puis rafraîchit. */
+  retry: (peer: string, msgId: string) => Promise<void>;
   /**
    * Envoie un message, éventuellement en réponse à `replyTo` (msg_id) et
    * avec des pièces jointes déjà publiées (texte vide admis avec pièces).
@@ -85,6 +99,7 @@ export const useDms = create<DmsState>((set, get) => ({
   conversations: {},
   hasMore: {},
   loadingOlder: {},
+  pins: {},
   peerRead: {},
 
   applyPeerRead: (peer, lamport) => {
@@ -143,6 +158,49 @@ export const useDms = create<DmsState>((set, get) => ({
     } finally {
       set((s) => ({ loadingOlder: { ...s.loadingOlder, [peer]: false } }));
     }
+  },
+
+  jumpTo: async (peer, msgId) => {
+    const existing = get().conversations[peer] ?? [];
+    if (existing.some((m) => m.msg_id === msgId)) return true;
+    const res = await api.dmHistoryAround(peer, msgId);
+    if (!res.found) return false;
+    if (typeof res.peer_read_lamport === 'number') {
+      get().applyPeerRead(peer, res.peer_read_lamport);
+    }
+    set((s) => {
+      const merged = mergeOlderPage(s.conversations[peer] ?? [], res.messages);
+      // Une fenêtre pleine laisse supposer d'autres messages plus anciens :
+      // on active la remontée si l'état ne la connaissait pas encore.
+      const knownHasMore = s.hasMore[peer];
+      return {
+        conversations: { ...s.conversations, [peer]: merged },
+        hasMore: {
+          ...s.hasMore,
+          [peer]:
+            knownHasMore === undefined
+              ? res.messages.length >= PAGE_SIZE
+              : knownHasMore,
+        },
+      };
+    });
+    return true;
+  },
+
+  loadPins: async (peer) => {
+    const { msg_ids } = await api.dmPins(peer);
+    set((s) => ({ pins: { ...s.pins, [peer]: msg_ids } }));
+  },
+
+  togglePin: async (peer, msgId, pinned) => {
+    if (pinned) await api.dmUnpin(peer, msgId);
+    else await api.dmPin(peer, msgId);
+    await get().loadPins(peer);
+  },
+
+  retry: async (peer, msgId) => {
+    await api.dmRetry(peer, msgId);
+    await get().refresh(peer);
   },
 
   send: async (peer, text, replyTo, attachments) => {

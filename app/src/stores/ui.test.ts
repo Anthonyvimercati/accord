@@ -67,6 +67,38 @@ describe('useUi — langue', () => {
   });
 });
 
+describe('useUi — saut au message (jump)', () => {
+  beforeEach(() => {
+    useUi.setState({ view: { kind: 'friends' }, jump: null });
+  });
+
+  it('requestJump bascule la vue et incrémente le nonce à chaque appel', () => {
+    const view = { kind: 'dm', peer: 'pair' } as const;
+    useUi.getState().requestJump(view, 'm1');
+
+    const first = useUi.getState().jump;
+    expect(useUi.getState().view).toEqual(view);
+    expect(first).toMatchObject({ view, msgId: 'm1' });
+
+    useUi.getState().requestJump(view, 'm2');
+    expect(useUi.getState().jump?.nonce).toBe((first?.nonce ?? 0) + 1);
+  });
+
+  it('clearJump consomme la demande de saut', () => {
+    useUi.getState().requestJump({ kind: 'dm', peer: 'pair' }, 'm1');
+    useUi.getState().clearJump();
+
+    expect(useUi.getState().jump).toBeNull();
+  });
+
+  it('setView efface un saut en attente (navigation ordinaire)', () => {
+    useUi.getState().requestJump({ kind: 'dm', peer: 'pair' }, 'm1');
+    useUi.getState().setView({ kind: 'friends' });
+
+    expect(useUi.getState().jump).toBeNull();
+  });
+});
+
 describe('useUi — restauration au démarrage', () => {
   it('restaure les préférences persistées valides', async () => {
     window.localStorage.setItem('accord.theme', 'light');

@@ -44,6 +44,16 @@ export interface CibleProfil {
   groupId: string | null;
 }
 
+/**
+ * Demande de saut vers un message (résultat de recherche, épinglé, citation).
+ * `nonce` distingue deux sauts vers le même message pour rejouer l'animation.
+ */
+export interface JumpRequest {
+  view: View;
+  msgId: string;
+  nonce: number;
+}
+
 export type Theme = 'dark' | 'light';
 export type Density = 'comfortable' | 'compact';
 
@@ -151,6 +161,8 @@ function applyFontScale(scale: FontScale): void {
 interface UiState {
   view: View;
   modal: Modal;
+  /** Saut vers un message en attente de traitement par la vue, ou `null`. */
+  jump: JumpRequest | null;
   /** Carte de profil ouverte (clic sur un pseudo/avatar), ou `null`. */
   profile: CibleProfil | null;
   toasts: Toast[];
@@ -169,6 +181,10 @@ interface UiState {
   /** Ne notifier que lorsque la fenêtre est en arrière-plan. */
   notifyOnlyUnfocused: boolean;
   setView: (view: View) => void;
+  /** Bascule vers `view` et demande le saut vers `msgId` (recherche, épingle). */
+  requestJump: (view: View, msgId: string) => void;
+  /** Consomme la demande de saut courante (traitée par la vue cible). */
+  clearJump: () => void;
   openModal: (modal: Exclude<Modal, null>) => void;
   closeModal: () => void;
   /** Ouvre la carte de profil d'un pair, ancrée près du clic. */
@@ -201,6 +217,7 @@ export const useUi = create<UiState>((set) => {
   return {
     view: { kind: 'friends' },
     modal: null,
+    jump: null,
     profile: null,
     toasts: [],
     lang: initialLang(),
@@ -213,7 +230,14 @@ export const useUi = create<UiState>((set) => {
     notifyGroups: initialBool(STORAGE_KEYS.notifyGroups, true),
     notifyOnlyUnfocused: initialBool(STORAGE_KEYS.notifyOnlyUnfocused, true),
 
-    setView: (view) => set({ view, profile: null }),
+    setView: (view) => set({ view, jump: null, profile: null }),
+    requestJump: (view, msgId) =>
+      set((s) => ({
+        view,
+        jump: { view, msgId, nonce: (s.jump?.nonce ?? 0) + 1 },
+        profile: null,
+      })),
+    clearJump: () => set({ jump: null }),
     openModal: (modal) => set({ modal }),
     closeModal: () => set({ modal: null }),
     openProfile: (pubkey, ancre, groupId = null) =>

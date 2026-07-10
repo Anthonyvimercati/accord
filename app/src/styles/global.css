@@ -128,6 +128,19 @@ textarea {
   outline-offset: 2px;
 }
 
+/* Surbrillance brève du message ciblé par un saut (recherche, épingle, citation). */
+@keyframes msg-flash {
+  0% {
+    background-color: rgb(var(--color-blurple) / 0.28);
+  }
+  100% {
+    background-color: rgb(var(--color-blurple) / 0);
+  }
+}
+.msg-flash {
+  animation: msg-flash 1.6s var(--ease-out);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

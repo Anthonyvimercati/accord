@@ -14,7 +14,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
-import type { FileAttachment, MsgBody, Reaction } from '../lib/api';
+import type { DeliveryState, FileAttachment, MsgBody, Reaction } from '../lib/api';
 import { formatDay, formatTimestamp } from '../lib/format';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
@@ -34,6 +34,8 @@ export interface DisplayMessage {
   body: MsgBody;
   edited: string | null;
   acked?: boolean;
+  /** État de livraison sortante (MP uniquement) ; absent = considéré envoyé. */
+  delivery?: DeliveryState;
   reactions?: Reaction[];
   /** Pièces jointes de l'enveloppe (`[]` ou absent si aucune). */
   attachments?: FileAttachment[];
@@ -50,6 +52,8 @@ export interface MessageListActions {
   canModerate?: boolean;
   /** Épinglage — `pinned` reflète l'état courant du message. */
   onTogglePin?: (message: DisplayMessage, pinned: boolean) => void;
+  /** Relance d'un envoi échoué (MP uniquement) ; absente = pas d'affordance. */
+  onRetry?: (message: DisplayMessage) => void;
 }
 
 /** Fenêtre de regroupement de messages consécutifs du même auteur. */
@@ -57,6 +61,15 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /** Distance au haut du fil (px) sous laquelle on charge la page précédente. */
 const LOAD_OLDER_THRESHOLD_PX = 80;
+
+/** Durée de la surbrillance d'un message atteint par un saut (ms). */
+const HIGHLIGHT_MS = 1600;
+
+/** État de livraison effectif : le champ explicite prime, l'ack le complète. */
+function deliveryOf(message: DisplayMessage): DeliveryState {
+  if (message.delivery !== undefined) return message.delivery;
+  return message.acked === false ? 'pending' : 'sent';
+}
 
 function sameDay(a: number, b: number): boolean {
   const da = new Date(a);
@@ -105,13 +118,15 @@ function BodyText({
   );
 }
 
-/** Aperçu du message cité, affiché au-dessus d'une réponse. */
+/** Aperçu du message cité, affiché au-dessus d'une réponse (clic = saut). */
 function MessageQuote({
   quoted,
   nameOf,
+  onJump,
 }: {
   quoted: DisplayMessage | undefined;
   nameOf: (author: string) => string;
+  onJump?: (() => void) | undefined;
 }) {
   const t = useT();
   const snippet =
@@ -121,8 +136,8 @@ function MessageQuote({
         ? t.dm.deletedMessage
         : (displayText(quoted) ?? t.dm.unsupported);
 
-  return (
-    <div className="mb-0.5 flex items-center gap-1.5 text-xs text-muted">
+  const inner = (
+    <>
       <span
         aria-hidden
         className="ml-1 h-2 w-6 shrink-0 rounded-tl-md border-l-2 border-t-2 border-input"
@@ -133,7 +148,19 @@ function MessageQuote({
       <span className={`truncate ${quoted === undefined ? 'italic text-faint' : ''}`}>
         {snippet}
       </span>
-    </div>
+    </>
+  );
+
+  const className = 'mb-0.5 flex items-center gap-1.5 text-xs text-muted';
+  if (onJump === undefined) return <div className={className}>{inner}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onJump}
+      className={`${className} rounded text-left hover:text-norm focus-visible:outline-none focus-visible:text-norm`}
+    >
+      {inner}
+    </button>
   );
 }
 
@@ -205,6 +232,8 @@ export interface MessageListProps {
   knownMentions?: ReadonlySet<string> | undefined;
   /** Contexte serveur (rôles au clic, émojis custom des réactions). */
   groupId?: string | null | undefined;
+  /** Message à révéler (défilement + surbrillance) ; `nonce` rejoue le saut. */
+  scrollTarget?: { msgId: string; nonce: number } | null;
 }
 
 export function MessageList({
@@ -217,9 +246,11 @@ export function MessageList({
   emojiMap,
   knownMentions,
   groupId = null,
+  scrollTarget = null,
 }: MessageListProps) {
   const lang = useUi((s) => s.lang);
   const openProfile = useUi((s) => s.openProfile);
+  const requestJump = useUi((s) => s.requestJump);
   const view = useUi((s) => s.view);
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
@@ -238,6 +269,27 @@ export function MessageList({
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
   /** Message en cours d'édition en place (null : aucun). */
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** Rangées rendues par `msg_id`, pour cibler le défilement d'un saut. */
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  /** Message en surbrillance après un saut (null : aucun). */
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  // Saut vers un message : défilement centré puis surbrillance brève. Le
+  // `nonce` rejoue l'animation même pour une cible identique.
+  useEffect(() => {
+    if (scrollTarget === null) return;
+    const el = rowRefs.current.get(scrollTarget.msgId);
+    if (el === undefined) return;
+    try {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch {
+      // Environnement de test sans mise en page (jsdom) : défilement ignoré.
+    }
+    setHighlightId(scrollTarget.msgId);
+    const timer = window.setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollTarget?.nonce]);
 
   // Les messages de pur contenu (texte / supprimés) sont affichés ;
   // éditions, réactions et méta sont des mutations déjà appliquées.
@@ -345,6 +397,7 @@ export function MessageList({
         const corpsVide = !m.deleted && hasAttachments && displayText(m) === '';
         const isOwn = self !== null && m.author === self.pubkey;
         const pinned = pinnedIds?.has(m.msg_id) ?? false;
+        const delivery = deliveryOf(m);
 
         return (
           <div key={m.msg_id}>
@@ -359,11 +412,16 @@ export function MessageList({
             )}
             {/* Espacement piloté par la densité (variables CSS, global.css). */}
             <div
+              ref={(el) => {
+                if (el === null) rowRefs.current.delete(m.msg_id);
+                else rowRefs.current.set(m.msg_id, el);
+              }}
+              data-msg-id={m.msg_id}
               className={`group relative flex gap-4 px-4 hover:bg-chat-hover ${
                 grouped
                   ? 'py-[var(--message-pad-y-grouped)]'
                   : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
-              }`}
+              } ${highlightId === m.msg_id ? 'msg-flash' : ''}`}
             >
               {actionable && (
                 <MessageActions
@@ -408,7 +466,15 @@ export function MessageList({
                 {!grouped && (
                   <>
                     {isReply && m.body.type === 'text' && m.body.reply_to !== null && (
-                      <MessageQuote quoted={byId.get(m.body.reply_to)} nameOf={nameOf} />
+                      <MessageQuote
+                        quoted={byId.get(m.body.reply_to)}
+                        nameOf={nameOf}
+                        onJump={() => {
+                          if (m.body.type === 'text' && m.body.reply_to !== null) {
+                            requestJump(view, m.body.reply_to);
+                          }
+                        }}
+                      />
                     )}
                     <div className="flex items-baseline gap-2">
                       <button
@@ -422,7 +488,7 @@ export function MessageList({
                       <span className="text-xs text-faint">
                         {formatTimestamp(m.sent_ms, lang)}
                       </span>
-                      {m.acked === false && (
+                      {isOwn && delivery === 'pending' && (
                         <span className="text-xs italic text-faint">{t.dm.pending}</span>
                       )}
                     </div>
@@ -467,6 +533,27 @@ export function MessageList({
                 {m.msg_id === seenMsgId && (
                   <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
                     {t.dm.seen}
+                  </div>
+                )}
+                {isOwn && delivery === 'failed' && actions?.onRetry !== undefined && (
+                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-red">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden
+                    >
+                      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1 5a1 1 0 1 1 2 0v6a1 1 0 1 1-2 0V7Zm1 12a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6Z" />
+                    </svg>
+                    <span>{t.dm.sendFailed}</span>
+                    <button
+                      type="button"
+                      onClick={() => actions.onRetry?.(m)}
+                      className="font-semibold underline-offset-2 hover:underline"
+                    >
+                      {t.dm.retry}
+                    </button>
                   </div>
                 )}
               </div>

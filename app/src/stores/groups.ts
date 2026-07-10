@@ -238,6 +238,12 @@ interface GroupsState {
   refreshHistory: (groupId: string, channelId: string) => Promise<void>;
   /** Charge la page précédant le plus ancien message connu du salon. */
   loadOlderHistory: (groupId: string, channelId: string) => Promise<void>;
+  /**
+   * S'assure que `msgId` est chargé (fenêtre `groups.history_around` fusionnée
+   * si besoin). Rend `true` si le message est disponible localement au retour,
+   * `false` si le nœud l'ignore (fenêtre `found: false`).
+   */
+  jumpTo: (groupId: string, channelId: string, msgId: string) => Promise<boolean>;
   create: (name: string, defaultChannel: string) => Promise<string>;
   rename: (groupId: string, name: string) => Promise<void>;
   setIcon: (groupId: string, dataB64: string, mime: string) => Promise<void>;
@@ -441,6 +447,27 @@ export const useGroups = create<GroupsState>((set, get) => ({
     } finally {
       set((s) => ({ loadingOlder: { ...s.loadingOlder, [key]: false } }));
     }
+  },
+
+  jumpTo: async (groupId, channelId, msgId) => {
+    const key = channelKey(groupId, channelId);
+    const existing = get().messages[key] ?? [];
+    if (existing.some((m) => m.msg_id === msgId)) return true;
+    const res = await api.groupsHistoryAround(groupId, channelId, msgId);
+    if (!res.found) return false;
+    set((s) => {
+      const merged = mergeOlderPage(s.messages[key] ?? [], res.messages);
+      const knownHasMore = s.hasMore[key];
+      return {
+        messages: { ...s.messages, [key]: merged },
+        hasMore: {
+          ...s.hasMore,
+          [key]:
+            knownHasMore === undefined ? res.messages.length >= PAGE_SIZE : knownHasMore,
+        },
+      };
+    });
+    return true;
   },
 
   create: async (name, defaultChannel) => {

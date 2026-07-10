@@ -108,6 +108,9 @@ export const fr = {
     typingMany: 'Plusieurs personnes sont en train d’écrire…',
     unreadBadge: '{count} message(s) non lu(s)',
     seen: 'Vu',
+    sendFailed: 'Échec de l’envoi',
+    retry: 'Réessayer',
+    messageUnavailable: 'Message indisponible',
   },
   groups: {
     create: 'Créer un groupe',
@@ -339,6 +342,8 @@ export const fr = {
     noResults: 'Aucun message trouvé.',
     notLoaded: '{count} résultat(s) dans des conversations non chargées',
     clear: 'Effacer la recherche',
+    filters: 'Filtres actifs',
+    jumpHint: 'Aller au message',
   },
   settings: {
     title: 'Paramètres',

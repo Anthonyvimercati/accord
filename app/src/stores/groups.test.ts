@@ -24,6 +24,7 @@ vi.mock('../lib/client', () => ({
     groupsPins: vi.fn(),
     groupsPin: vi.fn(),
     groupsUnpin: vi.fn(),
+    groupsHistoryAround: vi.fn(),
     groupsEdit: vi.fn(),
     groupsDelete: vi.fn(),
     groupsReact: vi.fn(),
@@ -71,6 +72,7 @@ const reactMock = api.groupsReact as unknown as Mock;
 const sendMock = api.groupsSend as unknown as Mock;
 const emojiAddMock = api.groupsEmojiAdd as unknown as Mock;
 const emojiDelMock = api.groupsEmojiDel as unknown as Mock;
+const historyAroundMock = api.groupsHistoryAround as unknown as Mock;
 const callMock = rpc.call as unknown as Mock;
 
 function role(id: string, position: number, color = 0): GroupRole {
@@ -138,6 +140,7 @@ beforeEach(() => {
     categoryEditMock,
     categoryDelMock,
     roleEditMock,
+    historyAroundMock,
     callMock,
   ]) {
     mock.mockReset();
@@ -689,5 +692,45 @@ describe('useGroups — moveRole', () => {
 
     expect(roleEditMock).not.toHaveBeenCalled();
     expect(stateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useGroups — jumpTo (saut au message)', () => {
+  const key = channelKey('g1', 'c1');
+
+  it('rend true sans requête quand la cible est déjà chargée', async () => {
+    useGroups.setState({ messages: { [key]: [groupMsg('a', 1), groupMsg('b', 2)] } });
+
+    const found = await useGroups.getState().jumpTo('g1', 'c1', 'b');
+
+    expect(found).toBe(true);
+    expect(historyAroundMock).not.toHaveBeenCalled();
+  });
+
+  it('fusionne la fenêtre du nœud et rend true quand found', async () => {
+    useGroups.setState({ messages: { [key]: [groupMsg('recent', 100)] } });
+    historyAroundMock.mockResolvedValueOnce({
+      messages: [groupMsg('cible', 10), groupMsg('voisin', 11)],
+      found: true,
+    });
+
+    const found = await useGroups.getState().jumpTo('g1', 'c1', 'cible');
+
+    expect(found).toBe(true);
+    expect(historyAroundMock).toHaveBeenCalledWith('g1', 'c1', 'cible');
+    expect(useGroups.getState().messages[key]?.map((m) => m.msg_id)).toEqual([
+      'cible',
+      'voisin',
+      'recent',
+    ]);
+  });
+
+  it('rend false et ne touche à rien quand found est false', async () => {
+    historyAroundMock.mockResolvedValueOnce({ messages: [], found: false });
+
+    const found = await useGroups.getState().jumpTo('g1', 'c1', 'inconnu');
+
+    expect(found).toBe(false);
+    expect(useGroups.getState().messages[key]).toBeUndefined();
   });
 });

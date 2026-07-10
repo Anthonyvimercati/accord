@@ -108,6 +108,9 @@ export const en: Dict = {
     typingMany: 'Several people are typing…',
     unreadBadge: '{count} unread message(s)',
     seen: 'Seen',
+    sendFailed: 'Failed to send',
+    retry: 'Retry',
+    messageUnavailable: 'Message unavailable',
   },
   groups: {
     create: 'Create a group',
@@ -337,6 +340,8 @@ export const en: Dict = {
     noResults: 'No message found.',
     notLoaded: '{count} result(s) in conversations not loaded yet',
     clear: 'Clear search',
+    filters: 'Active filters',
+    jumpHint: 'Jump to message',
   },
   settings: {
     title: 'Settings',

@@ -4,7 +4,70 @@
  * chargés pour proposer des résultats cliquables (extrait + conversation).
  */
 
-import type { DmMessage, GroupMessage } from './api';
+import type { DmMessage, GroupMessage, SearchQueryHit } from './api';
+
+/** Filtre de recherche reconnu dans la barre (`from:`, `in:`, `has:`, …). */
+export type SearchChipType = 'from' | 'in' | 'has' | 'before' | 'after';
+
+/** Un filtre affiché en pastille sous la barre de recherche. */
+export interface SearchChip {
+  type: SearchChipType;
+  value: string;
+}
+
+/** Association clé de filtre (minuscule) → type de pastille (grammaire nœud). */
+const CHIP_KEYS: Readonly<Record<string, SearchChipType>> = {
+  from: 'from',
+  in: 'in',
+  has: 'has',
+  before: 'before',
+  after: 'after',
+};
+
+/**
+ * Découpe une requête en jetons séparés par des espaces, en préservant les
+ * valeurs entre guillemets (`from:"John Doe"` reste un seul jeton).
+ */
+function tokenizeQuery(query: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inQuote = false;
+  for (const ch of query) {
+    if (ch === '"') {
+      inQuote = !inQuote;
+      continue;
+    }
+    if (ch === ' ' && !inQuote) {
+      if (current !== '') {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += ch;
+  }
+  if (current !== '') tokens.push(current);
+  return tokens;
+}
+
+/**
+ * Repère les filtres `clé:valeur` reconnus dans la requête, pour les afficher
+ * en pastilles à la frappe. Purement présentationnel : le nœud reste seul juge
+ * de la grammaire (les mots simples et filtres inconnus sont ignorés ici).
+ */
+export function parseSearchChips(query: string): SearchChip[] {
+  const chips: SearchChip[] = [];
+  for (const token of tokenizeQuery(query)) {
+    const separator = token.indexOf(':');
+    if (separator <= 0) continue;
+    const type = CHIP_KEYS[token.slice(0, separator).toLowerCase()];
+    if (type === undefined) continue;
+    const value = token.slice(separator + 1);
+    if (value === '') continue;
+    chips.push({ type, value });
+  }
+  return chips;
+}
 
 /** Conversation cible d'un résultat de recherche. */
 export type SearchLocation =
@@ -86,4 +149,48 @@ export function resolveSearchHits(
   // Les plus récents d'abord, comme un fil de résultats Discord.
   hits.sort((a, b) => b.sentMs - a.sentMs);
   return { hits, unresolved };
+}
+
+/**
+ * Indexe le texte affichable des messages chargés par `msg_id`. Sert à hydrater
+ * les résultats `search.query` (le nœud ne rend que des métadonnées, jamais le
+ * corps) avec un extrait quand la conversation est déjà ouverte localement.
+ */
+export function indexMessageText(
+  dms: Record<string, readonly DmMessage[]>,
+  groupMessages: Record<string, readonly GroupMessage[]>,
+): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const messages of Object.values(dms)) {
+    for (const m of messages) {
+      const text = displayText(m);
+      if (text !== null) index.set(m.msg_id, text);
+    }
+  }
+  for (const messages of Object.values(groupMessages)) {
+    for (const m of messages) {
+      const text = displayText(m);
+      if (text !== null) index.set(m.msg_id, text);
+    }
+  }
+  return index;
+}
+
+/** Résultat `search.query` prêt à afficher : métadonnées + extrait éventuel. */
+export interface SearchHitRow {
+  hit: SearchQueryHit;
+  /** Extrait local (`null` si la conversation n'est pas chargée). */
+  text: string | null;
+}
+
+/**
+ * Associe à chaque résultat du nœud (déjà triés du plus récent au plus ancien)
+ * son extrait local s'il est disponible. Tous les résultats sont conservés :
+ * un message hors des historiques chargés s'affiche par ses seules métadonnées.
+ */
+export function buildHitRows(
+  hits: readonly SearchQueryHit[],
+  textIndex: ReadonlyMap<string, string>,
+): SearchHitRow[] {
+  return hits.map((hit) => ({ hit, text: textIndex.get(hit.msg_id) ?? null }));
 }

@@ -433,3 +433,80 @@ describe('MessageList — indicateur « Vu » (accusés de lecture)', () => {
     expect(screen.queryByText('Vu')).not.toBeInTheDocument();
   });
 });
+
+describe('MessageList — état de livraison', () => {
+  it('affiche « Réessayer » sur un message échoué et rappelle onRetry', () => {
+    useSession.setState({ self: SELF });
+    const onRetry = vi.fn();
+    const actions: MessageListActions = { ...makeActions(), onRetry };
+    const message = textMsg('m1', BASE_MS, 'raté', {
+      author: SELF.pubkey,
+      delivery: 'failed',
+    });
+    render(<MessageList messages={[message]} actions={actions} />);
+
+    const retry = screen.getByRole('button', { name: 'Réessayer' });
+    fireEvent.click(retry);
+
+    expect(screen.getByText('Échec de l’envoi')).toBeInTheDocument();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ msg_id: 'm1' }));
+  });
+
+  it('affiche l’indicateur d’envoi en cours (pending) sur son message', () => {
+    useSession.setState({ self: SELF });
+    const message = textMsg('m1', BASE_MS, 'en vol', {
+      author: SELF.pubkey,
+      delivery: 'pending',
+    });
+    render(<MessageList messages={[message]} actions={makeActions()} />);
+
+    expect(screen.getByText('envoi…')).toBeInTheDocument();
+  });
+
+  it('n’affiche aucune relance pour un message livré', () => {
+    useSession.setState({ self: SELF });
+    const message = textMsg('m1', BASE_MS, 'ok', {
+      author: SELF.pubkey,
+      delivery: 'sent',
+    });
+    render(<MessageList messages={[message]} actions={{ ...makeActions(), onRetry: vi.fn() }} />);
+
+    expect(screen.queryByRole('button', { name: 'Réessayer' })).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageList — saut au message', () => {
+  it('met en surbrillance la cible d’un scrollTarget', () => {
+    const messages = [
+      textMsg('m1', BASE_MS, 'premier'),
+      textMsg('m2', BASE_MS + 60_000, 'cible'),
+    ];
+    render(
+      <MessageList messages={messages} scrollTarget={{ msgId: 'm2', nonce: 1 }} />,
+    );
+
+    const row = screen.getByText('cible').closest('[data-msg-id]');
+    expect(row).toHaveAttribute('data-msg-id', 'm2');
+    expect(row).toHaveClass('msg-flash');
+    // La cible seule est en surbrillance.
+    expect(screen.getByText('premier').closest('[data-msg-id]')).not.toHaveClass(
+      'msg-flash',
+    );
+  });
+
+  it('un clic sur une citation demande le saut vers le message d’origine', () => {
+    useUi.setState({ view: { kind: 'dm', peer: 'pair' }, jump: null });
+    const messages = [
+      textMsg('orig', BASE_MS, 'citation-cible'),
+      textMsg('rep', BASE_MS + 1000, 'ma réponse', {
+        body: { type: 'text', text: 'ma réponse', reply_to: 'orig', attachments: 0 },
+      }),
+    ];
+    render(<MessageList messages={messages} actions={makeActions()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /citation-cible/ }));
+
+    expect(useUi.getState().jump).toMatchObject({ msgId: 'orig' });
+  });
+});
