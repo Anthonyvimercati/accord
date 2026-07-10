@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capacité par défaut de la fenêtre principale : notifications système natives (D-028).",
+  "windows": ["main"],
+  "permissions": ["notification:default"]
+}

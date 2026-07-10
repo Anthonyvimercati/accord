@@ -1,0 +1,13 @@
+[package]
+name = "accord-proto"
+description = "Types de paquets, encodage binaire strict, framing et versionnage du protocole Accord (SPEC.md)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

@@ -1,0 +1,188 @@
+/**
+ * Tests de l'écran des paramètres : navigation par catégories, bascule de
+ * thème appliquée à la racine (et persistée), densité, liste des bloqués
+ * avec déblocage, langue et fermeture par Échap.
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import type { Contact, SelfProfile } from '../../lib/api';
+import { APP_VERSION } from '../../lib/meta';
+import { useFriends } from '../../stores/friends';
+import { useSession } from '../../stores/session';
+import { useUi } from '../../stores/ui';
+import { SettingsModal } from './SettingsModal';
+
+const self: SelfProfile = {
+  node_id: 'n-moi',
+  pubkey: 'moi',
+  friend_code: 'accord-moi-12345',
+  name: null,
+  bio: null,
+  avatar: null,
+  banner: null,
+};
+
+function blockedContact(pubkey: string, name: string): Contact {
+  return {
+    node_id: `n-${pubkey}`,
+    pubkey,
+    friend_code: `accord-${pubkey}`,
+    display_name: name,
+    bio: null,
+    avatar: null,
+    banner: null,
+    state: 'blocked',
+    last_seen_ms: 0,
+  };
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+  useUi.setState({ lang: 'fr', modal: { kind: 'settings' }, toasts: [] });
+  useUi.getState().setTheme('dark');
+  useUi.getState().setDensity('comfortable');
+  useUi.getState().setFontScale(100);
+  window.localStorage.clear();
+  useSession.setState({ self, phase: 'ready' });
+  useFriends.setState({
+    contacts: [],
+    loaded: true,
+    load: vi.fn(async () => {}),
+    unblock: vi.fn(async () => {}),
+  });
+});
+
+function openTab(label: string): void {
+  fireEvent.click(screen.getByRole('button', { name: label }));
+}
+
+describe('SettingsModal — structure', () => {
+  it('présente les catégories et ouvre Mon compte par défaut', () => {
+    render(<SettingsModal />);
+
+    expect(screen.getByRole('dialog', { name: 'Paramètres' })).toBeInTheDocument();
+    for (const label of [
+      'Mon compte',
+      'Confidentialité',
+      'Apparence',
+      'Langue',
+      'Voix',
+      'Notifications',
+      'Avancé',
+    ]) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
+    // L'onglet par défaut (Mon compte) expose l'édition du pseudo.
+    expect(screen.getByRole('textbox', { name: 'Pseudo' })).toBeInTheDocument();
+  });
+
+  it('se ferme avec Échap', () => {
+    render(<SettingsModal />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(useUi.getState().modal).toBeNull();
+  });
+
+  it('se ferme avec le bouton dédié', () => {
+    render(<SettingsModal />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fermer' }));
+
+    expect(useUi.getState().modal).toBeNull();
+  });
+});
+
+describe('SettingsModal — apparence', () => {
+  it('bascule le thème clair, l’applique à la racine et le persiste', () => {
+    render(<SettingsModal />);
+    openTab('Apparence');
+
+    const light = screen.getByRole('button', { name: 'Clair' });
+    expect(light).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(light);
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(window.localStorage.getItem('accord.theme')).toBe('light');
+    expect(light).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('bascule la densité compacte, l’applique à la racine et la persiste', () => {
+    render(<SettingsModal />);
+    openTab('Apparence');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Compacte' }));
+
+    expect(document.documentElement.dataset.density).toBe('compact');
+    expect(window.localStorage.getItem('accord.density')).toBe('compact');
+  });
+
+  it('change la taille de police sur la racine', () => {
+    render(<SettingsModal />);
+    openTab('Apparence');
+
+    fireEvent.click(screen.getByRole('button', { name: '120 %' }));
+
+    expect(document.documentElement.style.fontSize).toBe('120%');
+    expect(window.localStorage.getItem('accord.fontScale')).toBe('120');
+  });
+});
+
+describe('SettingsModal — langue', () => {
+  it('bascule l’interface en anglais et persiste le choix', () => {
+    render(<SettingsModal />);
+    openTab('Langue');
+
+    fireEvent.click(screen.getByRole('button', { name: 'English' }));
+
+    expect(useUi.getState().lang).toBe('en');
+    expect(window.localStorage.getItem('accord.lang')).toBe('en');
+    // L'interface a changé de langue immédiatement.
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+  });
+});
+
+describe('SettingsModal — confidentialité', () => {
+  it('liste les utilisateurs bloqués et permet le déblocage', () => {
+    const unblock = vi.fn(async () => {});
+    useFriends.setState({
+      contacts: [blockedContact('aaa', 'Casse-pieds'), blockedContact('bbb', 'Spammeur')],
+      unblock,
+    });
+    render(<SettingsModal />);
+    openTab('Confidentialité');
+
+    expect(screen.getByText('Casse-pieds')).toBeInTheDocument();
+    expect(screen.getByText('Spammeur')).toBeInTheDocument();
+
+    const buttons = screen.getAllByRole('button', { name: 'Débloquer' });
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[0]!);
+
+    expect(unblock).toHaveBeenCalledWith('aaa');
+  });
+
+  it('affiche l’état vide et l’explication anti-spam', () => {
+    render(<SettingsModal />);
+    openTab('Confidentialité');
+
+    expect(screen.getByText('Personne n’est bloqué.')).toBeInTheDocument();
+    expect(screen.getByText(/une seule demande d’ami en attente/)).toBeInTheDocument();
+  });
+});
+
+describe('SettingsModal — avancé', () => {
+  it('affiche la version, la licence et le code ami copiable', () => {
+    render(<SettingsModal />);
+    openTab('Avancé');
+
+    expect(screen.getByText(APP_VERSION)).toBeInTheDocument();
+    expect(screen.getByText(/licence MIT/)).toBeInTheDocument();
+    expect(screen.getByText(/THIRD_PARTY\.md/)).toBeInTheDocument();
+    expect(screen.getByText(self.friend_code)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Copier mon code ami' }),
+    ).toBeInTheDocument();
+  });
+});

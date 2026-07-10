@@ -1,0 +1,26 @@
+[package]
+name = "accord-app"
+description = "Hôte de bureau Tauri d'Accord : cycle de vie de l'identité et nœud embarqué"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Feature `hardware` : codec Opus réel + capture/lecture cpal (D-020, D-025).
+accord-node = { path = "../../crates/accord-node", features = ["hardware"] }
+accord-proto = { path = "../../crates/accord-proto" }
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tauri = { version = "2", features = [] }
+# Notifications système natives, envoyées depuis la webview (D-028).
+tauri-plugin-notification = "2"
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "3"

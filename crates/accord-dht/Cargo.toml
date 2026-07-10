@@ -1,0 +1,21 @@
+[package]
+name = "accord-dht"
+description = "DHT Kademlia 256 bits d'Accord : routage, RPC, stockage signé, réplication, résistance Sybil (SPEC.md §4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+accord-proto = { path = "../accord-proto" }
+accord-crypto = { path = "../accord-crypto" }
+accord-transport = { path = "../accord-transport" }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+rand = { workspace = true }
+async-trait = "0.1"
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros", "time", "sync"] }

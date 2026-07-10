@@ -1,0 +1,195 @@
+/**
+ * Tests de l'onglet Mon compte : édition du pseudo et de la bio (validation,
+ * toast de succès, échec), avatar (retrait), code ami copiable, clé publique
+ * abrégée et rappel sur la phrase de récupération non ré-affichable.
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { SelfProfile } from '../../lib/api';
+import { useSession } from '../../stores/session';
+import { useUi } from '../../stores/ui';
+import { AccountTab } from './AccountTab';
+
+vi.mock('../../lib/files', () => ({
+  lireFichier: vi.fn(() => new Promise(() => {})),
+}));
+
+/** Bouton Enregistrer de la section nommée (pseudo et bio partagent le libellé). */
+function saveButtonOf(sectionName: string): HTMLElement {
+  const section = screen.getByRole('region', { name: sectionName });
+  return within(section).getByRole('button', { name: 'Enregistrer' });
+}
+
+const PUBKEY = 'aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899';
+
+const self: SelfProfile = {
+  node_id: 'n-moi',
+  pubkey: PUBKEY,
+  friend_code: 'accord-moi-12345',
+  name: 'Alex',
+  bio: null,
+  avatar: null,
+  banner: null,
+};
+
+beforeEach(() => {
+  useUi.setState({ lang: 'fr', toasts: [] });
+  useSession.setState({
+    self,
+    phase: 'ready',
+    setName: vi.fn(async () => {}),
+    setBio: vi.fn(async () => {}),
+    setAvatar: vi.fn(async () => {}),
+  });
+});
+
+describe('AccountTab — pseudo', () => {
+  it('préremplit le champ avec le pseudo courant', () => {
+    render(<AccountTab />);
+
+    expect(screen.getByRole('textbox', { name: 'Pseudo' })).toHaveValue('Alex');
+  });
+
+  it('désactive Enregistrer tant que le pseudo est inchangé ou invalide', () => {
+    render(<AccountTab />);
+    const save = saveButtonOf('Pseudo');
+
+    expect(save).toBeDisabled();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pseudo' }), {
+      target: { value: 'A' },
+    });
+    expect(save).toBeDisabled();
+    expect(
+      screen.getByText('Le pseudo doit faire entre 2 et 32 caractères'),
+    ).toBeInTheDocument();
+  });
+
+  it('enregistre le nouveau pseudo et confirme par un toast', async () => {
+    const setName = vi.fn(async () => {});
+    useSession.setState({ setName });
+    render(<AccountTab />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pseudo' }), {
+      target: { value: '  Alexandra  ' },
+    });
+    fireEvent.click(saveButtonOf('Pseudo'));
+
+    await waitFor(() => expect(setName).toHaveBeenCalledWith('Alexandra'));
+    await waitFor(() => {
+      expect(
+        useUi.getState().toasts.some((t) => t.kind === 'info' && /Pseudo/.test(t.text)),
+      ).toBe(true);
+    });
+  });
+
+  it('signale l’échec de l’enregistrement par un toast d’erreur', async () => {
+    useSession.setState({
+      setName: vi.fn(async () => Promise.reject(new Error('hors ligne'))),
+    });
+    render(<AccountTab />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pseudo' }), {
+      target: { value: 'Alexandra' },
+    });
+    fireEvent.click(saveButtonOf('Pseudo'));
+
+    await waitFor(() => {
+      expect(useUi.getState().toasts.some((t) => t.kind === 'error')).toBe(true);
+    });
+  });
+});
+
+describe('AccountTab — bio', () => {
+  it('préremplit la zone avec la bio courante et affiche le compteur', () => {
+    useSession.setState({ self: { ...self, bio: 'Salut !' } });
+    render(<AccountTab />);
+
+    expect(screen.getByRole('textbox', { name: 'À propos de moi' })).toHaveValue(
+      'Salut !',
+    );
+    expect(screen.getByText('7/2048')).toBeInTheDocument();
+  });
+
+  it('enregistre la bio épurée et confirme par un toast', async () => {
+    const setBio = vi.fn(async () => {});
+    useSession.setState({ setBio });
+    render(<AccountTab />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'À propos de moi' }), {
+      target: { value: '  fan de fromage  ' },
+    });
+    fireEvent.click(saveButtonOf('À propos de moi'));
+
+    await waitFor(() => expect(setBio).toHaveBeenCalledWith('fan de fromage'));
+    await waitFor(() => {
+      expect(
+        useUi.getState().toasts.some((t) => t.kind === 'info' && /Bio/.test(t.text)),
+      ).toBe(true);
+    });
+  });
+
+  it('désactive Enregistrer tant que la bio est inchangée', () => {
+    render(<AccountTab />);
+
+    expect(saveButtonOf('À propos de moi')).toBeDisabled();
+  });
+
+  it('permet d’effacer la bio (chaîne vide)', async () => {
+    const setBio = vi.fn(async () => {});
+    useSession.setState({ self: { ...self, bio: 'ancienne' }, setBio });
+    render(<AccountTab />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'À propos de moi' }), {
+      target: { value: '' },
+    });
+    fireEvent.click(saveButtonOf('À propos de moi'));
+
+    await waitFor(() => expect(setBio).toHaveBeenCalledWith(''));
+  });
+});
+
+describe('AccountTab — avatar', () => {
+  it('propose le choix d’une image, sans retrait tant qu’aucun avatar', () => {
+    render(<AccountTab />);
+
+    expect(screen.getByRole('button', { name: 'Choisir une image' })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Retirer l’avatar' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('retire l’avatar courant via profile.set_avatar(null)', async () => {
+    const setAvatar = vi.fn(async () => {});
+    useSession.setState({ self: { ...self, avatar: 'ab'.repeat(32) }, setAvatar });
+    render(<AccountTab />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retirer l’avatar' }));
+
+    await waitFor(() => expect(setAvatar).toHaveBeenCalledWith(null));
+    await waitFor(() => {
+      expect(useUi.getState().toasts.some((t) => t.kind === 'info')).toBe(true);
+    });
+  });
+});
+
+describe('AccountTab — identité et phrase de récupération', () => {
+  it('affiche le code ami, son bouton de copie et la clé publique abrégée', () => {
+    render(<AccountTab />);
+
+    expect(screen.getByText('accord-moi-12345')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Copier mon code ami' }),
+    ).toBeInTheDocument();
+    // Clé abrégée : début, ellipse, fin — jamais le mur d'hexadécimal complet.
+    expect(screen.getByText('aabbccddeeff…66778899')).toBeInTheDocument();
+  });
+
+  it('rappelle que la phrase de récupération ne sera jamais ré-affichée', () => {
+    render(<AccountTab />);
+
+    expect(screen.getByText(/affichée une seule fois/)).toBeInTheDocument();
+    expect(screen.getByText(/ne peut pas être ré-affichée/)).toBeInTheDocument();
+  });
+});

@@ -1,0 +1,23 @@
+[package]
+name = "accord-core"
+description = "Logique applicative d'Accord : messagerie, groupes/rôles, fichiers, files hors ligne, codes amis, recherche (SPEC.md §5-§9)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+accord-proto = { path = "../accord-proto" }
+accord-crypto = { path = "../accord-crypto" }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rusqlite = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+rand = { workspace = true }
+zeroize = { workspace = true }
+chacha20poly1305 = { workspace = true }
+reed-solomon-erasure = "6"
+
+[dev-dependencies]
+tempfile = "3"

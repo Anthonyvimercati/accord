@@ -1,0 +1,153 @@
+# Accord multi-platform release workflow.
+#
+# Purpose: build the macOS, Windows and Linux installers on native runners
+# (cross-compiling everything from a single OS is not possible) and attach
+# them to a GitHub release.
+#
+# Triggers:
+#   - push of a "v*" tag (e.g. v0.2.0) -> nominal publication;
+#   - workflow_dispatch -> manual run from the Actions tab.
+#     WARNING: for a manual run, pick a tag ref so the release gets a
+#     correct name; otherwise a draft release named after the branch is
+#     created (easy to delete).
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# tauri-action creates the release and uploads the bundles: write access required.
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      # Do not stop the other OSes if one fails: we want to see which
+      # platforms pass.
+      fail-fast: false
+      matrix:
+        include:
+          # macOS: Apple Silicon (arm64) build. A universal binary would need
+          # libopus for both arches, but Homebrew only provides the native one,
+          # so we build for the runner's arch (arm64) instead.
+          - platform: macos-latest
+            args: ""
+          # Linux: native Ubuntu 22.04 build (WebKitGTK 4.1 available).
+          - platform: ubuntu-22.04
+            args: ""
+          # Windows: native build, NSIS (.exe) and WiX (.msi) installers.
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Tauri 2 system dependencies — Linux only. Official Tauri 2 list for
+      # Debian/Ubuntu + patchelf (AppImage bundling). The Tauri host enables the
+      # `hardware` feature, so we also need libopus (Opus codec, via pkg-config)
+      # and libasound2-dev (ALSA, required by cpal audio capture).
+      - name: System dependencies (Linux only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libopus-dev \
+            libasound2-dev \
+            rpm \
+            pkg-config \
+            patchelf
+
+      # macOS: libopus + pkg-config for the `hardware` (Opus) feature. Homebrew
+      # keeps opus out of the default pkg-config path, so point PKG_CONFIG_PATH
+      # at its keg. cpal uses CoreAudio on macOS (no extra dep).
+      - name: System dependencies (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew install opus pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix opus)/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+
+      # Windows: audiopus_sys has no pkg-config/vcpkg path here, so it builds the
+      # bundled Opus source via CMake. Two problems on the runner: CMake >= 4
+      # drops the old cmake_minimum_required (D-020), and the default MSVC
+      # generator ("Visual Studio 18 2026") is unknown to older CMake. Fix: pin
+      # CMake 3.x AND use the Ninja generator with the MSVC dev environment
+      # (below), which sidesteps the versioned VS generator entirely. cpal uses
+      # WASAPI (no extra dep). Best-effort — voice on Windows is not yet
+      # validated; with fail-fast off, macOS and Linux installers still ship if
+      # this job does not succeed.
+      - name: System dependencies (Windows only)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          python -m pip install "cmake==3.31.6"
+          $cmakeExe = python -c "import cmake, os; print(os.path.join(os.path.dirname(cmake.__file__), 'data', 'bin', 'cmake.exe'))"
+          echo "CMAKE=$cmakeExe" >> $env:GITHUB_ENV
+          echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
+          & $cmakeExe --version
+
+      # Windows: activate the MSVC toolchain so the Ninja generator finds cl.exe.
+      - name: Set up MSVC environment (Windows only)
+        if: matrix.platform == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          # npm cache keyed on the frontend lockfile.
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cache of the Rust build artifacts (root workspace -> ./target).
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      # Deterministic install of the frontend dependencies in app/.
+      - name: Frontend dependencies (npm ci)
+        run: npm ci
+        working-directory: ./app
+
+      # Tauri build + creation/population of the GitHub release.
+      # projectPath points to app/ (package.json + src-tauri/ live there).
+      # On GitHub runners, CI=true is already set, which avoids the cosmetic
+      # DMG failure (AppleScript in a headless environment).
+      - name: Build Tauri and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ./app
+          tagName: ${{ github.ref_name }}
+          releaseName: "Accord ${{ github.ref_name }}"
+          releaseBody: |
+            Accord ${{ github.ref_name }} desktop installers.
+
+            - macOS: DMG (Apple Silicon / arm64)
+            - Windows: NSIS installer (.exe) and MSI (WiX)
+            - Linux: .deb package and AppImage
+          # Draft release: reviewed and published manually.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

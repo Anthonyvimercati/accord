@@ -1,0 +1,88 @@
+/** Tests des aides d'affichage : horodatages, initiales, couleurs, libellés. */
+
+import { describe, expect, it } from 'vitest';
+import {
+  avatarColor,
+  formatDay,
+  formatTimestamp,
+  initials,
+  shortId,
+  tailleLisible,
+} from './format';
+
+// Points fixes locaux (sans fuseau explicite : interprétés en heure locale).
+const NOW = new Date('2026-07-08T15:00:00').getTime();
+const SAME_DAY = new Date('2026-07-08T09:05:00').getTime();
+const CHRISTMAS = new Date('2025-12-25T10:00:00').getTime();
+
+describe('formatTimestamp', () => {
+  it('affiche seulement l’heure pour un message du jour', () => {
+    expect(formatTimestamp(SAME_DAY, 'fr', NOW)).toBe('09:05');
+  });
+
+  it('affiche la date (format local) pour un autre jour', () => {
+    expect(formatTimestamp(CHRISTMAS, 'fr', NOW)).toBe('25/12/2025');
+    expect(formatTimestamp(CHRISTMAS, 'en', NOW)).toBe('12/25/2025');
+  });
+});
+
+describe('formatDay', () => {
+  it('rend un séparateur de jour complet dans la langue demandée', () => {
+    expect(formatDay(CHRISTMAS, 'fr')).toContain('décembre 2025');
+    expect(formatDay(CHRISTMAS, 'en')).toContain('December');
+  });
+});
+
+describe('initials', () => {
+  it('prend la première lettre des deux premiers mots, en majuscules', () => {
+    expect(initials('alice')).toBe('A');
+    expect(initials('alice bob')).toBe('AB');
+    expect(initials('alice bob charlie')).toBe('AB');
+  });
+
+  it('tolère les espaces superflus et les noms vides', () => {
+    expect(initials('  alice   bob  ')).toBe('AB');
+    expect(initials('')).toBe('?');
+    expect(initials('   ')).toBe('?');
+  });
+});
+
+describe('avatarColor', () => {
+  it('rend une couleur hexadécimale stable pour un même identifiant', () => {
+    const color = avatarColor('a1b2c3');
+    expect(color).toMatch(/^#[0-9a-f]{6}$/);
+    expect(avatarColor('a1b2c3')).toBe(color);
+  });
+
+  it('rend une couleur même pour une chaîne vide', () => {
+    expect(avatarColor('')).toMatch(/^#[0-9a-f]{6}$/);
+  });
+});
+
+describe('shortId', () => {
+  it('tronque une clé hexadécimale à 6 caractères', () => {
+    expect(shortId('abcdef0123456789')).toBe('abcdef');
+    expect(shortId('ab')).toBe('ab');
+  });
+});
+
+describe('tailleLisible', () => {
+  it('affiche les octets tels quels sous 1 Kio', () => {
+    expect(tailleLisible(0, 'fr')).toBe('0 o');
+    expect(tailleLisible(1023, 'fr')).toBe('1023 o');
+    expect(tailleLisible(512, 'en')).toBe('512 B');
+  });
+
+  it('monte d’unité par paliers de 1024 avec une décimale au plus', () => {
+    expect(tailleLisible(1024, 'fr')).toBe('1 Ko');
+    expect(tailleLisible(1536, 'fr')).toBe('1,5 Ko');
+    expect(tailleLisible(1536, 'en')).toBe('1.5 KB');
+    expect(tailleLisible(8 * 1024 * 1024, 'fr')).toBe('8 Mo');
+    expect(tailleLisible(3 * 1024 * 1024 * 1024, 'en')).toBe('3 GB');
+  });
+
+  it('plafonne à l’unité la plus grande et tolère les négatifs', () => {
+    expect(tailleLisible(5 * 1024 ** 4, 'fr')).toBe('5120 Go');
+    expect(tailleLisible(-42, 'fr')).toBe('0 o');
+  });
+});

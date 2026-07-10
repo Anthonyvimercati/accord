@@ -1,0 +1,21 @@
+[package]
+name = "accord-voice"
+description = "Voix full-mesh chiffrée d'Accord : DSP, gigue, débit adaptatif, VAD (SPEC §8)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+accord-proto = { path = "../accord-proto" }
+thiserror.workspace = true
+tracing.workspace = true
+
+# Codec Opus réel + capture/lecture matérielle : optionnels (voir D-020).
+opus = { version = "0.3", optional = true }
+cpal = { version = "0.15", optional = true }
+
+[features]
+default = []
+# Active la vraie liaison Opus et la capture/lecture cpal.
+hardware = ["dep:opus", "dep:cpal"]

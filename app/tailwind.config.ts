@@ -1,0 +1,62 @@
+import type { Config } from 'tailwindcss';
+
+/**
+ * Tokens sémantiques calqués sur Discord (fidélité visuelle, SPEC §10) : les
+ * composants ne manipulent jamais de valeurs hexadécimales. Les valeurs
+ * vivent dans des variables CSS (styles/global.css) déclinées par thème
+ * (sombre par défaut, clair via `data-theme="light"` sur la racine) ; le
+ * format `rgb(var(--…) / <alpha-value>)` préserve les modificateurs
+ * d'opacité Tailwind (`bg-rail/60`).
+ */
+function themed(variable: string): string {
+  return `rgb(var(${variable}) / <alpha-value>)`;
+}
+
+export default {
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        // Surfaces, de la plus profonde à la plus claire.
+        rail: themed('--color-rail'),
+        sidebar: themed('--color-sidebar'),
+        chat: themed('--color-chat'),
+        'chat-hover': themed('--color-chat-hover'),
+        input: themed('--color-input'),
+        modal: themed('--color-modal'),
+        tooltip: themed('--color-tooltip'),
+        // Texte.
+        norm: themed('--color-norm'),
+        muted: themed('--color-muted'),
+        faint: themed('--color-faint'),
+        header: themed('--color-header'),
+        // Accents.
+        blurple: themed('--color-blurple'),
+        'blurple-hover': themed('--color-blurple-hover'),
+        green: themed('--color-green'),
+        red: themed('--color-red'),
+        yellow: themed('--color-yellow'),
+        link: themed('--color-link'),
+      },
+      fontFamily: {
+        sans: [
+          'gg sans',
+          'Noto Sans',
+          'Helvetica Neue',
+          'Helvetica',
+          'Arial',
+          'sans-serif',
+        ],
+        mono: ['SF Mono', 'Consolas', 'Liberation Mono', 'monospace'],
+      },
+      borderRadius: {
+        server: '16px',
+      },
+      boxShadow: {
+        elevation: 'var(--shadow-elevation)',
+        modal: 'var(--shadow-modal)',
+      },
+    },
+  },
+  plugins: [],
+} satisfies Config;

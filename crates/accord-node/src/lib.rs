@@ -1,0 +1,425 @@
+//! Assemblage du nœud Accord : identité, base, transport, DHT, cœur et API
+//! locale câblés en un runtime unique. Consommé par le démon `accord-noded`
+//! et par l'hôte Tauri.
+
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
+pub mod error;
+pub mod hex;
+pub mod identity;
+pub mod maintenance;
+pub mod node;
+pub mod outbound;
+pub mod runtime;
+pub mod service;
+pub mod voice;
+
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+
+use accord_api::{ApiServer, AuthToken, NotificationHub};
+use accord_core::db::Db;
+use accord_dht::{DhtConfig, KademliaNode};
+use accord_proto::types::{node_flags, NodeInfo, WireAddr};
+use accord_transport::{Endpoint, EndpointConfig, UdpDatagram};
+
+pub use error::NodeError;
+pub use identity::{Paths, Unlocked};
+pub use maintenance::MaintenanceConfig;
+pub use node::Node;
+pub use service::NodeService;
+pub use voice::{VoiceBackend, VoiceDevices, VoiceHandle, VoiceParticipant, VoiceStatus};
+
+use outbound::OutboundSink;
+use runtime::{Runtime, TransportDhtRpc};
+
+/// Capacité du canal d'actions sortantes.
+const OUTBOUND_CAPACITY: usize = 1024;
+
+/// Configuration de démarrage d'un nœud.
+#[derive(Debug, Clone)]
+pub struct NodeConfig {
+    /// Répertoire de profil (identité + base).
+    pub paths: Paths,
+    /// Adresse UDP d'écoute P2P. L'IP fixe l'interface (`0.0.0.0` : toutes).
+    /// Le port `0` déclenche la stratégie de port stable (B2) : port retenu au
+    /// précédent lancement, sinon [`node::network::DEFAULT_P2P_PORT`] puis une
+    /// plage de repli puis un port éphémère. Un port explicite non nul est
+    /// tenté en priorité.
+    pub p2p_addr: SocketAddr,
+    /// Port de l'API locale (`0` : éphémère).
+    pub api_port: u16,
+    /// Difficulté PoW exigée des pairs.
+    pub pow_bits: u32,
+    /// Mode du sous-système voix (matériel par défaut ; simulé pour les
+    /// tests : codec pur et capture injectée, déterministe sans périphérique).
+    pub voice_backend: VoiceBackend,
+    /// Active le mapping de port automatique (UPnP-IGD puis NAT-PMP/PCP) au
+    /// démarrage. Sans effet si l'écoute est en loopback (rien à mapper). En cas
+    /// d'échec, dégradation propre : le nœud démarre sans mapping.
+    pub nat_enabled: bool,
+    /// Active l'annonce et la découverte de pairs Accord sur le réseau local
+    /// (mDNS). Sans effet si l'écoute est en loopback.
+    pub mdns_enabled: bool,
+}
+
+impl Default for NodeConfig {
+    fn default() -> Self {
+        Self {
+            paths: Paths::new("."),
+            p2p_addr: "0.0.0.0:0".parse().expect("adresse littérale valide"),
+            api_port: 0,
+            pow_bits: accord_proto::limits::IDENTITY_POW_BITS,
+            voice_backend: VoiceBackend::default(),
+            nat_enabled: true,
+            mdns_enabled: true,
+        }
+    }
+}
+
+/// Nœud en cours d'exécution : réseau + API actifs.
+pub struct RunningNode {
+    /// État applicatif partagé.
+    pub node: Arc<Node>,
+    /// Serveur API local.
+    pub api: ApiServer,
+    /// Jeton d'authentification de l'API (à transmettre à l'UI).
+    pub token: AuthToken,
+    endpoint: Arc<Endpoint>,
+    runtime: Arc<Runtime>,
+    voice: VoiceHandle,
+}
+
+impl RunningNode {
+    /// Adresse P2P effective (port éphémère résolu).
+    pub fn p2p_addr(&self) -> SocketAddr {
+        self.endpoint.local_addr()
+    }
+
+    /// Enregistre l'adresse P2P d'un pair (normalement fournie par la
+    /// résolution de présence DHT ; exposé pour l'amorçage et les tests).
+    pub fn register_peer(&self, pubkey: [u8; 32], addr: SocketAddr) {
+        self.runtime.register_peer(pubkey, addr);
+    }
+
+    /// Coordonnées DHT locales, à fournir comme graine d'amorçage à d'autres
+    /// nœuds (exposé pour l'amorçage et les tests).
+    pub fn node_info(&self) -> NodeInfo {
+        self.runtime.local_node_info()
+    }
+
+    /// Amorce la table de routage DHT avec des nœuds connus (graines).
+    pub async fn dht_bootstrap(&self, seeds: Vec<NodeInfo>) {
+        self.runtime.dht_bootstrap(seeds).await;
+    }
+
+    /// Adresse de l'API locale.
+    pub fn api_addr(&self) -> SocketAddr {
+        self.api.local_addr()
+    }
+
+    /// Ajoute un pair d'amorçage (persisté) et l'ensemence immédiatement
+    /// (handshake + DHT). Rend le statut réseau à jour.
+    pub async fn add_bootstrap_peer(
+        &self,
+        addr: SocketAddr,
+    ) -> Result<node::network::NetworkStatus, NodeError> {
+        use node::network::NetworkControl;
+        self.runtime.add_peer(addr).await
+    }
+
+    /// Retire un pair d'amorçage persisté. Rend le statut réseau à jour.
+    pub async fn remove_bootstrap_peer(
+        &self,
+        addr: SocketAddr,
+    ) -> Result<node::network::NetworkStatus, NodeError> {
+        use node::network::NetworkControl;
+        self.runtime.remove_peer(addr).await
+    }
+
+    /// Statut réseau courant (port, adresses locales, pairs, nœuds DHT).
+    pub fn network_status(&self) -> node::network::NetworkStatus {
+        use node::network::NetworkControl;
+        self.runtime.status()
+    }
+
+    /// Résout un code ami en clé publique via la DHT (repli d'amorçage
+    /// inclus). Exposé pour l'hôte et les tests d'intégration.
+    pub async fn resolve_friend_code(
+        &self,
+        code: &accord_crypto::FriendCode,
+    ) -> Result<[u8; 32], NodeError> {
+        use service::CodeResolver;
+        self.runtime.resolve(code).await
+    }
+
+    /// Poignée du sous-système voix (salons vocaux ; exposée pour l'hôte et
+    /// les tests — l'UI passe par les méthodes `voice.*` de l'API).
+    pub fn voice(&self) -> &VoiceHandle {
+        &self.voice
+    }
+
+    /// Arrête proprement le réseau, la maintenance, la voix et l'API.
+    pub fn shutdown(&self) {
+        // Prévient les amis joignables que l'on passe hors ligne, tant que le
+        // réseau tourne encore (best-effort, jamais mis en file).
+        let _ = self.node.broadcast_presence(false);
+        self.voice.stop();
+        self.runtime.stop();
+        self.endpoint.shutdown();
+        self.api.shutdown();
+    }
+}
+
+/// Démarre un nœud complet avec la maintenance réseau par défaut (D-024).
+///
+/// Voir [`run_with_maintenance`] pour ajuster les intervalles (tests,
+/// déploiements particuliers).
+pub async fn run(unlocked: Unlocked, config: NodeConfig) -> Result<RunningNode, NodeError> {
+    run_with_maintenance(unlocked, config, MaintenanceConfig::default()).await
+}
+
+/// Démarre un nœud complet à partir d'une identité déverrouillée.
+///
+/// Ouvre la base chiffrée, lie le socket UDP, câble le transport, la DHT, le
+/// cœur applicatif et le serveur API local, puis lance les boucles (réseau et
+/// maintenance périodique selon `maintenance`).
+pub async fn run_with_maintenance(
+    unlocked: Unlocked,
+    config: NodeConfig,
+    maintenance: MaintenanceConfig,
+) -> Result<RunningNode, NodeError> {
+    let db = Db::open(&config.paths.db(), &unlocked.db_key)?;
+    let identity = Arc::new(unlocked.identity);
+
+    // Port P2P stable (B2) : port explicite de la config s'il est fourni,
+    // sinon le port retenu au précédent lancement, sinon la stratégie par
+    // défaut (48016, plage de repli, puis port éphémère).
+    let explicit_port = config.p2p_addr.port();
+    let preferred_port = if explicit_port != 0 {
+        Some(explicit_port)
+    } else {
+        node::network::read_stored_port(&db)?
+    };
+
+    // Transport chiffré sur UDP réel.
+    let socket = Arc::new(bind_p2p(config.p2p_addr.ip(), preferred_port).await?);
+    let clock = Arc::new(accord_transport::SystemClock);
+    let ep_config = EndpointConfig {
+        pow_bits: config.pow_bits,
+        // Service de relais activé (SPEC §10) : la logique d'acheminement reste
+        // gardée (session avec la cible requise, plafonds 1 Mo/s + 64 circuits,
+        // blobs opaques). L'usage réel est cadré par la SÉLECTION côté client,
+        // qui ne retient qu'un relais effectivement joignable (voir
+        // `Runtime::ensure_relay_to`) : un nœud non joignable, bien qu'annoncé
+        // relais, est écarté à l'ouverture. Le raffinement « seuls les nœuds
+        // publiquement joignables s'annoncent » (gating par `relay_eligible`)
+        // est une optimisation ultérieure.
+        relay_serving: true,
+        ..EndpointConfig::default()
+    };
+    let (endpoint, events) = Endpoint::new(socket, Arc::clone(&identity), clock, ep_config);
+    endpoint.spawn();
+    // Retient le port effectivement lié pour les prochains lancements (B2).
+    node::network::store_port(&db, endpoint.local_addr().port())?;
+
+    // Nœud DHT local.
+    let local_info = NodeInfo {
+        node_id: identity.node_id(),
+        static_pub: identity.public_key(),
+        pow_nonce: identity.pow_nonce(),
+        // Capacité relais annoncée (SPEC §10-§11.3) : permet à deux amis en NAT
+        // symétrique de nous sélectionner comme relais partagé. La sélection
+        // déterministe côté client écarte un relais injoignable, donc annoncer
+        // la capacité largement ne nuit pas à la correction (au pire une
+        // tentative écartée). Gating par joignabilité réelle = optimisation
+        // future.
+        flags: node_flags::RELAY,
+        addrs: vec![WireAddr(endpoint.local_addr())],
+    };
+    let dht = Arc::new(KademliaNode::new(
+        local_info,
+        DhtConfig {
+            pow_bits: config.pow_bits,
+            ..DhtConfig::default()
+        },
+    ));
+
+    // Hub d'événements partagé entre le nœud (émission) et l'API (diffusion).
+    let hub = NotificationHub::new();
+    let (sink, outbound_rx) = OutboundSink::channel(OUTBOUND_CAPACITY);
+    let node = Arc::new(Node::with_hub(
+        Arc::clone(&identity),
+        db,
+        sink.clone(),
+        Some(hub.clone()),
+    ));
+
+    // Runtime réseau (construit avant l'API : il résout les codes amis).
+    let rpc = TransportDhtRpc::new(Arc::clone(&endpoint));
+    let runtime = Runtime::new(
+        Arc::clone(&endpoint),
+        Arc::clone(&dht),
+        rpc,
+        Arc::clone(&node),
+        maintenance,
+    );
+
+    // Sous-système voix (D-025) : tâche cadencée à 20 ms, trames via les
+    // sessions du runtime, signalisation via le canal d'actions sortantes.
+    let voice = voice::spawn(voice::VoiceDeps {
+        node: Arc::clone(&node),
+        outbound: sink,
+        hub: Some(hub.clone()),
+        sender: Arc::clone(&runtime) as Arc<dyn voice::FrameSender>,
+        backend: config.voice_backend,
+    });
+    runtime.set_voice(voice.clone());
+
+    // Contrôle réseau (B2) : branche les méthodes `network.*` sur le nœud.
+    node.set_network_control(Arc::clone(&runtime) as Arc<dyn node::network::NetworkControl>);
+
+    // API locale.
+    let token = AuthToken::generate();
+    let api = ApiServer::bind(
+        config.api_port,
+        token.clone(),
+        Arc::new(
+            NodeService::with_resolver(
+                Arc::clone(&node),
+                Arc::clone(&runtime) as Arc<dyn service::CodeResolver>,
+            )
+            .with_voice(voice.clone()),
+        ),
+        hub,
+    )
+    .await?;
+    runtime.spawn(events, outbound_rx);
+
+    // Connexion facile : mapping de port automatique (UPnP-IGD puis NAT-PMP/PCP)
+    // et découverte de pairs sur le réseau local (mDNS), en tâches de fond non
+    // bloquantes. Ignorés en écoute loopback (rien à exposer ni à annoncer, cas
+    // des tests) et désactivables par la configuration. Tout échec dégrade
+    // proprement : le nœud reste utilisable via l'amorçage manuel.
+    if !config.p2p_addr.ip().is_loopback() {
+        let p2p_port = endpoint.local_addr().port();
+        let local_ips = runtime::discover_local_ips();
+        if config.nat_enabled {
+            let notify: node::nat::OnChange = {
+                let rt = Arc::clone(&runtime);
+                Arc::new(move || rt.emit_network_if_changed())
+            };
+            let local_ipv4 = local_ips.iter().copied().find(IpAddr::is_ipv4);
+            node::nat::spawn(
+                runtime.nat_shared(),
+                local_ipv4,
+                p2p_port,
+                runtime.stop_signal(),
+                notify,
+            );
+        }
+        if config.mdns_enabled {
+            let notify: node::discovery::OnChange = {
+                let rt = Arc::clone(&runtime);
+                Arc::new(move || rt.emit_network_if_changed())
+            };
+            node::discovery::spawn(
+                runtime.lan_shared(),
+                identity.public_key(),
+                local_ips,
+                p2p_port,
+                Arc::clone(&runtime) as Arc<dyn node::discovery::LanSink>,
+                runtime.stop_signal(),
+                notify,
+            );
+        }
+    }
+
+    // Ensemencement immédiat des pairs d'amorçage persistés (la maintenance
+    // assure ensuite la reconnexion périodique avec backoff).
+    let boot_rt = Arc::clone(&runtime);
+    tokio::spawn(async move { boot_rt.bootstrap_all().await });
+
+    // Annonce de présence « en ligne » aux amis joignables (best-effort :
+    // ceux hors ligne la perdent, un futur message les remettra en ligne).
+    let _ = node.broadcast_presence(true);
+
+    Ok(RunningNode {
+        node,
+        api,
+        token,
+        endpoint,
+        runtime,
+        voice,
+    })
+}
+
+/// Ports candidats à l'écoute P2P, dans l'ordre d'essai : port préféré (non
+/// nul) d'abord, puis la plage stable [`node::network::DEFAULT_P2P_PORT`]
+/// `..=` [`node::network::P2P_PORT_FALLBACK_END`], puis `0` (éphémère) en
+/// dernier recours. Sans doublon.
+fn candidate_ports(preferred: Option<u16>) -> Vec<u16> {
+    let mut ports: Vec<u16> = Vec::new();
+    if let Some(p) = preferred.filter(|p| *p != 0) {
+        ports.push(p);
+    }
+    for p in node::network::DEFAULT_P2P_PORT..=node::network::P2P_PORT_FALLBACK_END {
+        if !ports.contains(&p) {
+            ports.push(p);
+        }
+    }
+    ports.push(0);
+    ports
+}
+
+/// Lie le socket UDP P2P en essayant les ports candidats dans l'ordre. Le
+/// port `0` final garantit qu'une adresse est toujours obtenue (sauf échec
+/// d'E/S système, propagé tel quel).
+async fn bind_p2p(ip: IpAddr, preferred: Option<u16>) -> Result<UdpDatagram, NodeError> {
+    let mut last_err: Option<std::io::Error> = None;
+    for port in candidate_ports(preferred) {
+        match UdpDatagram::bind(SocketAddr::new(ip, port)).await {
+            Ok(socket) => return Ok(socket),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(NodeError::Io(last_err.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable,
+            "aucun port disponible",
+        )
+    })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::node::network::{DEFAULT_P2P_PORT, P2P_PORT_FALLBACK_END};
+
+    #[test]
+    fn ports_candidats_ordre_et_repli() {
+        // Sans préférence : plage stable puis éphémère.
+        let sans = candidate_ports(None);
+        assert_eq!(sans.first(), Some(&DEFAULT_P2P_PORT));
+        assert_eq!(sans.last(), Some(&0));
+        assert_eq!(
+            sans.len(),
+            (P2P_PORT_FALLBACK_END - DEFAULT_P2P_PORT + 1) as usize + 1
+        );
+
+        // Préférence dans la plage : en tête, sans doublon.
+        let pref = candidate_ports(Some(48020));
+        assert_eq!(pref.first(), Some(&48020));
+        assert_eq!(pref.iter().filter(|p| **p == 48020).count(), 1);
+        assert_eq!(pref.last(), Some(&0));
+
+        // Préférence hors plage : ajoutée en tête.
+        let hors = candidate_ports(Some(50000));
+        assert_eq!(hors.first(), Some(&50000));
+        assert!(hors.contains(&DEFAULT_P2P_PORT));
+
+        // Préférence nulle : ignorée (équivalent à None).
+        assert_eq!(candidate_ports(Some(0)), sans);
+    }
+}

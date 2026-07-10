@@ -1,0 +1,21 @@
+/target
+**/node_modules
+/app/dist
+/app/src-tauri/target
+*.log
+.DS_Store
+/test-artifacts
+*.tsbuildinfo
+
+# Profils de nœud générés à l'exécution
+accord-profile/
+*.vault
+session.json
+
+# Dossiers de distribution (artefacts, régénérés)
+/dist/
+
+# Journaux de travail internes (source de vérité locale, hors dépôt public)
+/PROGRESS.md
+/RAPPORT.md
+/DECISIONS.md

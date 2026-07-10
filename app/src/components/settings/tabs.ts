@@ -1,0 +1,80 @@
+/**
+ * Catalogue des onglets de paramètres : ajouter un onglet se résume à une
+ * entrée dans `SETTINGS_GROUPS` (libellé i18n + composant de contenu).
+ */
+
+import type { ComponentType } from 'react';
+import type { Dict } from '../../i18n';
+import { AccountTab } from './AccountTab';
+import { AdvancedTab } from './AdvancedTab';
+import { AppearanceTab } from './AppearanceTab';
+import { LanguageTab } from './LanguageTab';
+import { NetworkTab } from './NetworkTab';
+import { NotificationsTab } from './NotificationsTab';
+import { PrivacyTab } from './PrivacyTab';
+import { VoiceTab } from './VoiceTab';
+
+export type SettingsTabId =
+  | 'account'
+  | 'privacy'
+  | 'appearance'
+  | 'language'
+  | 'voice'
+  | 'notifications'
+  | 'network'
+  | 'advanced';
+
+export interface SettingsTab {
+  id: SettingsTabId;
+  label: (t: Dict) => string;
+  Content: ComponentType;
+}
+
+export interface SettingsGroup {
+  id: string;
+  label: (t: Dict) => string;
+  tabs: SettingsTab[];
+}
+
+/** Onglet ouvert par défaut. */
+export const DEFAULT_TAB: SettingsTab = {
+  id: 'account',
+  label: (t) => t.settings.account,
+  Content: AccountTab,
+};
+
+export const SETTINGS_GROUPS: SettingsGroup[] = [
+  {
+    id: 'user',
+    label: (t) => t.settings.userSection,
+    tabs: [
+      DEFAULT_TAB,
+      { id: 'privacy', label: (t) => t.settings.privacy, Content: PrivacyTab },
+    ],
+  },
+  {
+    id: 'app',
+    label: (t) => t.settings.appSection,
+    tabs: [
+      { id: 'appearance', label: (t) => t.settings.appearance, Content: AppearanceTab },
+      { id: 'language', label: (t) => t.settings.language, Content: LanguageTab },
+      { id: 'voice', label: (t) => t.settings.voice, Content: VoiceTab },
+      {
+        id: 'notifications',
+        label: (t) => t.settings.notifications,
+        Content: NotificationsTab,
+      },
+      { id: 'network', label: (t) => t.settings.network, Content: NetworkTab },
+      { id: 'advanced', label: (t) => t.settings.advanced, Content: AdvancedTab },
+    ],
+  },
+];
+
+/** Retrouve un onglet par identifiant (repli : onglet par défaut). */
+export function findTab(id: SettingsTabId): SettingsTab {
+  for (const group of SETTINGS_GROUPS) {
+    const tab = group.tabs.find((candidate) => candidate.id === id);
+    if (tab !== undefined) return tab;
+  }
+  return DEFAULT_TAB;
+}

@@ -1,0 +1,349 @@
+//! Tests end-to-end de l'endpoint transport sur le mesh simulé.
+
+use accord_crypto::Identity;
+use accord_proto::plaintext::ChannelMsg;
+use accord_proto::ControlMsg;
+use accord_transport::clock::ManualClock;
+use accord_transport::endpoint::{Endpoint, EndpointConfig, TransportEvent};
+use accord_transport::socket::sim::{NetConditions, SimNet};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+
+const POW: u32 = 4;
+
+fn config() -> EndpointConfig {
+    EndpointConfig {
+        pow_bits: POW,
+        keepalive_ms: 25_000,
+        idle_timeout_ms: 120_000,
+        cookie_pressure_per_s: 64,
+        relay_serving: false,
+    }
+}
+
+struct Node {
+    ep: Arc<Endpoint>,
+    events: mpsc::UnboundedReceiver<TransportEvent>,
+    addr: SocketAddr,
+    static_pub: [u8; 32],
+}
+
+fn spawn_node(net: &SimNet, clock: &ManualClock, addr: &str) -> Node {
+    let addr: SocketAddr = addr.parse().unwrap();
+    let socket = Arc::new(net.bind(addr));
+    let id = Arc::new(Identity::generate_with_pow_bits(POW));
+    let static_pub = id.public_key();
+    let (ep, events) = Endpoint::new(
+        socket,
+        id,
+        Arc::new(clock.clone()) as Arc<dyn accord_transport::Clock>,
+        config(),
+    );
+    ep.spawn();
+    Node {
+        ep,
+        events,
+        addr,
+        static_pub,
+    }
+}
+
+async fn recv_message(node: &mut Node) -> ChannelMsg {
+    loop {
+        match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+            .await
+            .expect("timeout événement")
+            .expect("canal fermé")
+        {
+            TransportEvent::Message { msg, .. } => return *msg,
+            _ => continue,
+        }
+    }
+}
+
+#[tokio::test]
+async fn two_nodes_handshake_and_exchange() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(1, NetConditions::default());
+    let mut alice = spawn_node(&net, &clock, "10.0.0.1:4000");
+    let bob = spawn_node(&net, &clock, "10.0.0.2:4000");
+
+    // Alice envoie un message applicatif à Bob : déclenche le handshake, met
+    // en file, puis livre après WELCOME.
+    let hello_msg = ChannelMsg::Control(ControlMsg::Ping { token: 42 });
+    alice.ep.send(bob.addr, &hello_msg).await.unwrap();
+
+    // Bob reçoit le PING (traité en interne → répond PONG), Alice le PONG.
+    // On vérifie surtout que la session est établie des deux côtés.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if alice.ep.session_count() == 1 && bob.ep.session_count() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("sessions établies");
+
+    // Après établissement, un message applicatif non-contrôle est remonté.
+    let profile = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 0,
+        custom: Some("coucou".into()),
+    });
+    bob.ep.send(alice.addr, &profile).await.unwrap();
+    let got = recv_message(&mut alice).await;
+    match got {
+        ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence { custom, .. }) => {
+            assert_eq!(custom, Some("coucou".into()));
+        }
+        other => panic!("message inattendu: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn message_survives_packet_loss() {
+    let clock = ManualClock::new(1_000_000);
+    // 30 % de perte : les retransmissions de handshake doivent finir par passer.
+    let net = SimNet::new(
+        7,
+        NetConditions {
+            loss: 0.30,
+            latency_min_ms: 0,
+            latency_max_ms: 0,
+        },
+    );
+    let alice = spawn_node(&net, &clock, "10.0.1.1:4000");
+    let mut bob = spawn_node(&net, &clock, "10.0.1.2:4000");
+
+    let msg = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 1,
+        custom: None,
+    });
+
+    // Boucle de renvoi applicatif + avance d'horloge pour déclencher les
+    // retransmissions de la maintenance (timeout 2 s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut delivered = false;
+    while std::time::Instant::now() < deadline {
+        alice.ep.send(bob.addr, &msg).await.unwrap();
+        clock.advance(2_500);
+        if let Ok(Some(ev)) =
+            tokio::time::timeout(Duration::from_millis(200), bob.events.recv()).await
+        {
+            if matches!(ev, TransportEvent::Message { .. }) {
+                delivered = true;
+                break;
+            }
+        }
+    }
+    assert!(delivered, "le message n'a jamais été livré malgré la perte");
+}
+
+/// Construit un `FileMsg::Block` de `taille` octets (charge applicative bien
+/// au-delà de la MTU : force la fragmentation transport).
+fn gros_bloc(taille: usize) -> ChannelMsg {
+    let data: Vec<u8> = (0..taille).map(|i| (i % 251) as u8).collect();
+    ChannelMsg::File(accord_proto::file_msg::FileMsg::Block {
+        root: [7u8; 32],
+        index: 0,
+        data,
+    })
+}
+
+#[tokio::test]
+async fn gros_message_fragmente_et_reassemble() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(11, NetConditions::default());
+    let mut alice = spawn_node(&net, &clock, "10.0.3.1:4000");
+    let bob = spawn_node(&net, &clock, "10.0.3.2:4000");
+
+    // Établir la session d'abord (PING de contrôle).
+    alice.ep.connect(bob.addr).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while alice.ep.session_count() == 0 || bob.ep.session_count() == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("sessions établies");
+
+    // Un bloc de 200 KiB : plusieurs centaines de fragments.
+    let bloc = gros_bloc(200 * 1024);
+    bob.ep.send(alice.addr, &bloc).await.unwrap();
+    let got = recv_message(&mut alice).await;
+    assert_eq!(
+        got, bloc,
+        "le gros message n'a pas été réassemblé à l'identique"
+    );
+}
+
+#[tokio::test]
+async fn gros_message_perdu_partiellement_echoue_puis_reussit_a_la_reemission() {
+    let clock = ManualClock::new(1_000_000);
+    // 5 % de perte : un seul fragment perdu fait échouer tout le message (pas de
+    // retransmission au niveau transport) ; la réémission applicative finit par
+    // faire passer une copie complète. Message modéré (~8 fragments) pour rester
+    // sous le plafond anti-DoS de réassemblages simultanés.
+    let net = SimNet::new(
+        23,
+        NetConditions {
+            loss: 0.05,
+            latency_min_ms: 0,
+            latency_max_ms: 0,
+        },
+    );
+    let mut alice = spawn_node(&net, &clock, "10.0.4.1:4000");
+    let bob = spawn_node(&net, &clock, "10.0.4.2:4000");
+
+    alice.ep.connect(bob.addr).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while alice.ep.session_count() == 0 || bob.ep.session_count() == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("sessions établies");
+
+    let bloc = gros_bloc(8 * 1024);
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let mut delivered = false;
+    while std::time::Instant::now() < deadline {
+        bob.ep.send(alice.addr, &bloc).await.unwrap();
+        // Purge d'horloge pour libérer d'éventuels réassemblages timeoutés.
+        clock.advance(1_000);
+        if let Ok(Some(TransportEvent::Message { msg, .. })) =
+            tokio::time::timeout(Duration::from_millis(200), alice.events.recv()).await
+        {
+            if *msg == bloc {
+                delivered = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        delivered,
+        "le gros message n'a jamais été livré malgré la perte de fragments"
+    );
+}
+
+#[tokio::test]
+async fn observe_addr_reports_public_address() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(3, NetConditions::default());
+    let mut alice = spawn_node(&net, &clock, "10.0.2.1:4000");
+    let bob = spawn_node(&net, &clock, "10.0.2.2:4000");
+
+    // Établir d'abord la session.
+    alice.ep.connect(bob.addr).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while alice.ep.session_count() == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    // Alice demande son adresse observée.
+    alice
+        .ep
+        .send(bob.addr, &ChannelMsg::Control(ControlMsg::ObserveAddrReq))
+        .await
+        .unwrap();
+
+    let observed = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Some(TransportEvent::ObservedAddr { observed }) = alice.events.recv().await {
+                break observed;
+            }
+        }
+    })
+    .await
+    .expect("adresse observée reçue");
+    assert_eq!(observed, alice.addr);
+}
+
+#[tokio::test]
+async fn bound_send_to_expected_identity_succeeds() {
+    // Cas nominal lié : Alice envoie à Bob en visant explicitement l'identité
+    // de Bob ; la session s'établit et le message est livré comme sans liaison.
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(31, NetConditions::default());
+    let alice = spawn_node(&net, &clock, "10.0.6.1:4000");
+    let mut bob = spawn_node(&net, &clock, "10.0.6.2:4000");
+
+    let msg = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 0,
+        custom: Some("lié".into()),
+    });
+    alice
+        .ep
+        .send_to(bob.addr, Some(bob.static_pub), &msg)
+        .await
+        .unwrap();
+
+    let got = recv_message(&mut bob).await;
+    match got {
+        ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence { custom, .. }) => {
+            assert_eq!(custom, Some("lié".into()));
+        }
+        other => panic!("message inattendu: {other:?}"),
+    }
+    assert_eq!(
+        alice.ep.session_count(),
+        1,
+        "session liée établie côté Alice"
+    );
+}
+
+#[tokio::test]
+async fn welcome_from_wrong_identity_is_rejected() {
+    // MITM on-path : Alice résout « Bob » vers une adresse tenue par Mallory et
+    // envoie un DM lié à l'identité de Bob. Mallory répond un WELCOME frais,
+    // valide et signé de SA propre identité. Alice doit refuser la liaison :
+    // aucune session établie chez Alice, et le DM ne doit JAMAIS être scellé ni
+    // livré à Mallory.
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(37, NetConditions::default());
+    let alice = spawn_node(&net, &clock, "10.0.7.1:4000");
+    let mut mallory = spawn_node(&net, &clock, "10.0.7.2:4000");
+
+    // Identité cible tierce (le « vrai Bob »), distincte de Mallory.
+    let bob_pub = Identity::generate_with_pow_bits(POW).public_key();
+    assert_ne!(bob_pub, mallory.static_pub);
+
+    let secret = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 0,
+        custom: Some("confidentiel".into()),
+    });
+    // L'envoi lui-même réussit (le HELLO part) : le rejet survient au WELCOME.
+    alice
+        .ep
+        .send_to(mallory.addr, Some(bob_pub), &secret)
+        .await
+        .unwrap();
+
+    // Mallory ne doit jamais recevoir le DM en clair. On attend suffisamment
+    // pour que HELLO/WELCOME s'échangent : seul un événement Message trahirait
+    // une fuite (Mallory établit bien une session de son côté, mais la file
+    // d'Alice n'est jamais scellée sous cette session usurpée).
+    let leaked = tokio::time::timeout(Duration::from_millis(500), async {
+        loop {
+            match mallory.events.recv().await {
+                Some(TransportEvent::Message { .. }) => return true,
+                Some(_) => continue,
+                None => return false,
+            }
+        }
+    })
+    .await
+    .unwrap_or(false);
+    assert!(!leaked, "le DM a fuité vers une identité usurpée (MITM)");
+    assert_eq!(
+        alice.ep.session_count(),
+        0,
+        "Alice n'aurait pas dû établir de session avec une identité inattendue"
+    );
+}

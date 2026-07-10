@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Tokens du design system. Les couleurs sont des triplets RGB (et non des
+ * couleurs CSS) pour que Tailwind puisse composer les modificateurs
+ * d'opacité (`bg-rail/60`) via `rgb(var(--…) / <alpha-value>)`.
+ *
+ * Le thème sombre est le défaut (`:root`) ; le thème clair est activé par
+ * `data-theme="light"` sur la racine, posé par le store d'interface.
+ */
+:root {
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Surfaces, de la plus profonde à la plus claire. */
+  --color-rail: 30 31 34;
+  --color-sidebar: 43 45 49;
+  --color-chat: 49 51 56;
+  --color-chat-hover: 46 48 53;
+  --color-input: 56 58 64;
+  --color-modal: 49 51 56;
+  --color-tooltip: 17 18 20;
+  /* Texte. */
+  --color-norm: 219 222 225;
+  --color-muted: 181 186 193;
+  --color-faint: 128 132 142;
+  --color-header: 242 243 245;
+  /* Accents. */
+  --color-blurple: 88 101 242;
+  --color-blurple-hover: 71 82 196;
+  --color-green: 35 165 90;
+  --color-red: 242 63 67;
+  --color-yellow: 240 178 50;
+  --color-link: 0 168 252;
+
+  --shadow-elevation: 0 8px 16px rgba(0, 0, 0, 0.24);
+  --shadow-modal: 0 12px 24px rgba(0, 0, 0, 0.4);
+  --scrollbar-thumb: #1a1b1e;
+
+  /* Densité des messages — Confortable par défaut, resserrée en Compacte. */
+  --message-gap: 0.75rem;
+  --message-pad-y: 0.25rem;
+  --message-pad-y-grouped: 0.125rem;
+
+  color-scheme: dark;
+}
+
+/*
+ * Thème clair : palette dédiée dans l'esprit de Discord clair (surfaces
+ * froides très claires, texte anthracite, accents assombris pour rester
+ * lisibles — contraste AA — sur fond blanc). Ce n'est pas un simple inversé.
+ */
+:root[data-theme='light'] {
+  --color-rail: 227 229 232;
+  --color-sidebar: 242 243 245;
+  --color-chat: 255 255 255;
+  --color-chat-hover: 236 237 239;
+  --color-input: 227 229 232;
+  --color-modal: 255 255 255;
+  /* Les infobulles restent sombres, comme sur Discord clair. */
+  --color-tooltip: 17 18 20;
+  --color-norm: 49 51 56;
+  --color-muted: 78 80 88;
+  --color-faint: 109 111 120;
+  --color-header: 6 6 7;
+  --color-blurple: 88 101 242;
+  --color-blurple-hover: 71 82 196;
+  --color-green: 36 128 69;
+  --color-red: 216 60 62;
+  --color-yellow: 160 96 0;
+  --color-link: 0 104 224;
+
+  --shadow-elevation: 0 8px 16px rgba(0, 0, 0, 0.12);
+  --shadow-modal: 0 12px 24px rgba(0, 0, 0, 0.16);
+  --scrollbar-thumb: #c4c9ce;
+
+  color-scheme: light;
+}
+
+/* Densité compacte : le fil de messages se resserre. */
+:root[data-density='compact'] {
+  --message-gap: 0.25rem;
+  --message-pad-y: 0.125rem;
+  --message-pad-y-grouped: 0.0625rem;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  @apply bg-chat font-sans text-norm antialiased;
+  user-select: none;
+}
+
+/* Le texte des messages, champs et codes reste sélectionnable. */
+.selectable,
+input,
+textarea {
+  user-select: text;
+}
+
+/* Barres de défilement fines, calées sur le thème. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Focus visible au clavier uniquement (accessibilité). */
+:focus-visible {
+  outline: 2px solid rgb(var(--color-blurple));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

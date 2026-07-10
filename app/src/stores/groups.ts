@@ -1,0 +1,546 @@
+/**
+ * Groupes : liste, états matérialisés (salons, catégories, rôles, membres,
+ * bannis, permissions), historiques paginés, épinglés et actions de gestion.
+ * `event.group_state` (câblé dans AppShell) déclenche `handleGroupState`.
+ */
+
+import { create } from 'zustand';
+import { api, rpc } from '../lib/client';
+import type {
+  FileAttachment,
+  GroupCategory,
+  GroupChannel,
+  GroupChannelKind,
+  GroupMember,
+  GroupMessage,
+  GroupRole,
+  GroupStateJson,
+} from '../lib/api';
+import {
+  PAGE_SIZE,
+  fetchGroupPage,
+  mergeOlderPage,
+  mergeRecentPage,
+  sortAscending,
+} from '../lib/history';
+
+/** Clé d'index des historiques de salon (aussi comprise par lib/search). */
+export function channelKey(groupId: string, channelId: string): string {
+  return `${groupId}/${channelId}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Aides pures : permissions, couleurs de rôle, tris par position.     */
+/* ------------------------------------------------------------------ */
+
+/** Bits de permission du contrat (API.md §Groupes). */
+export const PERMISSIONS = {
+  VIEW: 0x1,
+  SEND: 0x2,
+  MANAGE_MESSAGES: 0x4,
+  MANAGE_CHANNELS: 0x8,
+  INVITE: 0x10,
+  KICK: 0x20,
+  BAN: 0x40,
+  MANAGE_ROLES: 0x80,
+  ADMIN: 0x100,
+  MANAGE_EMOJIS: 0x200,
+} as const;
+
+/** Vrai si `mask` accorde `bit` — `ADMIN` implique toutes les permissions. */
+export function hasPerm(mask: number, bit: number): boolean {
+  if ((mask & PERMISSIONS.ADMIN) !== 0) return true;
+  return (mask & bit) === bit;
+}
+
+/** Couleur CSS (`#rrggbb`) d'un entier RGB du contrat (`0xRRGGBB`). */
+export function roleColorCss(color: number): string {
+  return `#${(color & 0xffffff).toString(16).padStart(6, '0')}`;
+}
+
+/**
+ * Couleur affichée d'un membre : celle de son rôle de position la plus
+ * haute dont la couleur n'est pas 0. `null` = couleur par défaut du thème.
+ */
+export function memberColor(
+  member: GroupMember | undefined,
+  roles: readonly GroupRole[],
+): string | null {
+  if (member === undefined) return null;
+  const owned = new Set(member.roles);
+  let best: GroupRole | null = null;
+  for (const role of roles) {
+    if (!owned.has(role.role_id) || role.color === 0) continue;
+    if (best === null || role.position > best.position) best = role;
+  }
+  return best === null ? null : roleColorCss(best.color);
+}
+
+/** Position du rôle le plus haut d'un membre (−1 sans rôle). */
+export function highestRolePosition(
+  member: GroupMember | undefined,
+  roles: readonly GroupRole[],
+): number {
+  if (member === undefined) return -1;
+  const owned = new Set(member.roles);
+  let best = -1;
+  for (const role of roles) {
+    if (owned.has(role.role_id) && role.position > best) best = role.position;
+  }
+  return best;
+}
+
+/** Salons triés par position croissante (départage stable par id). */
+export function sortChannels(channels: readonly GroupChannel[]): GroupChannel[] {
+  return [...channels].sort(
+    (a, b) => a.position - b.position || a.channel_id.localeCompare(b.channel_id),
+  );
+}
+
+/** Catégories triées par position croissante (départage stable par id). */
+export function sortCategories(categories: readonly GroupCategory[]): GroupCategory[] {
+  return [...categories].sort(
+    (a, b) => a.position - b.position || a.category_id.localeCompare(b.category_id),
+  );
+}
+
+/** Rôles triés du plus haut au plus bas (position décroissante). */
+export function sortRoles(roles: readonly GroupRole[]): GroupRole[] {
+  return [...roles].sort(
+    (a, b) => b.position - a.position || a.role_id.localeCompare(b.role_id),
+  );
+}
+
+/** Section de salons : `category` vaut `null` pour les sans-catégorie. */
+export interface ChannelGroup {
+  category: GroupCategory | null;
+  channels: GroupChannel[];
+}
+
+/**
+ * Regroupe les salons par catégorie : les sans-catégorie d'abord (y compris
+ * ceux dont la catégorie n'existe plus), puis les catégories par position.
+ */
+export function channelsByCategory(
+  channels: readonly GroupChannel[],
+  categories: readonly GroupCategory[],
+): ChannelGroup[] {
+  const sorted = sortChannels(channels);
+  const known = new Set(categories.map((c) => c.category_id));
+  const groups: ChannelGroup[] = [
+    {
+      category: null,
+      channels: sorted.filter((c) => c.category === null || !known.has(c.category)),
+    },
+  ];
+  for (const category of sortCategories(categories)) {
+    groups.push({
+      category,
+      channels: sorted.filter((c) => c.category === category.category_id),
+    });
+  }
+  return groups;
+}
+
+/* ------------------------------------------------------------------ */
+/* Store.                                                              */
+/* ------------------------------------------------------------------ */
+
+/** Copie des historiques où `msgId` (dans `key`) est transformé par `patch`. */
+function patchMessages(
+  messages: Record<string, GroupMessage[]>,
+  key: string,
+  msgId: string,
+  patch: (message: GroupMessage) => GroupMessage,
+): Record<string, GroupMessage[]> {
+  const existing = messages[key];
+  if (existing === undefined) return messages;
+  return {
+    ...messages,
+    [key]: existing.map((m) => (m.msg_id === msgId ? patch(m) : m)),
+  };
+}
+
+interface GroupsState {
+  ids: string[];
+  states: Record<string, GroupStateJson>;
+  /** Messages par `groupId/channelId`, du plus ancien au plus récent. */
+  messages: Record<string, GroupMessage[]>;
+  /** Vrai si des messages plus anciens existent probablement côté nœud. */
+  hasMore: Record<string, boolean>;
+  /** Garde anti-rafale du chargement vers le haut. */
+  loadingOlder: Record<string, boolean>;
+  /** Identifiants épinglés par `groupId/channelId` (ordre du nœud). */
+  pins: Record<string, string[]>;
+  /** Non-lus par groupe puis salon (`groups.list`) : seuls les > 0 figurent. */
+  unread: Record<string, Record<string, number>>;
+  loadList: () => Promise<void>;
+  /** Recharge uniquement les compteurs de non-lus (sans recharger les états). */
+  refreshUnread: () => Promise<void>;
+  /** Marque le salon lu jusqu'à `lamport` puis rafraîchit les non-lus. */
+  markRead: (groupId: string, channelId: string, lamport: number) => Promise<void>;
+  loadState: (groupId: string) => Promise<void>;
+  /** Recharge l'état (et les épinglés consultés) sur `event.group_state`. */
+  handleGroupState: (groupId: string) => Promise<void>;
+  /** Charge (ou rafraîchit) la page récente, fusionnée sans rechargement. */
+  refreshHistory: (groupId: string, channelId: string) => Promise<void>;
+  /** Charge la page précédant le plus ancien message connu du salon. */
+  loadOlderHistory: (groupId: string, channelId: string) => Promise<void>;
+  create: (name: string, defaultChannel: string) => Promise<string>;
+  rename: (groupId: string, name: string) => Promise<void>;
+  setIcon: (groupId: string, dataB64: string, mime: string) => Promise<void>;
+  setTopic: (groupId: string, channelId: string, topic: string) => Promise<void>;
+  addChannel: (
+    groupId: string,
+    name: string,
+    kind?: GroupChannelKind,
+    category?: string,
+  ) => Promise<string>;
+  renameChannel: (groupId: string, channelId: string, name: string) => Promise<void>;
+  deleteChannel: (groupId: string, channelId: string) => Promise<void>;
+  addCategory: (groupId: string, name: string) => Promise<string>;
+  kick: (groupId: string, pubkey: string) => Promise<void>;
+  ban: (groupId: string, pubkey: string) => Promise<void>;
+  unban: (groupId: string, pubkey: string) => Promise<void>;
+  /** Quitte le groupe et l'efface localement (liste, état, historiques). */
+  leave: (groupId: string) => Promise<void>;
+  addRole: (
+    groupId: string,
+    name: string,
+    color: number,
+    permissions: number,
+  ) => Promise<string>;
+  editRole: (
+    groupId: string,
+    roleId: string,
+    changes: { name?: string; color?: number; position?: number; permissions?: number },
+  ) => Promise<void>;
+  deleteRole: (groupId: string, roleId: string) => Promise<void>;
+  /** Attribue (`assign: true`) ou retire un rôle à un membre. */
+  setMemberRole: (
+    groupId: string,
+    roleId: string,
+    pubkey: string,
+    assign: boolean,
+  ) => Promise<void>;
+  loadPins: (groupId: string, channelId: string) => Promise<void>;
+  /** Épingle ou désépingle selon l'état courant `pinned`. */
+  togglePin: (
+    groupId: string,
+    channelId: string,
+    msgId: string,
+    pinned: boolean,
+  ) => Promise<void>;
+  /**
+   * Envoie un message de salon, éventuellement en réponse à `replyTo` (msg_id)
+   * et avec des pièces jointes déjà publiées (texte vide admis avec pièces).
+   */
+  send: (
+    groupId: string,
+    channelId: string,
+    text: string,
+    replyTo?: string,
+    attachments?: FileAttachment[],
+  ) => Promise<void>;
+  /** Remplace le texte d'un de ses propres messages. */
+  editMessage: (
+    groupId: string,
+    channelId: string,
+    msgId: string,
+    text: string,
+  ) => Promise<void>;
+  /** Supprime un message (le sien, ou celui d'autrui avec MANAGE_MESSAGES). */
+  deleteMessage: (groupId: string, channelId: string, msgId: string) => Promise<void>;
+  /** Ajoute ou retire (bascule) sa réaction `emoji` sur un message. */
+  toggleReaction: (
+    groupId: string,
+    channelId: string,
+    msgId: string,
+    emoji: string,
+    selfPubkey: string,
+  ) => Promise<void>;
+  invite: (groupId: string, pubkey: string) => Promise<void>;
+  /** Ajoute (ou remplace) un émoji de serveur puis recharge l'état. */
+  addEmoji: (
+    groupId: string,
+    name: string,
+    dataB64: string,
+    mime: string,
+  ) => Promise<void>;
+  /** Supprime un émoji de serveur par son nom puis recharge l'état. */
+  delEmoji: (groupId: string, name: string) => Promise<void>;
+}
+
+export const useGroups = create<GroupsState>((set, get) => ({
+  ids: [],
+  states: {},
+  messages: {},
+  hasMore: {},
+  loadingOlder: {},
+  pins: {},
+  unread: {},
+
+  loadList: async () => {
+    const { groups, unread } = await api.groupsList();
+    set({ ids: groups, unread: unread ?? {} });
+    await Promise.all(groups.map((id) => get().loadState(id)));
+  },
+
+  refreshUnread: async () => {
+    const { unread } = await api.groupsList();
+    set({ unread: unread ?? {} });
+  },
+
+  markRead: async (groupId, channelId, lamport) => {
+    await api.groupsMarkRead(groupId, channelId, lamport);
+    await get().refreshUnread();
+  },
+
+  loadState: async (groupId) => {
+    const state = await api.groupsState(groupId);
+    set((s) => ({ states: { ...s.states, [groupId]: state } }));
+  },
+
+  handleGroupState: async (groupId) => {
+    try {
+      await get().loadState(groupId);
+    } catch {
+      // Groupe devenu inaccessible (expulsion, bannissement…) : on repart
+      // de la liste du nœud, qui fait foi.
+      await get().loadList();
+      return;
+    }
+    // Les épinglés peuvent avoir changé (op pin/unpin) : on recharge ceux
+    // déjà consultés de ce groupe, en best effort.
+    const prefix = `${groupId}/`;
+    const keys = Object.keys(get().pins).filter((k) => k.startsWith(prefix));
+    await Promise.all(
+      keys.map((k) =>
+        get()
+          .loadPins(groupId, k.slice(prefix.length))
+          .catch(() => {}),
+      ),
+    );
+  },
+
+  refreshHistory: async (groupId, channelId) => {
+    const key = channelKey(groupId, channelId);
+    const { messages } = await fetchGroupPage(rpc, groupId, channelId);
+    const pageFull = messages.length === PAGE_SIZE;
+    set((s) => {
+      const existing = s.messages[key];
+      if (existing === undefined || existing.length === 0) {
+        return {
+          messages: { ...s.messages, [key]: sortAscending(messages) },
+          hasMore: { ...s.hasMore, [key]: pageFull },
+        };
+      }
+      const merged = mergeRecentPage(existing, messages, pageFull);
+      return {
+        messages: { ...s.messages, [key]: merged.messages },
+        hasMore: merged.gapDetected ? { ...s.hasMore, [key]: pageFull } : s.hasMore,
+      };
+    });
+  },
+
+  loadOlderHistory: async (groupId, channelId) => {
+    const key = channelKey(groupId, channelId);
+    const state = get();
+    const oldest = (state.messages[key] ?? [])[0];
+    if (
+      oldest === undefined ||
+      state.loadingOlder[key] === true ||
+      state.hasMore[key] !== true
+    ) {
+      return;
+    }
+    set((s) => ({ loadingOlder: { ...s.loadingOlder, [key]: true } }));
+    try {
+      const { messages } = await fetchGroupPage(rpc, groupId, channelId, oldest.lamport);
+      set((s) => ({
+        messages: {
+          ...s.messages,
+          [key]: mergeOlderPage(s.messages[key] ?? [], messages),
+        },
+        hasMore: { ...s.hasMore, [key]: messages.length === PAGE_SIZE },
+      }));
+    } finally {
+      set((s) => ({ loadingOlder: { ...s.loadingOlder, [key]: false } }));
+    }
+  },
+
+  create: async (name, defaultChannel) => {
+    const { group_id } = await api.groupsCreate(name);
+    await api.groupsChannelAdd(group_id, defaultChannel);
+    await get().loadList();
+    return group_id;
+  },
+
+  rename: async (groupId, name) => {
+    await api.groupsRename(groupId, name);
+    await get().loadState(groupId);
+  },
+
+  setIcon: async (groupId, dataB64, mime) => {
+    await api.groupsSetIcon(groupId, dataB64, mime);
+    await get().loadState(groupId);
+  },
+
+  setTopic: async (groupId, channelId, topic) => {
+    await api.groupsSetTopic(groupId, channelId, topic);
+    await get().loadState(groupId);
+  },
+
+  addChannel: async (groupId, name, kind, category) => {
+    const { channel_id } = await api.groupsChannelAdd(groupId, name, kind, category);
+    await get().loadState(groupId);
+    return channel_id;
+  },
+
+  renameChannel: async (groupId, channelId, name) => {
+    await api.groupsChannelEdit(groupId, channelId, { name });
+    await get().loadState(groupId);
+  },
+
+  deleteChannel: async (groupId, channelId) => {
+    await api.groupsChannelDel(groupId, channelId);
+    await get().loadState(groupId);
+  },
+
+  addCategory: async (groupId, name) => {
+    const { category_id } = await api.groupsCategoryAdd(groupId, name);
+    await get().loadState(groupId);
+    return category_id;
+  },
+
+  kick: async (groupId, pubkey) => {
+    await api.groupsKick(groupId, pubkey);
+    await get().loadState(groupId);
+  },
+
+  ban: async (groupId, pubkey) => {
+    await api.groupsBan(groupId, pubkey);
+    await get().loadState(groupId);
+  },
+
+  unban: async (groupId, pubkey) => {
+    await api.groupsUnban(groupId, pubkey);
+    await get().loadState(groupId);
+  },
+
+  leave: async (groupId) => {
+    await api.groupsLeave(groupId);
+    set((s) => ({
+      ids: s.ids.filter((id) => id !== groupId),
+      states: Object.fromEntries(
+        Object.entries(s.states).filter(([id]) => id !== groupId),
+      ),
+      messages: Object.fromEntries(
+        Object.entries(s.messages).filter(([key]) => !key.startsWith(`${groupId}/`)),
+      ),
+      pins: Object.fromEntries(
+        Object.entries(s.pins).filter(([key]) => !key.startsWith(`${groupId}/`)),
+      ),
+      unread: Object.fromEntries(
+        Object.entries(s.unread).filter(([id]) => id !== groupId),
+      ),
+    }));
+  },
+
+  addRole: async (groupId, name, color, permissions) => {
+    const { role_id } = await api.groupsRoleAdd(groupId, name, color, permissions);
+    await get().loadState(groupId);
+    return role_id;
+  },
+
+  editRole: async (groupId, roleId, changes) => {
+    await api.groupsRoleEdit(groupId, roleId, changes);
+    await get().loadState(groupId);
+  },
+
+  deleteRole: async (groupId, roleId) => {
+    await api.groupsRoleDel(groupId, roleId);
+    await get().loadState(groupId);
+  },
+
+  setMemberRole: async (groupId, roleId, pubkey, assign) => {
+    if (assign) await api.groupsRoleAssign(groupId, roleId, pubkey);
+    else await api.groupsRoleUnassign(groupId, roleId, pubkey);
+    await get().loadState(groupId);
+  },
+
+  loadPins: async (groupId, channelId) => {
+    const { msg_ids } = await api.groupsPins(groupId, channelId);
+    set((s) => ({
+      pins: { ...s.pins, [channelKey(groupId, channelId)]: msg_ids },
+    }));
+  },
+
+  togglePin: async (groupId, channelId, msgId, pinned) => {
+    if (pinned) await api.groupsUnpin(groupId, channelId, msgId);
+    else await api.groupsPin(groupId, channelId, msgId);
+    await get().loadPins(groupId, channelId);
+  },
+
+  send: async (groupId, channelId, text, replyTo, attachments) => {
+    await api.groupsSend(groupId, channelId, text, replyTo, attachments);
+    await get().refreshHistory(groupId, channelId);
+  },
+
+  editMessage: async (groupId, channelId, msgId, text) => {
+    await api.groupsEdit(groupId, channelId, msgId, text);
+    const key = channelKey(groupId, channelId);
+    set((s) => ({
+      messages: patchMessages(s.messages, key, msgId, (m) => ({
+        ...m,
+        edited: text,
+      })),
+    }));
+  },
+
+  deleteMessage: async (groupId, channelId, msgId) => {
+    await api.groupsDelete(groupId, channelId, msgId);
+    const key = channelKey(groupId, channelId);
+    set((s) => ({
+      messages: patchMessages(s.messages, key, msgId, (m) => ({
+        ...m,
+        deleted: true,
+      })),
+    }));
+  },
+
+  toggleReaction: async (groupId, channelId, msgId, emoji, selfPubkey) => {
+    const key = channelKey(groupId, channelId);
+    const message = (get().messages[key] ?? []).find((m) => m.msg_id === msgId);
+    if (message === undefined) return;
+    const already = (message.reactions ?? []).some(
+      (r) => r.emoji === emoji && r.author === selfPubkey,
+    );
+    await api.groupsReact(groupId, channelId, msgId, emoji, !already);
+    set((s) => ({
+      messages: patchMessages(s.messages, key, msgId, (m) => ({
+        ...m,
+        reactions: already
+          ? (m.reactions ?? []).filter(
+              (r) => !(r.emoji === emoji && r.author === selfPubkey),
+            )
+          : [...(m.reactions ?? []), { emoji, author: selfPubkey }],
+      })),
+    }));
+  },
+
+  invite: async (groupId, pubkey) => {
+    await api.groupsInvite(groupId, pubkey);
+    await get().loadState(groupId);
+  },
+
+  addEmoji: async (groupId, name, dataB64, mime) => {
+    await api.groupsEmojiAdd(groupId, name, dataB64, mime);
+    await get().loadState(groupId);
+  },
+
+  delEmoji: async (groupId, name) => {
+    await api.groupsEmojiDel(groupId, name);
+    await get().loadState(groupId);
+  },
+}));

@@ -1,0 +1,47 @@
+[package]
+name = "accord-node"
+description = "Assemblage du nœud Accord : runtime réseau + service API + démon accord-noded"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+accord-proto = { path = "../accord-proto" }
+accord-crypto = { path = "../accord-crypto" }
+accord-transport = { path = "../accord-transport" }
+accord-dht = { path = "../accord-dht" }
+accord-core = { path = "../accord-core" }
+accord-api = { path = "../accord-api" }
+accord-voice = { path = "../accord-voice" }
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+zeroize.workspace = true
+sha2 = { workspace = true }
+async-trait = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Mapping de port automatique et découverte LAN (connexion sans configuration).
+# - igd-next : UPnP-IGD asynchrone (tokio), auto-découverte de passerelle par SSDP.
+# - natpmp : repli NAT-PMP/PCP (tokio), passerelle par défaut auto-détectée.
+# - mdns-sd : annonce/découverte de service sur le réseau local (sans runtime imposé).
+igd-next = { version = "0.17", default-features = false, features = ["aio_tokio"] }
+natpmp = "0.5"
+mdns-sd = "0.20"
+
+[features]
+default = []
+# Active la vraie liaison Opus et la capture/lecture cpal du sous-système voix.
+hardware = ["accord-voice/hardware"]
+
+[dev-dependencies]
+tempfile = "3"
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+
+[[bin]]
+name = "accord-noded"
+path = "src/bin/accord-noded.rs"

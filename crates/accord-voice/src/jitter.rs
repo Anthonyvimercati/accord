@@ -1,0 +1,201 @@
+//! Tampon de gigue adaptatif (SPEC §8).
+//!
+//! Réordonne les trames par `seq`, absorbe la gigue réseau et signale les
+//! trous au décodeur (PLC). La profondeur cible suit le p95 des intervalles
+//! d'inter-arrivée, plus une trame de marge, bornée à [40 ms, 200 ms]
+//! (2 à 10 trames de 20 ms). Une trame en retard au-delà du tampon est
+//! abandonnée (jouer tard est pire que dissimuler).
+
+use std::collections::BTreeMap;
+
+use crate::params::{JITTER_MAX_FRAMES, JITTER_MIN_FRAMES};
+
+/// Fenêtre d'estimation du p95 (nombre d'inter-arrivées conservées).
+const RTT_WINDOW: usize = 128;
+
+/// Distance signée `b − a` en arithmétique circulaire 16 bits.
+fn seq_after(a: u16, b: u16) -> bool {
+    (b.wrapping_sub(a) as i16) > 0
+}
+
+/// Résultat de la lecture d'une trame de sortie.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Playout {
+    /// Trame disponible : paquet encodé à décoder.
+    Frame(Vec<u8>),
+    /// Trou : le décodeur doit produire une dissimulation (PLC).
+    Conceal,
+    /// Tampon en amorçage : rien à jouer encore.
+    Starved,
+}
+
+/// Tampon de gigue pour un flux entrant.
+#[derive(Debug)]
+pub struct JitterBuffer {
+    frames: BTreeMap<u16, Vec<u8>>,
+    next_seq: Option<u16>,
+    target_frames: usize,
+    interarrivals: Vec<u32>,
+    last_arrival_ms: Option<u32>,
+    priming: bool,
+}
+
+impl Default for JitterBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl JitterBuffer {
+    /// Nouveau tampon vide en phase d'amorçage.
+    pub fn new() -> Self {
+        Self {
+            frames: BTreeMap::new(),
+            next_seq: None,
+            target_frames: JITTER_MIN_FRAMES,
+            interarrivals: Vec::new(),
+            last_arrival_ms: None,
+            priming: true,
+        }
+    }
+
+    /// Profondeur cible courante (trames).
+    pub fn target_frames(&self) -> usize {
+        self.target_frames
+    }
+
+    /// Nombre de trames actuellement en tampon.
+    pub fn buffered(&self) -> usize {
+        self.frames.len()
+    }
+
+    /// Insère une trame reçue. Les trames trop en retard (déjà jouées) sont
+    /// ignorées.
+    pub fn push(&mut self, seq: u16, payload: Vec<u8>, now_ms: u32) {
+        self.update_target(now_ms);
+        if let Some(next) = self.next_seq {
+            // Déjà passée : trop tard pour être jouée.
+            if seq != next && !seq_after(next.wrapping_sub(1), seq) {
+                return;
+            }
+        }
+        self.frames.insert(seq, payload);
+    }
+
+    /// Produit la prochaine trame de sortie (cadence de 20 ms). Reste en
+    /// amorçage tant que la profondeur cible n'est pas atteinte.
+    pub fn pop(&mut self) -> Playout {
+        if self.priming {
+            if self.frames.len() < self.target_frames {
+                return Playout::Starved;
+            }
+            self.priming = false;
+            // Démarre la lecture à la plus petite séquence disponible.
+            self.next_seq = self.frames.keys().next().copied();
+        }
+        let Some(next) = self.next_seq else {
+            return Playout::Starved;
+        };
+        self.next_seq = Some(next.wrapping_add(1));
+        match self.frames.remove(&next) {
+            Some(payload) => Playout::Frame(payload),
+            None => {
+                // Trou : si rien n'arrive et que le tampon se vide, on
+                // ré-amorce pour se resynchroniser.
+                if self.frames.is_empty() {
+                    self.priming = true;
+                }
+                Playout::Conceal
+            }
+        }
+    }
+
+    /// Met à jour la profondeur cible d'après le p95 des inter-arrivées.
+    fn update_target(&mut self, now_ms: u32) {
+        if let Some(last) = self.last_arrival_ms {
+            let delta = now_ms.saturating_sub(last);
+            if self.interarrivals.len() == RTT_WINDOW {
+                self.interarrivals.remove(0);
+            }
+            self.interarrivals.push(delta);
+        }
+        self.last_arrival_ms = Some(now_ms);
+
+        if self.interarrivals.len() >= 8 {
+            let mut sorted = self.interarrivals.clone();
+            sorted.sort_unstable();
+            let idx = (sorted.len() * 95 / 100).min(sorted.len() - 1);
+            let p95 = sorted[idx];
+            // Cible = p95 + une trame de marge, exprimée en trames de 20 ms.
+            let frames = (p95 as usize / crate::params::FRAME_MS as usize) + 1;
+            self.target_frames = frames.clamp(JITTER_MIN_FRAMES, JITTER_MAX_FRAMES);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pkt(n: u8) -> Vec<u8> {
+        vec![n; 4]
+    }
+
+    #[test]
+    fn primes_then_plays_in_order() {
+        let mut jb = JitterBuffer::new();
+        assert_eq!(jb.pop(), Playout::Starved);
+        jb.push(0, pkt(0), 0);
+        jb.push(1, pkt(1), 20);
+        // Profondeur cible min = 2 trames : dès 2 en tampon, lecture démarre.
+        assert_eq!(jb.pop(), Playout::Frame(pkt(0)));
+        assert_eq!(jb.pop(), Playout::Frame(pkt(1)));
+    }
+
+    #[test]
+    fn reorders_out_of_order_arrivals() {
+        let mut jb = JitterBuffer::new();
+        jb.push(1, pkt(1), 0);
+        jb.push(0, pkt(0), 5);
+        assert_eq!(jb.pop(), Playout::Frame(pkt(0)));
+        assert_eq!(jb.pop(), Playout::Frame(pkt(1)));
+    }
+
+    #[test]
+    fn missing_frame_yields_conceal() {
+        let mut jb = JitterBuffer::new();
+        jb.push(0, pkt(0), 0);
+        jb.push(2, pkt(2), 20);
+        assert_eq!(jb.pop(), Playout::Frame(pkt(0)));
+        // seq 1 manquant → dissimulation.
+        assert_eq!(jb.pop(), Playout::Conceal);
+        assert_eq!(jb.pop(), Playout::Frame(pkt(2)));
+    }
+
+    #[test]
+    fn late_frame_is_dropped() {
+        let mut jb = JitterBuffer::new();
+        jb.push(5, pkt(5), 0);
+        jb.push(6, pkt(6), 20);
+        assert_eq!(jb.pop(), Playout::Frame(pkt(5)));
+        // seq 4 arrive trop tard (déjà après la lecture de 5).
+        jb.push(4, pkt(4), 40);
+        assert!(!jb.frames.contains_key(&4));
+    }
+
+    #[test]
+    fn target_depth_grows_with_jitter_and_stays_bounded() {
+        let mut jb = JitterBuffer::new();
+        // Inter-arrivées très irrégulières (jusqu'à 160 ms).
+        for i in 0..40u16 {
+            let now = i as u32 * 160;
+            jb.push(i, pkt(i as u8), now);
+        }
+        assert!(jb.target_frames() >= JITTER_MIN_FRAMES);
+        assert!(jb.target_frames() <= JITTER_MAX_FRAMES);
+        assert!(
+            jb.target_frames() > JITTER_MIN_FRAMES,
+            "gigue forte ⇒ tampon plus profond"
+        );
+    }
+}
