@@ -146,7 +146,22 @@ jobs:
 
             - macOS: DMG (Apple Silicon / arm64)
             - Windows: NSIS installer (.exe) and MSI (WiX)
-            - Linux: .deb package and AppImage
+            - Linux: .deb package, AppImage and .rpm
+
+            ## macOS: "Accord is damaged and can't be opened"
+
+            The app is **not damaged** — it is not notarized by Apple (that
+            requires a paid developer certificate), and macOS reports
+            quarantined, non-notarized apps as "damaged" on Apple Silicon.
+            Fix it once, after dragging Accord into Applications:
+
+            ```sh
+            xattr -cr /Applications/Accord.app
+            ```
+
+            ## Windows: SmartScreen warning
+
+            The installer is not code-signed: click **More info → Run anyway**.
           # Draft release: reviewed and published manually.
           releaseDraft: true
           prerelease: false

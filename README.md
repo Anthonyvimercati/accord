@@ -57,15 +57,20 @@ no compiling required.
 
 | System | File | How to install |
 |--------|------|----------------|
-| **macOS** (Apple Silicon) | `Accord_*_aarch64.dmg` | Open the DMG, drag Accord into Applications. First launch: **right-click the app → Open** (the app is not code-signed, so a normal double-click is blocked by Gatekeeper). |
+| **macOS** (Apple Silicon) | `Accord_*_aarch64.dmg` | Open the DMG, drag Accord into Applications. macOS will claim the app is **"damaged"** (it is not notarized by Apple — see note below). Fix it once by running in Terminal: `xattr -cr /Applications/Accord.app` — then it opens normally, forever. |
 | **Windows** | `Accord_*_x64-setup.exe` (or the `.msi`) | Run the installer. SmartScreen may warn about an unknown publisher: click **More info → Run anyway** (the installer is not code-signed). |
 | **Linux (Debian/Ubuntu)** | `Accord_*_amd64.deb` | `sudo apt install ./Accord_*_amd64.deb` |
 | **Linux (any distro)** | `Accord_*_amd64.AppImage` | `chmod +x Accord_*.AppImage && ./Accord_*.AppImage` |
 | **Linux (Fedora/RHEL)** | `Accord-*.x86_64.rpm` | `sudo dnf install ./Accord-*.x86_64.rpm` |
 
-> The installers are **not code-signed or notarized** yet, so macOS and Windows
-> show an "unknown developer" warning on first launch — the steps above bypass it
-> once. Voice on Windows has not been validated by the team; feedback welcome.
+> **Why "damaged"?** The installers are **not code-signed or notarized** yet
+> (that requires a paid Apple/Microsoft developer certificate). macOS marks
+> every file downloaded from the internet as quarantined, and on Apple Silicon
+> a quarantined, non-notarized app is reported as "damaged" — the app itself is
+> fine. The `xattr -cr` command simply removes the quarantine flag; you only
+> need it once per install. On Windows, SmartScreen shows an "unknown
+> publisher" warning instead: click **More info → Run anyway**. Voice on
+> Windows has not been validated by the team; feedback welcome.
 
 ## Build from source
 
