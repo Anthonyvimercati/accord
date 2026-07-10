@@ -6,18 +6,20 @@ import type { AccordEvent } from '../lib/api';
 import { rpc } from '../lib/client';
 import {
   isNotificationEligible,
+  isSoundEligible,
   rememberNotifiedConversation,
   sendNativeNotification,
   takePendingConversation,
   type ConversationRef,
 } from '../lib/notifications';
+import { playNotificationSound } from '../lib/notificationSound';
 import { usePushToTalk } from '../hooks/usePushToTalk';
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { useGroups, channelKey } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useTyping, dmTypingKey, groupTypingKey } from '../stores/typing';
-import { useUi, useT } from '../stores/ui';
+import { useUi, useT, type View } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { DmView, GroupView } from './ChatView';
 import { FriendsView } from './FriendsView';
@@ -60,6 +62,36 @@ function notifyNewMessage(ref: ConversationRef, author: string): void {
   });
 }
 
+/** Vrai si `ref` désigne la conversation/le salon actuellement affiché. */
+function isViewingConversation(view: View, ref: ConversationRef): boolean {
+  if (ref.kind === 'dm') return view.kind === 'dm' && view.peer === ref.peer;
+  return (
+    view.kind === 'group' &&
+    view.groupId === ref.groupId &&
+    view.channelId === ref.channelId
+  );
+}
+
+/**
+ * Son in-app pour un message entrant : joue sauf pour ses propres messages,
+ * en mode Ne pas déranger (statut de présence local, `useFriends.ownStatus`),
+ * ou quand la fenêtre a le focus sur exactement cette conversation/ce salon
+ * (la pastille de non-lu suffit alors — voir lib/notifications.ts). Une
+ * mention (`mentions_me`) joue le blip renforcé.
+ */
+function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean): void {
+  const self = useSession.getState().self;
+  if (self === null) return;
+  const eligible = isSoundEligible({
+    isOwnMessage: author === self.pubkey,
+    isDisplayedConversation: isViewingConversation(useUi.getState().view, ref),
+    windowFocused: document.hasFocus(),
+    dnd: useFriends.getState().ownStatus === 'dnd',
+  });
+  if (!eligible) return;
+  playNotificationSound(isMention ? 'mention' : 'message');
+}
+
 /**
  * Notification click fallback: when the window regains focus shortly after a
  * native notification, navigate to the conversation that triggered it.
@@ -96,6 +128,11 @@ function useNodeEvents() {
               );
               if (message !== undefined) {
                 notifyNewMessage({ kind: 'dm', peer }, message.author);
+                maybePlaySound(
+                  { kind: 'dm', peer },
+                  message.author,
+                  message.mentions_me === true,
+                );
               }
             })
             .catch(() => {
@@ -156,6 +193,11 @@ function useNodeEvents() {
               );
               if (message !== undefined) {
                 notifyNewMessage({ kind: 'group', groupId, channelId }, message.author);
+                maybePlaySound(
+                  { kind: 'group', groupId, channelId },
+                  message.author,
+                  message.mentions_me === true,
+                );
               }
             })
             .catch(() => {

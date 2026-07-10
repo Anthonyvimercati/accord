@@ -115,7 +115,11 @@ export const useFriends = create<FriendsState>((set, get) => ({
       ownStatus: status,
       // Absent : texte inchangé ; vide (après nettoyage) : effacé.
       ownStatusText:
-        custom === undefined ? s.ownStatusText : custom.trim() === '' ? null : custom.trim(),
+        custom === undefined
+          ? s.ownStatusText
+          : custom.trim() === ''
+            ? null
+            : custom.trim(),
     }));
   },
 
@@ -144,7 +148,9 @@ export const useFriends = create<FriendsState>((set, get) => ({
               online,
               // Présence riche absente (nœud ancien ou appel historique) :
               // les champs connus sont conservés tels quels.
-              ...(status !== undefined ? { status, status_text: statusText ?? null } : {}),
+              ...(status !== undefined
+                ? { status, status_text: statusText ?? null }
+                : {}),
             }
           : c,
       ),
@@ -175,7 +181,9 @@ export function handleFriendsNodeEvent(method: string, params: unknown): void {
       status?: PresenceStatus;
       status_text?: string | null;
     };
-    useFriends.getState().applyPresence(p.pubkey, p.online, p.status, p.status_text ?? null);
+    useFriends
+      .getState()
+      .applyPresence(p.pubkey, p.online, p.status, p.status_text ?? null);
   }
 }
 
@@ -209,4 +217,22 @@ export function avatarOf(contacts: Contact[], pubkey: string): string | null {
 export function presenceOf(contact: Contact | undefined): PresenceStatus {
   if (contact?.status !== undefined) return contact.status;
   return contact?.online === true ? 'online' : 'offline';
+}
+
+/**
+ * Non-lus agrégés de toutes les conversations privées établies : alimente la
+ * pastille du bouton Accueil/MP du rail des serveurs. Les demandes en
+ * attente et contacts bloqués n'ont pas de fil de discussion à signaler.
+ */
+export function totalDmUnread(contacts: readonly Contact[]): number {
+  return contacts
+    .filter((c) => c.state === 'friend')
+    .reduce((sum, c) => sum + (c.unread ?? 0), 0);
+}
+
+/** Mentions agrégées de toutes les conversations privées établies. */
+export function totalDmMentions(contacts: readonly Contact[]): number {
+  return contacts
+    .filter((c) => c.state === 'friend')
+    .reduce((sum, c) => sum + (c.mention_count ?? 0), 0);
 }

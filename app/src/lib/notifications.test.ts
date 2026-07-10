@@ -8,11 +8,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   clearPendingConversation,
   isNotificationEligible,
+  isSoundEligible,
   PENDING_NAVIGATION_TTL_MS,
   rememberNotifiedConversation,
   takePendingConversation,
   type ConversationRef,
   type NotifyPrefs,
+  type SoundEligibilityOptions,
 } from './notifications';
 
 const ALL_ON: NotifyPrefs = { dms: true, groups: true, onlyWhenUnfocused: true };
@@ -92,6 +94,47 @@ describe('isNotificationEligible', () => {
         windowFocused: true,
         isOwnMessage: false,
       }),
+    ).toBe(true);
+  });
+});
+
+describe('isSoundEligible', () => {
+  const BASE: SoundEligibilityOptions = {
+    isOwnMessage: false,
+    isDisplayedConversation: false,
+    windowFocused: false,
+    dnd: false,
+  };
+
+  it('joue le son pour un message entrant hors conversation affichée', () => {
+    expect(isSoundEligible(BASE)).toBe(true);
+  });
+
+  it('ne joue jamais le son pour ses propres messages', () => {
+    expect(isSoundEligible({ ...BASE, isOwnMessage: true, windowFocused: true })).toBe(
+      false,
+    );
+  });
+
+  it('tait le son en mode Ne pas déranger', () => {
+    expect(isSoundEligible({ ...BASE, dnd: true })).toBe(false);
+  });
+
+  it('tait le son quand la conversation exacte est affichée et la fenêtre a le focus', () => {
+    expect(
+      isSoundEligible({ ...BASE, isDisplayedConversation: true, windowFocused: true }),
+    ).toBe(false);
+  });
+
+  it('joue le son sur la conversation affichée si la fenêtre est en arrière-plan', () => {
+    expect(
+      isSoundEligible({ ...BASE, isDisplayedConversation: true, windowFocused: false }),
+    ).toBe(true);
+  });
+
+  it('joue le son pour une autre conversation même fenêtre focalisée', () => {
+    expect(
+      isSoundEligible({ ...BASE, isDisplayedConversation: false, windowFocused: true }),
     ).toBe(true);
   });
 });

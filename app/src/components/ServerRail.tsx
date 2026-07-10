@@ -4,7 +4,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useFriends } from '../stores/friends';
+import { interpolate } from '../i18n';
+import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
 import { useGroups, sortChannels } from '../stores/groups';
 import { useUi, useT } from '../stores/ui';
 import { lireFichier } from '../lib/files';
@@ -61,16 +62,52 @@ function ServerIcon({ icon, name }: { icon: string | null; name: string }) {
   return <img src={url} alt="" className="h-full w-full object-cover" />;
 }
 
+/** Compteur de non-lus/mentions à afficher sur une icône du rail. */
+interface RailBadgeInfo {
+  count: number;
+  /** Mention (pastille distincte, « @ ») plutôt que simple non-lu. */
+  mention: boolean;
+}
+
+/** Libellé accessible du compteur, ajouté au `label`/`title` du bouton. */
+function badgeSuffix(t: ReturnType<typeof useT>, badge: RailBadgeInfo): string {
+  if (badge.count <= 0) return '';
+  const text = badge.mention
+    ? interpolate(t.mentions.badge, { count: String(badge.count) })
+    : interpolate(t.dm.unreadBadge, { count: String(badge.count) });
+  return ` — ${text}`;
+}
+
+/** Pastille rouge (non-lu ou mention) posée sur le coin d'une icône du rail. */
+function RailBadge({ badge }: { badge: RailBadgeInfo }) {
+  if (badge.count <= 0) return null;
+  return (
+    <span
+      aria-hidden
+      className="absolute right-1.5 top-0 z-10 flex min-w-[18px] items-center justify-center gap-0.5 rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-white ring-2 ring-rail"
+    >
+      {badge.mention && (
+        <span aria-hidden className="font-bold leading-none">
+          @
+        </span>
+      )}
+      {badge.count > 99 ? '99+' : badge.count}
+    </span>
+  );
+}
+
 function RailButton({
   label,
   active,
   accent,
+  badge,
   onClick,
   children,
 }: {
   label: string;
   active: boolean;
   accent?: boolean;
+  badge?: RailBadgeInfo;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -97,6 +134,7 @@ function RailButton({
       >
         {children}
       </button>
+      {badge !== undefined && <RailBadge badge={badge} />}
     </div>
   );
 }
@@ -108,11 +146,22 @@ export function ServerRail() {
   const openModal = useUi((s) => s.openModal);
   const ids = useGroups((s) => s.ids);
   const states = useGroups((s) => s.states);
+  const groupMentions = useGroups((s) => s.mentions);
   const lastChannelByServer = useUi((s) => s.lastChannelByServer);
   const lastDmPeer = useUi((s) => s.lastDmPeer);
   const contacts = useFriends((s) => s.contacts);
 
   const isHome = view.kind === 'friends' || view.kind === 'dm';
+
+  /**
+   * Pastille du bouton Accueil/MP : agrège tous les MP — une mention prime
+   * sur le simple non-lu (même convention que la liste de conversations).
+   */
+  const dmMentionTotal = totalDmMentions(contacts);
+  const dmBadge: RailBadgeInfo =
+    dmMentionTotal > 0
+      ? { count: dmMentionTotal, mention: true }
+      : { count: totalDmUnread(contacts), mention: false };
 
   /**
    * Icône accueil/MP : rouvre la dernière conversation privée si l'amitié
@@ -122,7 +171,10 @@ export function ServerRail() {
    */
   const openHome = (): void => {
     const peer = lastDmPeer;
-    if (peer !== null && contacts.some((c) => c.pubkey === peer && c.state === 'friend')) {
+    if (
+      peer !== null &&
+      contacts.some((c) => c.pubkey === peer && c.state === 'friend')
+    ) {
       setView({ kind: 'dm', peer });
       return;
     }
@@ -134,7 +186,12 @@ export function ServerRail() {
       aria-label={t.app.name}
       className="flex h-full w-[72px] flex-col items-center gap-2 overflow-y-auto bg-rail py-3"
     >
-      <RailButton label={t.dm.directMessages} active={isHome} onClick={openHome}>
+      <RailButton
+        label={`${t.dm.directMessages}${badgeSuffix(t, dmBadge)}`}
+        active={isHome}
+        badge={dmBadge}
+        onClick={openHome}
+      >
         {/* Marque Accord : deux bulles liées. */}
         <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
           <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h8A2.5 2.5 0 0 1 17 5.5v5a2.5 2.5 0 0 1-2.5 2.5H9l-3.6 2.7A.9.9 0 0 1 4 15V5.5Z" />
@@ -150,11 +207,16 @@ export function ServerRail() {
       {ids.map((id) => {
         const name = states[id]?.name ?? '…';
         const active = view.kind === 'group' && view.groupId === id;
+        // Pastille de mention (rouge) : seules les mentions non lues du
+        // serveur remontent ici (compteur `groups.list.mentions`, par
+        // serveur) — le détail par salon reste dans la barre latérale.
+        const badge: RailBadgeInfo = { count: groupMentions[id] ?? 0, mention: true };
         return (
           <RailButton
             key={id}
-            label={name}
+            label={`${name}${badgeSuffix(t, badge)}`}
             active={active}
+            badge={badge}
             onClick={() =>
               setView({
                 kind: 'group',

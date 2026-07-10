@@ -34,6 +34,31 @@ export function isNotificationEligible(options: {
   return true;
 }
 
+/**
+ * Éligibilité du son de notification — distincte de `isNotificationEligible`
+ * (notification native, régie par les réglages MP/groupes/arrière-plan) : le
+ * blip in-app joue toujours sur un message entrant, sauf pour ses propres
+ * messages, en mode Ne pas déranger, ou quand la fenêtre a le focus sur
+ * exactement cette conversation/salon (la pastille seule suffit alors).
+ */
+export interface SoundEligibilityOptions {
+  isOwnMessage: boolean;
+  /** Vrai si la conversation/le salon visé par le message est celui affiché. */
+  isDisplayedConversation: boolean;
+  windowFocused: boolean;
+  /** Vrai si le statut de présence local est Ne pas déranger. */
+  dnd: boolean;
+}
+
+/** Décide si le blip de notification doit jouer pour un message entrant. */
+export function isSoundEligible(options: SoundEligibilityOptions): boolean {
+  const { isOwnMessage, isDisplayedConversation, windowFocused, dnd } = options;
+  if (isOwnMessage) return false;
+  if (dnd) return false;
+  if (isDisplayedConversation && windowFocused) return false;
+  return true;
+}
+
 /** État de l'autorisation système (`unavailable` hors Tauri). */
 export type NotificationPermission = 'granted' | 'denied' | 'unavailable';
 
@@ -66,7 +91,10 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
  * hors Tauri ou sans autorisation, ne fait rien (aucune erreur remontée).
  * Rend `true` si la notification a réellement été envoyée.
  */
-export async function sendNativeNotification(title: string, body: string): Promise<boolean> {
+export async function sendNativeNotification(
+  title: string,
+  body: string,
+): Promise<boolean> {
   if (!isTauri()) return false;
   try {
     const plugin = await import('@tauri-apps/plugin-notification');
@@ -85,8 +113,7 @@ export async function sendNativeNotification(title: string, body: string): Promi
  * (home rail + DM for `dm`, server rail + channel for `group`).
  */
 export type ConversationRef =
-  | { kind: 'dm'; peer: string }
-  | { kind: 'group'; groupId: string; channelId: string };
+  { kind: 'dm'; peer: string } | { kind: 'group'; groupId: string; channelId: string };
 
 /**
  * Notification click → open conversation: per-platform reality check
@@ -114,7 +141,10 @@ export const PENDING_NAVIGATION_TTL_MS = 120_000;
 let pendingConversation: { ref: ConversationRef; at: number } | null = null;
 
 /** Arms navigation-on-next-focus towards the notified conversation. */
-export function rememberNotifiedConversation(ref: ConversationRef, now = Date.now()): void {
+export function rememberNotifiedConversation(
+  ref: ConversationRef,
+  now = Date.now(),
+): void {
   pendingConversation = { ref, at: now };
 }
 

@@ -1,12 +1,51 @@
 /**
  * Tests de la garde anti-id-périmé du rail des serveurs : la restauration du
  * dernier salon consulté ne doit jamais renvoyer un salon supprimé ou devenu
- * vocal, et replie proprement sur le premier salon disponible.
+ * vocal, et replie proprement sur le premier salon disponible. Couvre aussi
+ * les pastilles de non-lu/mention posées sur les icônes du rail (Accueil/MP
+ * et serveurs).
  */
 
-import { describe, expect, it } from 'vitest';
-import type { GroupChannel, GroupStateJson } from '../lib/api';
-import { channelToRestore } from './ServerRail';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import type { Contact, GroupChannel, GroupStateJson } from '../lib/api';
+import { useFriends } from '../stores/friends';
+import { useGroups } from '../stores/groups';
+import { useUi } from '../stores/ui';
+import { channelToRestore, ServerRail } from './ServerRail';
+
+function contact(pubkey: string, unread?: number, mentionCount?: number): Contact {
+  return {
+    node_id: 'noeud',
+    pubkey,
+    friend_code: 'accord-lion-foret-12345',
+    display_name: pubkey,
+    bio: null,
+    avatar: null,
+    banner: null,
+    state: 'friend',
+    last_seen_ms: 0,
+    ...(unread !== undefined ? { unread } : {}),
+    ...(mentionCount !== undefined ? { mention_count: mentionCount } : {}),
+  };
+}
+
+/** État minimal d'un serveur nommé, sans salon (pastilles : le nom suffit). */
+function serverState(name: string): GroupStateJson {
+  return {
+    group_id: 'g1',
+    name,
+    icon: null,
+    founder: null,
+    members: [],
+    bans: [],
+    channels: [],
+    categories: [],
+    roles: [],
+    invites: [],
+    my_permissions: 0,
+  };
+}
 
 function channel(
   id: string,
@@ -65,5 +104,77 @@ describe('channelToRestore', () => {
     const state = groupState([channel('c1', 0), channel('c2', 1)]);
 
     expect(channelToRestore(state, undefined)).toBe('c1');
+  });
+});
+
+describe('ServerRail — pastilles', () => {
+  beforeEach(() => {
+    useUi.setState({
+      lang: 'fr',
+      view: { kind: 'friends' },
+      lastChannelByServer: {},
+      lastDmPeer: null,
+    });
+    useFriends.setState({ contacts: [] });
+    useGroups.setState({ ids: [], states: {}, mentions: {} });
+  });
+
+  it('affiche le non-lu agrégé des MP sur le bouton Accueil', () => {
+    useFriends.setState({ contacts: [contact('alice-pk', 3), contact('bob-pk', 2)] });
+
+    render(<ServerRail />);
+
+    expect(screen.getByLabelText(/5 message\(s\) non lu\(s\)/)).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+  });
+
+  it('une mention en MP prime sur le simple non-lu sur le bouton Accueil', () => {
+    useFriends.setState({ contacts: [contact('alice-pk', 3, 1)] });
+
+    render(<ServerRail />);
+
+    const button = screen.getByLabelText(/1 mention\(s\) non lue\(s\)/);
+    // Le badge rouge visuel (posé à côté du bouton) porte le préfixe « @ »
+    // propre aux mentions ; le texte « @1 » est réparti sur deux nœuds
+    // (icône « @ » + compte), d'où `toHaveTextContent` sur le conteneur
+    // plutôt que `getByText` (qui ne recompose pas le texte fragmenté).
+    expect(button.parentElement).toHaveTextContent('@1');
+  });
+
+  it("n'affiche aucune pastille Accueil sans non-lu ni mention", () => {
+    useFriends.setState({ contacts: [contact('alice-pk')] });
+
+    render(<ServerRail />);
+
+    expect(screen.queryByLabelText(/non lu/)).not.toBeInTheDocument();
+  });
+
+  it('une mention en salon pose un badge rouge « @ » sur l’icône du serveur', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: serverState('Guilde') },
+      mentions: { g1: 4 },
+    });
+
+    render(<ServerRail />);
+
+    // Nom accessible du bouton enrichi du compte de mentions...
+    const button = screen.getByLabelText(/Guilde .* 4 mention\(s\) non lue\(s\)/);
+    // ...et badge visuel rouge « @4 » posé sur l'icône (texte fragmenté sur
+    // deux nœuds : `toHaveTextContent` plutôt que `getByText`).
+    expect(button.parentElement).toHaveTextContent('@4');
+  });
+
+  it("n'affiche aucun badge sur l'icône du serveur sans mention", () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: serverState('Guilde') },
+      mentions: {},
+    });
+
+    render(<ServerRail />);
+
+    expect(screen.getByLabelText('Guilde')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/mention/)).not.toBeInTheDocument();
   });
 });

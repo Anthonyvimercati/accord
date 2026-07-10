@@ -25,6 +25,8 @@ import {
   displayNameOf,
   handleFriendsNodeEvent,
   presenceOf,
+  totalDmMentions,
+  totalDmUnread,
   useFriends,
 } from './friends';
 
@@ -298,5 +300,28 @@ describe('presenceOf', () => {
     expect(presenceOf({ ...contact('a', 'A'), online: true })).toBe('online');
     expect(presenceOf({ ...contact('a', 'A'), online: false })).toBe('offline');
     expect(presenceOf(undefined)).toBe('offline');
+  });
+});
+
+describe('totalDmUnread / totalDmMentions', () => {
+  it('additionne les non-lus et mentions des seuls amis établis', () => {
+    const contacts: Contact[] = [
+      { ...contact('alice-pk', 'Alice'), unread: 3, mention_count: 1 },
+      { ...contact('bob-pk', 'Bob'), unread: 2, mention_count: 0 },
+      {
+        ...contact('carol-pk', 'Carol'),
+        state: 'pending_in',
+        unread: 9,
+        mention_count: 9,
+      },
+    ];
+
+    expect(totalDmUnread(contacts)).toBe(5);
+    expect(totalDmMentions(contacts)).toBe(1);
+  });
+
+  it('rend zéro sans contact ou sans compteur connu', () => {
+    expect(totalDmUnread([])).toBe(0);
+    expect(totalDmMentions([contact('alice-pk', 'Alice')])).toBe(0);
   });
 });
