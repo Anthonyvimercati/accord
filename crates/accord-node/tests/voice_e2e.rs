@@ -239,7 +239,7 @@ async fn two_nodes_join_voice_exchange_frames_and_respect_cap() {
         "les ops d'invitation ne sont pas arrivées chez Bob"
     );
     for ghost in &ghosts {
-        bob.voice().peer_signal(*ghost, gid, gid, 0);
+        bob.voice().peer_signal(*ghost, gid, gid, 0, 0x01, false);
     }
     let err = bob.voice().join(gid, gid).await.unwrap_err();
     assert!(

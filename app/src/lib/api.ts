@@ -22,6 +22,12 @@ export interface SelfProfile {
 
 export type ContactState = 'pending_out' | 'pending_in' | 'friend' | 'blocked';
 
+/** Rich presence of a peer as exposed by `friends.list` / `event.presence`. */
+export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline';
+
+/** Own presence status (`friends.set_status`): invisible shows as offline. */
+export type OwnPresenceStatus = 'online' | 'idle' | 'dnd' | 'invisible';
+
 export interface Contact {
   node_id: string;
   pubkey: string;
@@ -37,6 +43,10 @@ export interface Contact {
   last_seen_ms: number;
   /** Présence best-effort du pair (`friends.list`, D-027) ; absente = inconnue. */
   online?: boolean;
+  /** Statut riche annoncé par le pair (`friends.list`) ; absent = inconnu. */
+  status?: PresenceStatus;
+  /** Texte de statut personnalisé annoncé, ou `null` (absent = inconnu). */
+  status_text?: string | null;
   /** Messages du pair reçus après notre `dm.mark_read` ; absent = inconnu. */
   unread?: number;
 }
@@ -142,6 +152,32 @@ export interface ServerEmoji {
   merkle_root: string;
 }
 
+/**
+ * Override de permissions d'un rôle sur un salon (`deny` prioritaire sur
+ * `allow` ; un bit absent des deux masques est hérité).
+ */
+export interface ChannelOverride {
+  channel_id: string;
+  role_id: string;
+  allow: number;
+  deny: number;
+}
+
+/**
+ * Entrée du journal d'audit (`groups.audit`) : op signée décodée. `params`
+ * porte les champs utiles à la description (name, member, channel_id…).
+ */
+export interface AuditEntry {
+  op_id: string;
+  lamport: number;
+  wall_ms: number;
+  /** Clé publique (hex 64) de l'auteur de l'action. */
+  author: string;
+  /** Libellé stable de l'op (`create`, `kick`, `add_channel`, …, `unknown`). */
+  kind: string;
+  params: Record<string, unknown>;
+}
+
 export interface GroupStateJson {
   group_id: string;
   name: string;
@@ -156,6 +192,8 @@ export interface GroupStateJson {
   invites: GroupInvite[];
   /** Émojis de serveur, ordre stable lexicographique par `name` (peut manquer). */
   emojis?: ServerEmoji[];
+  /** Overrides de permissions par salon et rôle (peut manquer). */
+  overrides?: ChannelOverride[];
   /** Bitfield global de permissions de l'identité locale. */
   my_permissions: number;
 }
@@ -186,6 +224,12 @@ export interface FilesStatusResult {
 export interface VoiceParticipant {
   pubkey: string;
   speaking: boolean;
+  /** Micro coupé, tel que diffusé par le participant (VoiceSignal). */
+  muted: boolean;
+  /** Sortie coupée (deafen), tel que diffusé par le participant. */
+  deafened: boolean;
+  /** Volume de sortie local pour ce participant (0-200 %, persisté). */
+  volume: number;
 }
 
 /** Salon vocal actif tel que rendu par voice.status (`null` si aucun). */
@@ -193,6 +237,8 @@ export interface VoiceActive {
   group_id: string;
   channel_id: string;
   muted: boolean;
+  /** Sortie locale coupée (deafen force le micro coupé, jamais persisté). */
+  deafened: boolean;
   participants: VoiceParticipant[];
 }
 
@@ -269,6 +315,10 @@ export type AccordEvent =
       params: { group_id: string; channel_id: string; pubkey: string };
     }
   | { method: 'event.voice_speaking'; params: { pubkey: string; speaking: boolean } }
+  | {
+      method: 'event.voice_mute';
+      params: { pubkey: string; muted: boolean; deafened: boolean };
+    }
   | { method: 'event.voice_level'; params: { level: number; speaking: boolean } }
   | {
       method: 'event.profile';
@@ -280,7 +330,18 @@ export type AccordEvent =
         banner: string | null;
       };
     }
-  | { method: 'event.presence'; params: { pubkey: string; online: boolean } }
+  | {
+      method: 'event.presence';
+      params: {
+        pubkey: string;
+        online: boolean;
+        /** Statut riche (absent d'un nœud ancien : ne garder que `online`). */
+        status?: PresenceStatus;
+        status_text?: string | null;
+      };
+    }
+  | { method: 'event.friend_removed'; params: { peer: string } }
+  | { method: 'event.dm_read'; params: { peer: string; lamport: number } }
   | {
       method: 'event.network';
       params: { connected_peers: number; dht_nodes: number };
@@ -373,6 +434,32 @@ export class Api {
   }
 
   /**
+   * Retire une amitié établie (distinct du blocage : l'historique MP est
+   * conservé et une nouvelle demande d'ami reste possible). Le pair est
+   * prévenu best-effort et les deux côtés reçoivent `event.friend_removed`.
+   */
+  friendsRemove(pubkey: string): Promise<{ ok: true }> {
+    return this.rpc.call('friends.remove', { pubkey });
+  }
+
+  /**
+   * Fixe son statut de présence (persisté, diffusé aux amis). `custom` :
+   * absent = texte inchangé, chaîne vide = effacé, sinon remplacé (≤ 256
+   * octets UTF-8). `invisible` est annoncé comme hors ligne aux pairs.
+   */
+  friendsSetStatus(status: OwnPresenceStatus, custom?: string): Promise<{ ok: true }> {
+    return this.rpc.call('friends.set_status', {
+      status,
+      ...(custom !== undefined ? { custom } : {}),
+    });
+  }
+
+  /** Statut de présence local persisté (défauts : `online`, `custom: null`). */
+  friendsGetStatus(): Promise<{ status: OwnPresenceStatus; custom: string | null }> {
+    return this.rpc.call('friends.get_status');
+  }
+
+  /**
    * Envoie un message direct, éventuellement avec des pièces jointes déjà
    * publiées (`files.share_bytes`) — texte vide admis si au moins une pièce.
    */
@@ -433,6 +520,20 @@ export class Api {
    */
   dmMarkRead(pubkey: string, lamport: number): Promise<{ ok: true }> {
     return this.rpc.call('dm.mark_read', { pubkey, lamport });
+  }
+
+  /**
+   * Active ou coupe l'émission des accusés de lecture (réglage de
+   * confidentialité persisté, activé par défaut). Coupé, les accusés
+   * entrants restent enregistrés.
+   */
+  dmSetReadReceipts(enabled: boolean): Promise<{ ok: true }> {
+    return this.rpc.call('dm.set_read_receipts', { enabled });
+  }
+
+  /** État du réglage d'émission des accusés de lecture. */
+  dmGetReadReceipts(): Promise<{ enabled: boolean }> {
+    return this.rpc.call('dm.get_read_receipts');
   }
 
   groupsCreate(name: string): Promise<{ group_id: string }> {
@@ -530,17 +631,80 @@ export class Api {
     });
   }
 
-  /** Modifie un salon (champ absent = inchangé). */
+  /**
+   * Modifie un salon (champ absent = inchangé). `category`: `null` sort le
+   * salon de toute catégorie, un hex 32 le déplace dans cette catégorie.
+   */
   groupsChannelEdit(
     groupId: string,
     channelId: string,
-    changes: { name?: string; position?: number },
+    changes: { name?: string; position?: number; category?: string | null },
   ): Promise<{ ok: true }> {
     return this.rpc.call('groups.channel.edit', {
       group_id: groupId,
       channel_id: channelId,
       ...(changes.name !== undefined ? { name: changes.name } : {}),
       ...(changes.position !== undefined ? { position: changes.position } : {}),
+      ...(changes.category !== undefined ? { category: changes.category } : {}),
+    });
+  }
+
+  /**
+   * Fixe l'override de permissions d'un rôle sur un salon (`allow`/`deny` :
+   * bitfields, `deny` prioritaire) ; `allow = deny = 0` efface l'override.
+   */
+  groupsChannelPerms(
+    groupId: string,
+    channelId: string,
+    roleId: string,
+    allow: number,
+    deny: number,
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.channel.perms', {
+      group_id: groupId,
+      channel_id: channelId,
+      role_id: roleId,
+      allow,
+      deny,
+    });
+  }
+
+  /** Renomme et/ou repositionne une catégorie (champ absent = inchangé). */
+  groupsCategoryEdit(
+    groupId: string,
+    categoryId: string,
+    changes: { name?: string; position?: number },
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.category.edit', {
+      group_id: groupId,
+      category_id: categoryId,
+      ...(changes.name !== undefined ? { name: changes.name } : {}),
+      ...(changes.position !== undefined ? { position: changes.position } : {}),
+    });
+  }
+
+  /** Supprime une catégorie ; ses salons deviennent « sans catégorie ». */
+  groupsCategoryDel(groupId: string, categoryId: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.category.del', {
+      group_id: groupId,
+      category_id: categoryId,
+    });
+  }
+
+  /**
+   * Journal d'audit (ADMIN/fondateur) : ops signées décodées, de la plus
+   * récente à la plus ancienne. `before` = `op_id` de la plus ancienne
+   * entrée déjà chargée (curseur) ; `limit` borné à [1, 100].
+   */
+  groupsAudit(
+    groupId: string,
+    before?: string,
+    limit?: number,
+  ): Promise<{ entries: AuditEntry[] }> {
+    return this.rpc.call('groups.audit', {
+      group_id: groupId,
+      ...(before !== undefined ? { before } : {}),
+      ...(limit !== undefined ? { limit } : {}),
     });
   }
 
@@ -813,8 +977,29 @@ export class Api {
     return this.rpc.call('voice.mute', { muted });
   }
 
+  /**
+   * Coupe (`true`) ou rétablit (`false`) toute la voix entrante localement.
+   * Le deafen force le micro coupé ; le rétablissement restaure l'état de
+   * micro demandé auparavant (sémantique Discord). Jamais persisté.
+   */
+  voiceDeafen(on: boolean): Promise<Record<string, never>> {
+    return this.rpc.call('voice.deafen', { on });
+  }
+
+  /**
+   * Volume de sortie en pourcentage (entier 0-200, 100 = neutre) : volume
+   * principal quand `peer` est `null`, sinon volume du participant (clé
+   * publique hex). Persisté côté nœud et appliqué à chaud au salon actif.
+   */
+  voiceSetVolume(peer: string | null, volume: number): Promise<Record<string, never>> {
+    return this.rpc.call(
+      'voice.set_volume',
+      peer === null ? { volume } : { peer, volume },
+    );
+  }
+
   /** État vocal courant (`active: null` hors salon), pour resynchronisation. */
-  voiceStatus(): Promise<{ active: VoiceActive | null }> {
+  voiceStatus(): Promise<{ active: VoiceActive | null; master_volume: number }> {
     return this.rpc.call('voice.status');
   }
 

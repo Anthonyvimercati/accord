@@ -262,10 +262,30 @@ Body: `msg_type: u8` then a structure. Main types:
 0x07 GROUP_KEY       { group_id: bytes<16>, key_epoch: u32,
                        sealed_key: bytes<80> }  // key sealed for this member (§6.4)
 0x08 PRESENCE        { status: u8 (0=online,1=idle,2=dnd,3=offline), custom: opt<str> }
+                     // custom: UTF-8 custom status text, ≤ 256 bytes (decode
+                     // bound). Rich status (0-2) and custom text are only
+                     // honoured from friends; unknown status values degrade to
+                     // offline. "Invisible" is a purely LOCAL mode: the node
+                     // announces a bare offline (status=3, no custom text)
+                     // while keeping full functionality — it never appears on
+                     // the wire. Older nodes sending bare online/offline
+                     // (custom absent) interoperate unchanged.
 0x09 PROFILE         { display_name: str (≤ 128 bytes), bio: str,
                        avatar_hash: opt<bytes<32>>, banner_hash: opt<bytes<32>> }
 0x0A VOICE_SIGNAL    { group_id: bytes<16>, channel_id: bytes<16>, action: u8
                        (0=join,1=leave,2=state), media_kinds: u8, mute: u8 }
+                     // media_kinds: bitflags — 0x01 audio (video/screen
+                     // reserved); bit 0x80 = sender is self-deafened (deafen
+                     // implies mute). Receivers MUST ignore unknown bits:
+                     // the byte layout is unchanged, older peers interoperate.
+0x0D FRIEND_REMOVE   { }
+                     // The sender (authenticated by the encrypted session)
+                     // removed the friendship on their side. Best-effort:
+                     // never queued offline. On receipt, an ESTABLISHED
+                     // friendship is dropped too (DM history kept on both
+                     // sides); any other contact state (pending, blocked,
+                     // unknown) is left untouched. Distinct from a block:
+                     // a new friend request stays possible afterwards.
 ```
 
 ### 6.1 Direct messages
@@ -274,6 +294,19 @@ Body `body` (for kind=0): `{ text: str, reply_to: opt<bytes<16>>,
 attachments: list<FileRef> }` with `FileRef = { merkle_root: bytes<32>, name: str,
 size: u64, mime: str }`. Edits/deletions reference the original `msg_id`;
 tombstones are kept. ACK is mandatory; without an ACK ⇒ offline queue (§7).
+
+**Ephemeral kinds** (typing `5`, read receipt `6`): never ACKed, never queued
+offline — an unreachable peer simply misses them.
+
+**Read receipts** (kind=6, body `{ up_to: bytes<16> }`): `up_to` is the
+`msg_id` of the most recent message **authored by the receiver** that the
+sender has read. Emitted best-effort when the local read mark advances
+(throttled: re-marking the same position stays silent) and only towards peers
+presumed online. Emission can be disabled locally (privacy setting persisted
+in the meta table, default on); incoming receipts are recorded regardless of
+that setting. The receiver persists the peer's read position per conversation
+and exposes it through the local API (`dm.history` → `peer_read_lamport`,
+`event.dm_read`).
 
 ### 6.2 Group op-log
 
@@ -287,7 +320,10 @@ Kinds: 0x01 CREATE, 0x02 SET_META, 0x03 ADD_CHANNEL, 0x04 EDIT_CHANNEL,
 0x0B ADD_ROLE, 0x0C EDIT_ROLE, 0x0D DEL_ROLE, 0x0E ASSIGN_ROLE, 0x0F UNASSIGN_ROLE,
 0x10 SET_CHANNEL_PERMS, 0x11 PIN, 0x12 UNPIN, 0x13 DELETE_MSG (moderation),
 0x14 SET_TOPIC, 0x15 INVITE_CREATE, 0x16 INVITE_REVOKE, 0x17 LEAVE,
-0x18 ADD_EMOJI `{ name: str, file: bytes<32> }`, 0x19 DEL_EMOJI `{ name: str }`.
+0x18 ADD_EMOJI `{ name: str, file: bytes<32> }`, 0x19 DEL_EMOJI `{ name: str }`,
+0x1A EDIT_CATEGORY `{ category_id: bytes<16>, name: str, position: u16 }`,
+0x1B DEL_CATEGORY `{ category_id: bytes<16> }`,
+0x1C SET_CHANNEL_CATEGORY `{ channel_id: bytes<16>, category: opt<bytes<16>> }`.
 
 - Total order: `(lamport, author_node_id)` ascending. Deterministic application;
   an op not authorized by the current state ⇒ ignored (all honest peers converge).
@@ -295,7 +331,18 @@ Kinds: 0x01 CREATE, 0x02 SET_META, 0x03 ADD_CHANNEL, 0x04 EDIT_CHANNEL,
   INVITE=16, KICK=32, BAN=64, MANAGE_ROLES=128, ADMIN=256 (implies everything),
   MANAGE_EMOJIS=512.
   Resolution: OR of the member's roles, per-channel overrides (allow/deny), deny > allow,
-  ADMIN and founder short-circuit.
+  ADMIN and founder short-circuit. Writing into a channel requires the
+  effective VIEW **and** SEND there (a channel hidden from a role cannot be
+  written to by its members).
+- **Categories** (`MANAGE_CHANNELS`): `EDIT_CATEGORY` renames/repositions;
+  `DEL_CATEGORY` removes the category only — its channels survive,
+  uncategorized; `SET_CHANNEL_CATEGORY` moves a channel into an existing
+  category (`category` absent ⇒ uncategorized). Ops referencing an unknown
+  category or channel are ignored at replay.
+- **Channel overrides** (`SET_CHANNEL_PERMS`, `MANAGE_ROLES`): per
+  `(channel, role)` pair of masks `{ allow, deny }`; `allow = deny = 0`
+  clears the entry (full inherit). The op is ignored at replay if the
+  channel or the role is unknown.
 - **Server emojis**: `ADD_EMOJI` (add or replace) and `DEL_EMOJI` require
   `MANAGE_EMOJIS`. `name`: 2 to 32 `[a-z0-9_]` characters (op ignored
   otherwise); at most 50 emojis per server (an add beyond the bound is

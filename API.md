@@ -65,6 +65,7 @@ IPC** (D-023) — the exact contract between `app/src/lib/bridge.ts` and
 | `create_identity` | `{ passphrase }` | `{ session: { port, token }, recovery_phrase }` |
 | `restore_identity` | `{ phrase, passphrase }` | `{ port, token }` |
 | `unlock` | `{ passphrase }` | `{ port, token }` |
+| `lock` | — | `"absent"` ∣ `"locked"` |
 
 Details of shape and behavior:
 
@@ -78,6 +79,11 @@ Details of shape and behavior:
 - `restore_identity` rebuilds the identity from `phrase` (12 BIP39 words),
   seals it under the new local `passphrase`, then starts the node.
 - `unlock` opens the existing vault with `passphrase` then starts the node.
+- `lock` is the exact inverse of `unlock`: it stops and drops the running
+  node (network, API, encrypted database) — the in-memory secrets are wiped
+  on that drop — **without** quitting the app, then returns the fresh vault
+  status (normally `"locked"`) so the UI lands on the same screen as a cold
+  start. Idempotent: calling it with no node running is a no-op.
 - `port`/`token` are to be passed as-is to the WebSocket connection then to the
   `auth` method above. Each startup command replaces (and cleanly stops)
   any previous node.
@@ -137,12 +143,15 @@ from non-friends are ignored (anti-abuse).
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `friends.list` | — | `{ contacts: [{ node_id, pubkey, friend_code, display_name, bio, avatar, banner, state, last_seen_ms, online, unread }] }` — `bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null` (profile announced by the peer, D-027, D-032); `online` `bool` (best-effort presence, see "Presence"); `unread` integer (messages from the peer received after our `dm.mark_read`) |
+| `friends.list` | — | `{ contacts: [{ node_id, pubkey, friend_code, display_name, bio, avatar, banner, state, last_seen_ms, online, status, status_text, unread }] }` — `bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null` (profile announced by the peer, D-027, D-032); `online` `bool` (kept for backward compatibility) plus `status` ∈ `online`∣`idle`∣`dnd`∣`offline` and `status_text` `string`∣`null` (rich presence, best-effort, see "Presence"); `unread` integer (messages from the peer received after our `dm.mark_read`) |
 | `friends.resolve` | `{ friend_code }` | `{ pubkey }` — DHT lookup of the identity record, verified end-to-end |
 | `friends.request` | `{ pubkey, display_name }` | `{ ok: true }` |
 | `friends.respond` | `{ pubkey, accept }` | `{ ok: true }` |
 | `friends.block` | `{ pubkey }` | `{ ok: true }` |
 | `friends.unblock` | `{ pubkey }` | `{ ok: true }` |
+| `friends.remove` | `{ pubkey }` | `{ ok: true }` — removes an **established** friendship (explicit error otherwise). Distinct from a block: the DM history is kept and a new friend request stays possible. The peer is notified best-effort (`FRIEND_REMOVE`, never queued offline) and drops the friendship on receipt; both sides receive `event.friend_removed` |
+| `friends.set_status` | `{ status, custom? }` | `{ ok: true }` — own rich presence: `status` ∈ `online`∣`idle`∣`dnd`∣`invisible`; `custom` string ≤ 256 UTF-8 bytes, no control characters (absent = unchanged, empty after trim = cleared). Persisted (meta table), broadcast to friends immediately then in the periodic announcements. `invisible` is announced as plain offline (no custom text leaks) while the node keeps working normally |
+| `friends.get_status` | — | `{ status, custom }` — persisted own presence; defaults to `online` with `custom: null` |
 
 `state` ∈ `pending_out`, `pending_in`, `friend`, `blocked`. The "add
 a friend by code" flow is `friends.resolve` then `friends.request`.
@@ -156,12 +165,14 @@ carried by their friend request.
 | Method | Parameters | Result |
 |---------|-----------|----------|
 | `dm.send` | `{ pubkey, text, reply_to?, attachments? }` | `{ msg_id }` |
-| `dm.history` | `{ pubkey, before_lamport?, limit? }` | `{ messages: [...] }` |
+| `dm.history` | `{ pubkey, before_lamport?, limit? }` | `{ messages: [...], peer_read_lamport }` — `peer_read_lamport` integer∣`null`: lamport of the last own message covered by the peer's read receipt (`null` if unknown; see `dm.mark_read`) |
 | `dm.edit` | `{ pubkey, msg_id, text }` | `{ ok: true }` — author only, rejected otherwise |
 | `dm.delete` | `{ pubkey, msg_id }` | `{ ok: true }` — author only; immediate local tombstone |
 | `dm.react` | `{ pubkey, msg_id, emoji, remove? }` | `{ ok: true }` — `remove: true` removes the reaction |
 | `dm.typing` | `{ pubkey }` | `{ ok: true }` — **ephemeral** typing indicator: emitted only if the peer is presumed online, never persisted or queued (unreachable peer ⇒ silently ignored). When received, it triggers `event.dm_typing` |
-| `dm.mark_read` | `{ pubkey, lamport }` | `{ ok: true }` — records our local read position in the conversation (for `unread` in `friends.list`) |
+| `dm.mark_read` | `{ pubkey, lamport }` | `{ ok: true }` — records our local read position in the conversation (for `unread` in `friends.list`). When the mark **advances**, best-effort emission of a read receipt to the peer (**ephemeral** like `dm.typing`: online peers only, never queued offline, silent if the privacy setting is off). When received, the peer's read position is persisted and `event.dm_read` is pushed |
+| `dm.set_read_receipts` | `{ enabled }` | `{ ok: true }` — privacy setting (persisted, default on): when off, no read receipt is ever emitted; **incoming** receipts are still recorded |
+| `dm.get_read_receipts` | — | `{ enabled }` |
 
 `limit` bounded to [1, 200] (default 50). `messages` sorted from most recent to
 oldest: `{ msg_id, author, lamport, sent_ms, acked, deleted, body, edited,
@@ -219,14 +230,18 @@ After each applied op (local or remote), the node emits
 |---------|-----------|----------|
 | `groups.create` | `{ name }` | `{ group_id }` |
 | `groups.list` | — | `{ groups: [group_id], unread }` — `unread`: `{ group_id: { channel_id: n } }`, unread per channel (others' messages after the `groups.mark_read` mark); only channels with at least one unread appear |
-| `groups.state` | `{ group_id }` | full state, see below |
+| `groups.state` | `{ group_id, channel_id? }` | full state, see below — with `channel_id`, `my_permissions` becomes the **effective** bitfield in that channel (overrides folded in, `deny` > `allow`) |
 | `groups.rename` | `{ group_id, name }` | `{ ok: true }` — 1-100 characters |
 | `groups.set_icon` | `{ group_id, data_b64, mime }` | `{ icon }` — image ≤ 512 KiB decoded, published in the file store; `icon` = hex-64 Merkle root |
 | `groups.set_topic` | `{ group_id, channel_id, topic }` | `{ ok: true }` — ≤ 2048 bytes |
 | `groups.channel.add` | `{ group_id, name, kind?, category? }` | `{ channel_id }` — `kind` ∈ `"text"` (default), `"voice"`, `"announcement"`; `category` = hex id of an existing category |
-| `groups.channel.edit` | `{ group_id, channel_id, name?, position? }` | `{ ok: true }` — absent field = unchanged |
+| `groups.channel.edit` | `{ group_id, channel_id, name?, position?, category? }` | `{ ok: true }` — absent field = unchanged; `category`: `null` moves the channel out of any category, hex id of an existing category moves it there (`SetChannelCategory` op, `MANAGE_CHANNELS`) |
+| `groups.channel.perms` | `{ group_id, channel_id, role_id, allow, deny }` | `{ ok: true }` — per-channel role override (`SetChannelPerms` op, `MANAGE_ROLES`): `allow`/`deny` permission bitfields, `deny` wins; overlapping or unknown bits = explicit error; `allow = deny = 0` clears the override (full inherit) |
 | `groups.channel.del` | `{ group_id, channel_id }` | `{ ok: true }` |
 | `groups.category.add` | `{ group_id, name, position? }` | `{ category_id }` |
+| `groups.category.edit` | `{ group_id, category_id, name?, position? }` | `{ ok: true }` — absent field = unchanged (`EditCategory` op, `MANAGE_CHANNELS`) |
+| `groups.category.del` | `{ group_id, category_id }` | `{ ok: true }` — deletes the category **only**: its channels remain, uncategorized (`DelCategory` op, `MANAGE_CHANNELS`) |
+| `groups.audit` | `{ group_id, before?, limit? }` | `{ entries: [{ op_id, lamport, wall_ms, author, kind, params }] }` — read-only audit log (the signed op-log decoded), newest first; reserved to members holding `ADMIN` (founder included). `limit` bounded to [1, 100] (default 50); `before` = `op_id` of the oldest entry already loaded (cursor, unknown = explicit error). `author` = hex-64 public key of the actor; `kind` = stable label (`create`, `add_channel`, `kick`, …, `unknown` for an undecodable body); `params` = the human-relevant fields of the op (`name`, `member`, `channel_id`, `role_id`, …), never the raw wire |
 | `groups.kick` | `{ group_id, pubkey }` | `{ ok: true }` — hierarchy: you cannot kick a member of higher or equal role; the founder is untouchable |
 | `groups.ban` | `{ group_id, pubkey }` | `{ ok: true }` — same rules; a banned member can no longer be (re)admitted |
 | `groups.unban` | `{ group_id, pubkey }` | `{ ok: true }` |
@@ -273,6 +288,8 @@ as `groups.send`; on ingestion at each member, the action is applied
   "invites": [{ "invite_id": "<hex32>", "max_uses": 0, "uses": 0,
                 "expires_ms": 0, "revoked": false }],
   "emojis": [{ "name": "parrot", "merkle_root": "<hex64>" }],  // server emojis
+  "overrides": [{ "channel_id": "<hex32>", "role_id": "<hex32>",
+                  "allow": 0, "deny": 2 }],   // per-channel role overrides
   "my_permissions": 1023       // effective bitfield of the local identity
 }
 ```
@@ -300,8 +317,11 @@ impact, they are ordinary strings.
 
 Every member implicitly has `VIEW | SEND` (removable by channel override,
 `deny` takes priority over `allow`). The founder has all permissions.
-`my_permissions` is the **global** bitfield of the local identity (per-channel
-overrides are not reflected in it).
+Without `channel_id`, `my_permissions` is the **global** bitfield of the
+local identity; with `channel_id` (see `groups.state`), the per-channel
+overrides are folded in (`deny` > `allow`; `ADMIN` and the founder
+short-circuit). Sending into a channel requires the effective `VIEW | SEND`
+there — a role denied `VIEW` on a channel cannot write to it either.
 
 ### Search
 
@@ -348,8 +368,10 @@ Blind local search (HMAC index); intersection of all words.
 |---------|-----------|----------|
 | `voice.join` | `{ group_id, channel_id }` | `{ participants: [pubkey] }` — joins the channel; a single active channel at a time (`join` leaves the previous one implicitly) |
 | `voice.leave` | — | `{}` |
-| `voice.mute` | `{ muted }` | `{}` — mutes/unmutes the local capture, you stay in the channel |
-| `voice.status` | — | `{ active: null ∣ { group_id, channel_id, muted, participants: [{ pubkey, speaking }] } }` |
+| `voice.mute` | `{ muted }` | `{}` — mutes/unmutes the local capture, you stay in the channel; while deafened the mute stays forced and the requested state is restored on undeafen |
+| `voice.deafen` | `{ on }` | `{}` — stops (`true`) or restores (`false`) decoding/playing **all** incoming voice locally; deafen forces mute, undeafen restores the previously requested mute state (Discord semantics); session-scoped (never persisted); idempotent, no effect outside a channel |
+| `voice.set_volume` | `{ peer?, volume }` | `{}` — output volume in percent (integer 0..=200, 100 = unity, > 100 = boost with saturation); `peer` absent = **master** output volume, otherwise the hex public key of a participant; persisted (per peer public key) and applied live as a linear gain on the decoded PCM; out-of-range volume or malformed `peer` = explicit error |
+| `voice.status` | — | `{ active: null ∣ { group_id, channel_id, muted, deafened, participants: [{ pubkey, speaking, muted, deafened, volume }] }, master_volume }` — participant `muted`/`deafened` reflect the state broadcast in their `VoiceSignal`; `volume` is the local persisted per-peer volume; `master_volume` is returned even without an active channel |
 | `voice.devices` | — | `{ inputs: [string], outputs: [string], selected_input: string∣null, selected_output: string∣null }` — `cpal` names; `null` = default device (D-029) |
 | `voice.set_devices` | `{ input?: string∣null, output?: string∣null }` | `{}` — absent field = unchanged, `null` = default device; persisted; applied on the fly if a channel is active; unknown name = explicit error |
 | `voice.mic_test` | `{ enabled }` | `{}` — while enabled, `event.voice_level` at ~10 Hz from the real capture; explicit error if the audio hardware is unavailable |
@@ -365,8 +387,20 @@ Details of shape and behavior:
   explicit application error ("voice channel full").
 - `speaking` is derived from the local VAD for oneself and from frame
   activity for peers, with hysteresis (~400 ms): the indicator does not flicker.
-- `voice.leave` and `voice.mute` are idempotent; `voice.mute` outside a channel has
-  no effect.
+- `voice.leave`, `voice.mute` and `voice.deafen` are idempotent; `voice.mute` and
+  `voice.deafen` outside a channel have no effect.
+- **Deafen semantics** (Discord-like): `voice.deafen { on: true }` forces
+  `muted: true` and stops decoding/playback of all incoming voice (jitter
+  buffers are drained, no stale audio bursts on undeafen). While deafened,
+  `voice.mute` only records the requested state; `voice.deafen { on: false }`
+  restores it. The deafen state is broadcast to the channel through bit `0x80`
+  of `media_kinds` in `VOICE_SIGNAL` (older peers ignore the bit: the wire
+  stays backward compatible) and is session-scoped: joining a channel always
+  starts unmuted and undeafened.
+- **Volumes**: master and per-peer volumes are linear gains applied to the
+  decoded PCM before mixing (saturating at the `i16` bounds). They are
+  persisted node-side (`meta` table: master, and one entry per peer public
+  key) and survive restarts; mute/deafen states are not.
 - You must be a member of the group to join its channel; signaling
   from non-members is ignored.
 - A silent participant remains detected as alive by its quality pings;
@@ -487,7 +521,9 @@ Pushed to all authenticated clients, without `id`:
 | `event.dm_typing` | `{ peer }` — the peer is typing (ephemeral; bounded to one event every 2 s per peer) |
 | `event.friend_request` | `{ peer }` — friend request received |
 | `event.friend_response` | `{ peer, accepted }` — response to our request |
-| `event.presence` | `{ pubkey, online }` — a **friend**'s presence changed (`online` `bool`); see "Presence" |
+| `event.presence` | `{ pubkey, online, status, status_text }` — a **friend**'s presence changed: `online` `bool` (kept for backward compatibility, `status != "offline"`), `status` ∈ `online`∣`idle`∣`dnd`∣`offline`, `status_text` `string`∣`null`; see "Presence" |
+| `event.friend_removed` | `{ peer }` — a friendship was removed (by us via `friends.remove`, or by the peer via a `FRIEND_REMOVE` wire message): refresh `friends.list`; the DM history is kept |
+| `event.dm_read` | `{ peer, lamport }` — the peer's read receipt advanced: they have read our messages of the conversation up to `lamport` (same value as `peer_read_lamport` in `dm.history`) |
 | `event.profile` | `{ pubkey, name, bio, avatar, banner }` — a **friend**'s profile updated (`bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null`; nickname reflected in `friends.list`) |
 | `event.group_op` | `{ group_id }` — replicated group op |
 | `event.group_state` | `{ group_id }` — the group state has changed (op applied, local or remote): reload `groups.state` |
@@ -497,6 +533,7 @@ Pushed to all authenticated clients, without `id`:
 | `event.voice_joined` | `{ group_id, channel_id, pubkey }` — a participant (including oneself) entered a voice channel |
 | `event.voice_left` | `{ group_id, channel_id, pubkey }` — a participant left a voice channel (departure or liveness expired) |
 | `event.voice_speaking` | `{ pubkey, speaking }` — the "speaking" indicator of a participant in the active channel has changed |
+| `event.voice_mute` | `{ pubkey, muted, deafened }` — the mute/deafen state of a participant in the active channel has changed (including oneself; peers' states come from their `VoiceSignal` broadcasts) |
 | `event.voice_level` | `{ level, speaking }` — mic level during the test (`voice.mic_test`): normalized RMS peak 0..1 and VAD, at ~10 Hz |
 | `event.file_progress` | `{ merkle_root, done, total, complete }` — progress of a download (steps of about 5% then final state; `complete: false` in the last event = abandon) |
 | `event.network` | `{ connected_peers, dht_nodes }` — the network counters have changed (emitted sparingly, never in bursts) |
@@ -517,3 +554,13 @@ memory:
   an explicit shutdown announcement, a friend remains presumed online. `friends.list`
   exposes the current state (`online`) and `event.presence { pubkey, online }`
   signals changes. `last_seen_ms` (already present) timestamps the last contact.
+- **Rich presence**: a friend's explicit announcement carries a status
+  (`online`, `idle`, `dnd`) and an optional custom text (≤ 256 UTF-8 bytes),
+  exposed as `status` / `status_text` in `friends.list` and `event.presence`.
+  A reachable friend without an explicit announcement is plain `online`; an
+  offline announcement (or none at all) clears the rich status. Non-friends
+  only update plain reachability (anti-abuse).
+- **Own status** (`friends.set_status`): persisted across restarts and
+  broadcast on change, at startup and in the periodic announcements.
+  `invisible` is local-only: friends see a regular offline announcement
+  (never the custom text) while the node keeps working normally.
