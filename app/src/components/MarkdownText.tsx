@@ -3,10 +3,16 @@
  * produit des nœuds React (aucun `dangerouslySetInnerHTML` — React échappe le
  * texte). Compose émojis custom `:name:`, mentions `@pseudo` (surlignées, en
  * « pill » pour un membre connu) et mise en forme dans un même passage.
+ *
+ * Discord-level additions: headings, lists, blockquotes, underline, masked
+ * links (real URL in the title attribute + distinct dotted underline) and
+ * fenced code blocks highlighted by the zero-dependency `lib/highlight`
+ * tokenizer. Token colors use the themed CSS variables (light and dark).
  */
 
 import { Fragment, useState, type ReactNode } from 'react';
 import { analyserMarkdown, type MdNode } from '../lib/markdown';
+import { highlightCode, type TokenKind } from '../lib/highlight';
 import { useT } from '../stores/ui';
 import { CustomEmoji } from './CustomEmoji';
 
@@ -64,6 +70,50 @@ function Spoiler({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Token colors for highlighted code, mapped to the themed CSS variables
+ * (`--color-*` in styles/global.css) so both light and dark themes work.
+ */
+const TOKEN_CLASS: Record<Exclude<TokenKind, 'plain'>, string> = {
+  keyword: 'text-blurple',
+  string: 'text-green',
+  comment: 'italic text-faint',
+  number: 'text-yellow',
+};
+
+/**
+ * Fenced code block. With a known language tag the content is tokenized by
+ * `lib/highlight` into pure data tokens rendered as `<span>`s (never HTML
+ * strings); unknown or missing languages render as plain text.
+ */
+function CodeBlock({ value, lang }: { value: string; lang?: string | undefined }) {
+  const tokens = lang !== undefined ? highlightCode(value, lang) : null;
+  return (
+    <pre className="my-1 overflow-x-auto rounded-md bg-rail p-2 font-mono text-[0.85em] text-norm">
+      <code>
+        {tokens === null
+          ? value
+          : tokens.map((tok, i) =>
+              tok.kind === 'plain' ? (
+                <Fragment key={i}>{tok.value}</Fragment>
+              ) : (
+                <span key={i} className={TOKEN_CLASS[tok.kind]}>
+                  {tok.value}
+                </span>
+              ),
+            )}
+      </code>
+    </pre>
+  );
+}
+
+/** Heading sizes tuned to Discord's chat headings (h1 > h2 > h3). */
+const HEADING_CLASS: Record<1 | 2 | 3, string> = {
+  1: 'my-1 block text-2xl font-bold leading-tight text-header',
+  2: 'my-1 block text-xl font-bold leading-tight text-header',
+  3: 'my-1 block text-base font-bold leading-tight text-header',
+};
+
 function renderNodes(nodes: readonly MdNode[], ctx: Ctx): ReactNode {
   return nodes.map((node, i) => <Fragment key={i}>{renderNode(node, ctx)}</Fragment>);
 }
@@ -78,6 +128,8 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       return <strong className="font-semibold">{renderNodes(node.children, ctx)}</strong>;
     case 'italic':
       return <em>{renderNodes(node.children, ctx)}</em>;
+    case 'underline':
+      return <u>{renderNodes(node.children, ctx)}</u>;
     case 'strike':
       return <s>{renderNodes(node.children, ctx)}</s>;
     case 'spoiler':
@@ -89,10 +141,32 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
         </code>
       );
     case 'codeblock':
+      return <CodeBlock value={node.value} lang={node.lang} />;
+    case 'heading': {
+      const Tag = `h${node.level}` as 'h1' | 'h2' | 'h3';
       return (
-        <pre className="my-1 overflow-x-auto rounded-md bg-rail p-2 font-mono text-[0.85em] text-norm">
-          <code>{node.value}</code>
-        </pre>
+        <Tag className={HEADING_CLASS[node.level]}>{renderNodes(node.children, ctx)}</Tag>
+      );
+    }
+    case 'list': {
+      const items = node.items.map((item, i) => (
+        <li key={i}>{renderNodes(item, ctx)}</li>
+      ));
+      const cls = `my-0.5 list-outside pl-6 ${node.ordered ? 'list-decimal' : 'list-disc'}`;
+      if (node.ordered) {
+        return (
+          <ol start={node.start} className={cls}>
+            {items}
+          </ol>
+        );
+      }
+      return <ul className={cls}>{items}</ul>;
+    }
+    case 'blockquote':
+      return (
+        <blockquote className="my-0.5 border-l-4 border-faint/50 pl-3">
+          {renderNodes(node.children, ctx)}
+        </blockquote>
       );
     case 'link': {
       const href = lienSur(node.href);
@@ -105,6 +179,22 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
           className="text-link hover:underline"
         >
           {node.value}
+        </a>
+      );
+    }
+    case 'masklink': {
+      const href = lienSur(node.href);
+      // Defense in depth: the parser already restricts schemes to http(s).
+      if (href === undefined) return renderNodes(node.children, ctx);
+      return (
+        <a
+          href={href}
+          title={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-link underline decoration-dotted underline-offset-2 hover:decoration-solid"
+        >
+          {renderNodes(node.children, ctx)}
         </a>
       );
     }

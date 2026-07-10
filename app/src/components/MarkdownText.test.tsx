@@ -81,6 +81,139 @@ describe('MarkdownText — mentions', () => {
   });
 });
 
+describe('MarkdownText — headings', () => {
+  it('renders # / ## / ### as h1/h2/h3', () => {
+    render(<MarkdownText text={'# Un\n## Deux\n### Trois'} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Un' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Deux' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Trois' })).toBeInTheDocument();
+  });
+
+  it('renders a known mention pill inside a heading', () => {
+    render(<MarkdownText text="# salut @bob" knownMentions={new Set(['bob'])} />);
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    expect(screen.getByText('@bob').className).toContain('bg-blurple');
+  });
+
+  it('keeps a hash without space as plain text', () => {
+    render(<MarkdownText text="#pas-titre" />);
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    expect(screen.getByText('#pas-titre')).toBeInTheDocument();
+  });
+});
+
+describe('MarkdownText — lists', () => {
+  it('renders an unordered list as ul/li', () => {
+    render(<MarkdownText text={'- un\n- deux'} />);
+    const list = screen.getByRole('list');
+    expect(list.tagName).toBe('UL');
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('renders an ordered list with its start number', () => {
+    render(<MarkdownText text={'3. a\n4. b'} />);
+    const list = screen.getByRole('list');
+    expect(list.tagName).toBe('OL');
+    expect(list).toHaveAttribute('start', '3');
+  });
+
+  it('renders one nested list level', () => {
+    render(<MarkdownText text={'- a\n - a1\n- b'} />);
+    const lists = screen.getAllByRole('list');
+    expect(lists).toHaveLength(2);
+    const outer = lists[0] as HTMLElement;
+    const inner = lists[1] as HTMLElement;
+    expect(outer.contains(inner)).toBe(true);
+  });
+
+  it('renders a custom emoji inside a list item', async () => {
+    render(<MarkdownText text="- :parrot:" emojis={new Map([['parrot', 'racine']])} />);
+    expect(await screen.findByAltText(':parrot:')).toBeInTheDocument();
+    expect(screen.getByRole('listitem')).toBeInTheDocument();
+  });
+});
+
+describe('MarkdownText — blockquotes', () => {
+  it('renders > as a blockquote element', () => {
+    const { container } = render(<MarkdownText text="> cité" />);
+    const quote = container.querySelector('blockquote');
+    expect(quote).not.toBeNull();
+    expect(quote).toHaveTextContent('cité');
+  });
+
+  it('renders >>> with the whole remainder inside', () => {
+    const { container } = render(<MarkdownText text={'>>> a\nb'} />);
+    const quote = container.querySelector('blockquote');
+    expect(quote).toHaveTextContent('a');
+    expect(quote).toHaveTextContent('b');
+  });
+});
+
+describe('MarkdownText — underline', () => {
+  it('renders __…__ as <u>', () => {
+    render(<MarkdownText text="__sous__" />);
+    expect(screen.getByText('sous').tagName).toBe('U');
+  });
+
+  it('renders bold nested in underline', () => {
+    render(<MarkdownText text="__a **b**__" />);
+    expect(screen.getByText('b').tagName).toBe('STRONG');
+    expect(screen.getByText('b').closest('u')).not.toBeNull();
+  });
+});
+
+describe('MarkdownText — masked links', () => {
+  it('renders the label with the real URL in href and title', () => {
+    render(<MarkdownText text="[docs](https://ex.fr/doc)" />);
+    const lien = screen.getByRole('link', { name: /docs/ });
+    expect(lien).toHaveAttribute('href', 'https://ex.fr/doc');
+    expect(lien).toHaveAttribute('title', 'https://ex.fr/doc');
+    expect(lien).toHaveAttribute('target', '_blank');
+    expect(lien).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('styles masked links distinctly from auto-links', () => {
+    render(<MarkdownText text="[docs](https://ex.fr) et https://autre.fr" />);
+    const masque = screen.getByRole('link', { name: /docs/ });
+    const auto = screen.getByRole('link', { name: 'https://autre.fr' });
+    expect(masque.className).toContain('decoration-dotted');
+    expect(auto.className).not.toContain('decoration-dotted');
+  });
+
+  it('never renders a link for a non-http(s) scheme', () => {
+    render(<MarkdownText text="[x](javascript:alert(1))" />);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+});
+
+describe('MarkdownText — highlighted code blocks', () => {
+  it('colors keywords, numbers, strings and comments via themed classes', () => {
+    render(<MarkdownText text={'```js\nconst x = 1; // hi\nconst s = "a";\n```'} />);
+    const keyword = screen.getAllByText('const')[0] as HTMLElement;
+    expect(keyword.tagName).toBe('SPAN');
+    expect(keyword.className).toContain('text-blurple');
+    expect((screen.getByText('1') as HTMLElement).className).toContain('text-yellow');
+    expect((screen.getByText('// hi') as HTMLElement).className).toContain('text-faint');
+    expect((screen.getByText('"a"') as HTMLElement).className).toContain('text-green');
+  });
+
+  it('renders unknown languages as plain text without token spans', () => {
+    const { container } = render(
+      <MarkdownText text={'```zorglang\nconst notColored\n```'} />,
+    );
+    const code = container.querySelector('pre code');
+    expect(code).toHaveTextContent('const notColored');
+    expect(code?.querySelector('span')).toBeNull();
+  });
+
+  it('renders untagged blocks as plain text', () => {
+    const { container } = render(<MarkdownText text={'```\nplain\n```'} />);
+    const code = container.querySelector('pre code');
+    expect(code).toHaveTextContent('plain');
+    expect(code?.querySelector('span')).toBeNull();
+  });
+});
+
 describe('MarkdownText — émojis custom', () => {
   it('rend l’émoji en image quand le serveur le connaît', async () => {
     render(<MarkdownText text=":parrot:" emojis={new Map([['parrot', 'racine']])} />);
