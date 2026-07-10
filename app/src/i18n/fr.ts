@@ -566,4 +566,15 @@ export const fr = {
     loadFailed: 'Échec du chargement',
     actionFailed: 'Action impossible',
   },
+  contextMenu: {
+    copyText: 'Copier le texte',
+    copyMessageId: 'Copier l’ID du message',
+    copyUserId: 'Copier l’ID utilisateur',
+    copyChannelId: 'Copier l’ID du salon',
+    copyServerId: 'Copier l’ID du serveur',
+    mention: 'Mentionner {name}',
+    viewProfile: 'Voir le profil',
+    markAsRead: 'Marquer comme lu',
+    editChannel: 'Modifier le salon',
+  },
 } as const;

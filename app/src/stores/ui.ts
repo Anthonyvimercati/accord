@@ -203,6 +203,12 @@ interface UiState {
   jump: JumpRequest | null;
   /** Carte de profil ouverte (clic sur un pseudo/avatar), ou `null`. */
   profile: CibleProfil | null;
+  /**
+   * Mention à insérer dans le composeur actif (menu contextuel « Mentionner »
+   * sur un message ou un membre) ; `nonce` rejoue l'insertion même pour un
+   * nom identique. Consommée par `MessageInput` puis remise à `null`.
+   */
+  mentionInsert: { name: string; nonce: number } | null;
   toasts: Toast[];
   lang: Lang;
   theme: Theme;
@@ -240,6 +246,10 @@ interface UiState {
   /** Ouvre la carte de profil d'un pair, ancrée près du clic. */
   openProfile: (pubkey: string, ancre: AncrePopover, groupId?: string | null) => void;
   closeProfile: () => void;
+  /** Demande l'insertion de `@name` dans le composeur actif (voir `mentionInsert`). */
+  requestMentionInsert: (name: string) => void;
+  /** Consomme la demande courante (traitée par `MessageInput`). */
+  clearMentionInsert: () => void;
   toast: (kind: Toast['kind'], text: string) => void;
   dismissToast: (id: number) => void;
   setLang: (lang: Lang) => void;
@@ -269,6 +279,7 @@ export const useUi = create<UiState>((set) => {
     modal: null,
     jump: null,
     profile: null,
+    mentionInsert: null,
     toasts: [],
     lang: initialLang(),
     theme,
@@ -297,6 +308,9 @@ export const useUi = create<UiState>((set) => {
     openProfile: (pubkey, ancre, groupId = null) =>
       set({ profile: { pubkey, ancre, groupId } }),
     closeProfile: () => set({ profile: null }),
+    requestMentionInsert: (name) =>
+      set((s) => ({ mentionInsert: { name, nonce: (s.mentionInsert?.nonce ?? 0) + 1 } })),
+    clearMentionInsert: () => set({ mentionInsert: null }),
 
     toast: (kind, text) => {
       const id = nextToastId++;

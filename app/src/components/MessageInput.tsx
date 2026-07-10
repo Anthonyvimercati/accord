@@ -6,7 +6,7 @@
  * « publication… »), puis le message part avec ses références.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { FileAttachment } from '../lib/api';
 import {
@@ -66,6 +66,8 @@ export function MessageInput({
 }: MessageInputProps) {
   const t = useT();
   const lang = useUi((s) => s.lang);
+  const mentionInsert = useUi((s) => s.mentionInsert);
+  const clearMentionInsert = useUi((s) => s.clearMentionInsert);
   /** Signale la frappe au pair/salon (throttlé, best effort). */
   const notifyTyping = useTypingEmitter(typingTarget);
   const [text, setText] = useState('');
@@ -118,6 +120,27 @@ export function MessageInput({
       });
     }
   };
+
+  // Mention demandée depuis un menu contextuel (message, membre) : réutilise
+  // `insertMention` en simulant un jeton vide en fin de texte, avec un espace
+  // séparateur si le texte courant n'en finit pas déjà un.
+  useEffect(() => {
+    if (mentionInsert === null) return;
+    const candidate: MentionCandidate = {
+      id: `context:${mentionInsert.name}`,
+      value: mentionInsert.name,
+      label: mentionInsert.name,
+      kind: 'member',
+    };
+    setText((prev) => {
+      const base = prev === '' || /\s$/.test(prev) ? prev : `${prev} `;
+      const active: ActiveMention = { start: base.length, query: '' };
+      return insertMention(base, active, candidate).text;
+    });
+    clearMentionInsert();
+    const el = textareaRef.current;
+    requestAnimationFrame(() => el?.focus());
+  }, [mentionInsert, clearMentionInsert]);
 
   /** Insère le jeton d'un émoji choisi à la position du curseur. */
   const insererEmoji = (pick: EmojiPick): void => {

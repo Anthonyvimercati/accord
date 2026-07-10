@@ -563,4 +563,15 @@ export const en: Dict = {
     loadFailed: 'Failed to load',
     actionFailed: 'Action failed',
   },
+  contextMenu: {
+    copyText: 'Copy text',
+    copyMessageId: 'Copy message ID',
+    copyUserId: 'Copy user ID',
+    copyChannelId: 'Copy channel ID',
+    copyServerId: 'Copy server ID',
+    mention: 'Mention {name}',
+    viewProfile: 'View profile',
+    markAsRead: 'Mark as read',
+    editChannel: 'Edit channel',
+  },
 };

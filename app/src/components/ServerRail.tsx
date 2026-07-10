@@ -5,9 +5,13 @@
 
 import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
+import { copyToClipboard } from '../lib/clipboard';
+import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
 import { useGroups, sortChannels } from '../stores/groups';
+import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
+import { CopyMenuIcon, GearMenuIcon, LeaveMenuIcon } from './ContextMenu';
 import { lireFichier } from '../lib/files';
 import { initials } from '../lib/format';
 import type { GroupStateJson } from '../lib/api';
@@ -102,6 +106,7 @@ function RailButton({
   accent,
   badge,
   onClick,
+  onContextMenu,
   children,
 }: {
   label: string;
@@ -109,6 +114,7 @@ function RailButton({
   accent?: boolean;
   badge?: RailBadgeInfo;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
 }) {
   return (
@@ -124,6 +130,7 @@ function RailButton({
         aria-label={label}
         title={label}
         onClick={onClick}
+        onContextMenu={onContextMenu}
         className={`flex h-12 w-12 items-center justify-center overflow-hidden font-medium transition-all duration-200 ${
           active
             ? 'rounded-server bg-blurple text-white'
@@ -150,6 +157,8 @@ export function ServerRail() {
   const lastChannelByServer = useUi((s) => s.lastChannelByServer);
   const lastDmPeer = useUi((s) => s.lastDmPeer);
   const contacts = useFriends((s) => s.contacts);
+  const self = useSession((s) => s.self);
+  const toast = useUi((s) => s.toast);
 
   const isHome = view.kind === 'friends' || view.kind === 'dm';
 
@@ -211,6 +220,61 @@ export function ServerRail() {
         // serveur remontent ici (compteur `groups.list.mentions`, par
         // serveur) — le détail par salon reste dans la barre latérale.
         const badge: RailBadgeInfo = { count: groupMentions[id] ?? 0, mention: true };
+
+        /**
+         * Items du menu contextuel du serveur : copie d'identifiant,
+         * paramètres (mêmes actions que l'icône ⚙️ du salon) et départ — omis
+         * si le fondateur ne peut pas encore quitter (règle du contrat :
+         * d'autres membres restent). Pas de « marquer comme lu » global :
+         * aucune action équivalente n'existe côté store (seulement par
+         * salon, une fois ouvert).
+         */
+        const buildServerItems = (): ContextMenuItem[] => {
+          const groupState = states[id];
+          const isFounder = self !== null && groupState?.founder === self.pubkey;
+          const founderBlocked = isFounder && (groupState?.members.length ?? 0) > 1;
+          const items: ContextMenuItem[] = [
+            {
+              label: t.contextMenu.copyServerId,
+              icon: <CopyMenuIcon />,
+              onClick: () =>
+                copyToClipboard(
+                  id,
+                  () => toast('info', t.app.copied),
+                  () => toast('error', t.errors.actionFailed),
+                ),
+            },
+            {
+              label: t.serveur.settingsTitle,
+              icon: <GearMenuIcon />,
+              onClick: () => useUi.getState().openModal({ kind: 'serverSettings', groupId: id }),
+            },
+          ];
+          if (!founderBlocked) {
+            items.push({
+              label: t.serveur.leave,
+              icon: <LeaveMenuIcon />,
+              danger: true,
+              separatorBefore: true,
+              onClick: () => {
+                if (!window.confirm(interpolate(t.serveur.leaveConfirm, { name }))) return;
+                useGroups
+                  .getState()
+                  .leave(id)
+                  .then(() => {
+                    toast('info', t.serveur.left);
+                    const current = useUi.getState().view;
+                    if (current.kind === 'group' && current.groupId === id) {
+                      setView({ kind: 'friends' });
+                    }
+                  })
+                  .catch(() => toast('error', t.errors.actionFailed));
+              },
+            });
+          }
+          return items;
+        };
+
         return (
           <RailButton
             key={id}
@@ -224,6 +288,10 @@ export function ServerRail() {
                 channelId: channelToRestore(states[id], lastChannelByServer[id]),
               })
             }
+            onContextMenu={(e) => {
+              e.preventDefault();
+              useContextMenu.getState().openMenu(e.clientX, e.clientY, buildServerItems());
+            }}
           >
             <ServerIcon icon={states[id]?.icon ?? null} name={name} />
           </RailButton>

@@ -14,6 +14,7 @@ import {
 } from '../lib/notifications';
 import { playNotificationSound } from '../lib/notificationSound';
 import { usePushToTalk } from '../hooks/usePushToTalk';
+import { isEditableTarget } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { useGroups, channelKey } from '../stores/groups';
@@ -22,6 +23,7 @@ import { useTyping, dmTypingKey, groupTypingKey } from '../stores/typing';
 import { useUi, useT, type View } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { DmView, GroupView } from './ChatView';
+import { ContextMenu } from './ContextMenu';
 import { FriendsView } from './FriendsView';
 import { Modals } from './Modals';
 import { ProfilePopover } from './ProfilePopover';
@@ -106,6 +108,25 @@ function useNotificationNavigation() {
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
+  }, []);
+}
+
+/**
+ * Supprime le menu contextuel natif du système (« Recharger », hérité de la
+ * vue web sous-jacente) partout sauf dans les champs de saisie, où le
+ * copier/coller natif reste nécessaire. Les menus contextuels maison
+ * (message, utilisateur, salon, serveur) font déjà leur propre
+ * `preventDefault` avant d'ouvrir `ContextMenu` : `e.defaultPrevented` évite
+ * alors tout travail redondant ici.
+ */
+function useSuppressNativeContextMenu(): void {
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent): void => {
+      if (e.defaultPrevented || isEditableTarget(e.target)) return;
+      e.preventDefault();
+    };
+    document.addEventListener('contextmenu', onContextMenu);
+    return () => document.removeEventListener('contextmenu', onContextMenu);
   }, []);
 }
 
@@ -257,6 +278,7 @@ export function AppShell() {
   const syncVoice = useVoice((s) => s.sync);
   useNodeEvents();
   useNotificationNavigation();
+  useSuppressNativeContextMenu();
 
   // Appui-pour-parler global : actif dès qu'un salon vocal est rejoint.
   const onPttError = useCallback(() => toast('error', t.errors.actionFailed), [toast, t]);
@@ -284,6 +306,7 @@ export function AppShell() {
       </main>
       <Modals />
       <ProfilePopover />
+      <ContextMenu />
     </div>
   );
 }

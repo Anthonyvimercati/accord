@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { Contact, SelfProfile } from '../lib/api';
+import { copyToClipboard } from '../lib/clipboard';
 import { formatTimestamp } from '../lib/format';
+import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
 import {
@@ -19,6 +21,7 @@ import { selfDisplayName, useSession } from '../stores/session';
 import { dmTypingKey, groupTypingKey } from '../stores/typing';
 import { useUi, useT, type JumpRequest } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { CopyMenuIcon, EnvelopeMenuIcon, MentionMenuIcon, ProfileMenuIcon } from './ContextMenu';
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
 import { TypingIndicator } from './TypingIndicator';
@@ -308,6 +311,8 @@ function MemberList({ groupId }: { groupId: string }) {
   const self = useSession((s) => s.self);
   const state = useGroups((s) => s.states[groupId]);
   const openProfile = useUi((s) => s.openProfile);
+  const requestMentionInsert = useUi((s) => s.requestMentionInsert);
+  const toast = useUi((s) => s.toast);
   if (!state) return null;
 
   const nameOf = (pubkey: string): string => {
@@ -316,6 +321,55 @@ function MemberList({ groupId }: { groupId: string }) {
       return `${nick ?? selfDisplayName(self)} (${t.app.you})`;
     }
     return nick ?? displayNameOf(contacts, pubkey);
+  };
+
+  /**
+   * Items du menu contextuel d'une entrée de la liste des membres : profil,
+   * mention, MP, copie d'identifiant — même schéma que le menu « utilisateur »
+   * de `MessageList` (avatar/pseudo d'un message).
+   */
+  const buildMemberItems = (pubkey: string, target: HTMLElement): ContextMenuItem[] => {
+    const isSelfMember = self !== null && pubkey === self.pubkey;
+    const contact = contacts.find((c) => c.pubkey === pubkey);
+    const canMessage = !isSelfMember && contact?.state === 'friend';
+    const items: ContextMenuItem[] = [
+      {
+        label: t.contextMenu.viewProfile,
+        icon: <ProfileMenuIcon />,
+        onClick: () => {
+          const r = target.getBoundingClientRect();
+          openProfile(
+            pubkey,
+            { top: r.top, left: r.left, bottom: r.bottom, right: r.right },
+            groupId,
+          );
+        },
+      },
+      {
+        label: interpolate(t.contextMenu.mention, { name: nameOf(pubkey) }),
+        icon: <MentionMenuIcon />,
+        onClick: () => requestMentionInsert(nameOf(pubkey)),
+      },
+    ];
+    if (canMessage) {
+      items.push({
+        label: t.friends.sendDm,
+        icon: <EnvelopeMenuIcon />,
+        onClick: () => useUi.getState().setView({ kind: 'dm', peer: pubkey }),
+      });
+    }
+    items.push({
+      label: t.contextMenu.copyUserId,
+      icon: <CopyMenuIcon />,
+      separatorBefore: true,
+      onClick: () =>
+        copyToClipboard(
+          pubkey,
+          () => toast('info', t.app.copied),
+          () => toast('error', t.errors.actionFailed),
+        ),
+    });
+    return items;
   };
 
   /** Noms des rôles d'un membre, du plus haut au plus bas. */
@@ -354,6 +408,12 @@ function MemberList({ groupId }: { groupId: string }) {
                 { top: r.top, left: r.left, bottom: r.bottom, right: r.right },
                 groupId,
               );
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              useContextMenu
+                .getState()
+                .openMenu(e.clientX, e.clientY, buildMemberItems(member.pubkey, e.currentTarget));
             }}
             className="flex w-full items-center gap-2.5 rounded px-1.5 py-1.5 text-left hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
           >

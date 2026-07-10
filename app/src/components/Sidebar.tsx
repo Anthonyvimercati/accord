@@ -5,12 +5,22 @@
  */
 
 import { useState } from 'react';
+import { interpolate } from '../i18n';
 import type { GroupChannel } from '../lib/api';
+import { copyToClipboard } from '../lib/clipboard';
 import { presenceOf, useFriends } from '../stores/friends';
-import { useGroups, channelsByCategory, hasPerm, PERMISSIONS } from '../stores/groups';
+import {
+  useGroups,
+  channelKey,
+  channelsByCategory,
+  hasPerm,
+  PERMISSIONS,
+} from '../stores/groups';
+import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useUi, useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
+import { CheckMenuIcon, CopyMenuIcon, DeleteMenuIcon, EditMenuIcon } from './ContextMenu';
 import { MentionInbox } from './MentionInbox';
 import { PresenceDot } from './PresenceDot';
 import { SearchBar } from './SearchBar';
@@ -142,18 +152,93 @@ function ChannelRow({
   channel,
   active,
   unread,
+  groupId,
+  canManage,
   onOpen,
 }: {
   channel: GroupChannel;
   active: boolean;
   /** Nombre de messages non lus du salon (absent ou 0 : pas de pastille). */
   unread?: number | undefined;
+  groupId: string;
+  /** Renommage/suppression permis (MANAGE_CHANNELS). */
+  canManage: boolean;
   onOpen: (channel: GroupChannel) => void;
 }) {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+
+  /**
+   * Items du menu contextuel d'un salon : copie d'identifiant, marquage lu
+   * (charge la page récente puis réutilise `markRead`, comme à l'ouverture du
+   * salon) et, si permis, édition (paramètres du serveur) / suppression.
+   */
+  const buildItems = (): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [
+      {
+        label: t.contextMenu.copyChannelId,
+        icon: <CopyMenuIcon />,
+        onClick: () =>
+          copyToClipboard(
+            channel.channel_id,
+            () => toast('info', t.app.copied),
+            () => toast('error', t.errors.actionFailed),
+          ),
+      },
+    ];
+    if (channel.kind !== 'voice' && (unread ?? 0) > 0) {
+      items.push({
+        label: t.contextMenu.markAsRead,
+        icon: <CheckMenuIcon />,
+        onClick: () => {
+          void (async () => {
+            try {
+              await useGroups.getState().refreshHistory(groupId, channel.channel_id);
+              const key = channelKey(groupId, channel.channel_id);
+              const last = (useGroups.getState().messages[key] ?? []).at(-1);
+              if (last !== undefined) {
+                await useGroups.getState().markRead(groupId, channel.channel_id, last.lamport);
+              }
+            } catch {
+              toast('error', t.errors.actionFailed);
+            }
+          })();
+        },
+      });
+    }
+    if (canManage) {
+      items.push({
+        label: t.contextMenu.editChannel,
+        icon: <EditMenuIcon />,
+        separatorBefore: true,
+        onClick: () => useUi.getState().openModal({ kind: 'serverSettings', groupId }),
+      });
+      items.push({
+        label: t.serveur.deleteChannel,
+        icon: <DeleteMenuIcon />,
+        danger: true,
+        onClick: () => {
+          if (!window.confirm(interpolate(t.serveur.deleteChannelConfirm, { name: channel.name }))) {
+            return;
+          }
+          useGroups
+            .getState()
+            .deleteChannel(groupId, channel.channel_id)
+            .catch(() => toast('error', t.errors.actionFailed));
+        },
+      });
+    }
+    return items;
+  };
+
   return (
     <button
       type="button"
       onClick={() => onOpen(channel)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        useContextMenu.getState().openMenu(e.clientX, e.clientY, buildItems());
+      }}
       className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 font-medium ${
         active
           ? 'bg-chat-hover text-header'
@@ -282,6 +367,8 @@ function GroupSidebar({
                 channel={ch}
                 active={activeChannel === ch.channel_id}
                 unread={unread?.[ch.channel_id]}
+                groupId={groupId}
+                canManage={hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)}
                 onOpen={openChannel}
               />
             ))}

@@ -15,7 +15,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { DeliveryState, FileAttachment, MsgBody, Reaction } from '../lib/api';
+import { copyToClipboard } from '../lib/clipboard';
 import { formatDay, formatTimestamp } from '../lib/format';
+import { isEditableTarget, useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
 import { useGroups } from '../stores/groups';
@@ -23,6 +25,17 @@ import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover, type View } from '../stores/ui';
 import { AttachmentRow } from './Attachments';
 import { Avatar } from './Avatar';
+import {
+  CopyMenuIcon,
+  DeleteMenuIcon,
+  EditMenuIcon,
+  EnvelopeMenuIcon,
+  ForwardMenuIcon,
+  MentionMenuIcon,
+  PinMenuIcon,
+  ProfileMenuIcon,
+  ReplyMenuIcon,
+} from './ContextMenu';
 import { ForwardPicker } from './ForwardPicker';
 import { MarkdownText } from './MarkdownText';
 import { MessageActions } from './MessageActions';
@@ -269,6 +282,7 @@ export function MessageList({
   const lang = useUi((s) => s.lang);
   const openProfile = useUi((s) => s.openProfile);
   const requestJump = useUi((s) => s.requestJump);
+  const requestMentionInsert = useUi((s) => s.requestMentionInsert);
   const toast = useUi((s) => s.toast);
   const view = useUi((s) => s.view);
   const contacts = useFriends((s) => s.contacts);
@@ -297,18 +311,20 @@ export function MessageList({
   /** Message en cours de transfert (null : aucun). */
   const [forwarding, setForwarding] = useState<DisplayMessage | null>(null);
 
+  /** Copie une valeur puis confirme (`successText`) ou signale l'échec. */
+  const copyWithToast = (value: string, successText: string): void => {
+    copyToClipboard(
+      value,
+      () => toast('info', successText),
+      () => toast('error', t.errors.actionFailed),
+    );
+  };
+
   /** Copie le lien `accord:` du message et confirme par un toast. */
   const copyLink = (message: DisplayMessage): void => {
     const link = messageLink(view, message.msg_id);
     if (link === null) return;
-    try {
-      void navigator.clipboard
-        .writeText(link)
-        .then(() => toast('info', t.dm.linkCopied))
-        .catch(() => toast('error', t.errors.actionFailed));
-    } catch {
-      // Presse-papiers indisponible (environnement restreint) : ignoré.
-    }
+    copyWithToast(link, t.dm.linkCopied);
   };
   // Accusés de lecture : uniquement en conversation directe (jamais en salon).
   const dmPeer = groupId === null && view.kind === 'dm' ? view.peer : null;
@@ -424,6 +440,125 @@ export function MessageList({
     openProfile(author, ancre, groupId);
   };
 
+  /**
+   * Items du menu contextuel « utilisateur » (avatar, pseudo, entrée de la
+   * liste des membres) : profil, mention, MP, copie d'identifiant — réutilise
+   * `ouvrirProfil`, le pont de mention (`requestMentionInsert`) et l'action
+   * d'ouverture de MP déjà existante (`ui.setView`).
+   */
+  const buildUserItems = (author: string, target: HTMLElement): ContextMenuItem[] => {
+    const isSelfAuthor = self !== null && author === self.pubkey;
+    const contact = contacts.find((c) => c.pubkey === author);
+    const canMessage = !isSelfAuthor && contact?.state === 'friend';
+    const items: ContextMenuItem[] = [
+      {
+        label: t.contextMenu.viewProfile,
+        icon: <ProfileMenuIcon />,
+        onClick: () => ouvrirProfil(author, target),
+      },
+      {
+        label: interpolate(t.contextMenu.mention, { name: nameOf(author) }),
+        icon: <MentionMenuIcon />,
+        onClick: () => requestMentionInsert(nameOf(author)),
+      },
+    ];
+    if (canMessage) {
+      items.push({
+        label: t.friends.sendDm,
+        icon: <EnvelopeMenuIcon />,
+        onClick: () => useUi.getState().setView({ kind: 'dm', peer: author }),
+      });
+    }
+    items.push({
+      label: t.contextMenu.copyUserId,
+      icon: <CopyMenuIcon />,
+      separatorBefore: true,
+      onClick: () => copyWithToast(author, t.app.copied),
+    });
+    return items;
+  };
+
+  /**
+   * Items du menu contextuel « message » : copie, mention de l'auteur, puis
+   * réponse/transfert/épingle/édition/suppression — chacun réutilisant une
+   * action déjà câblée par `actions` (ou omis si l'action n'existe pas ou
+   * n'est pas permise), à l'image de la barre d'actions au survol.
+   */
+  const buildMessageItems = (message: DisplayMessage, isOwn: boolean, pinned: boolean): ContextMenuItem[] => {
+    const text = !message.deleted ? displayText(message) : null;
+    const canEdit = actions !== undefined && !message.deleted && isOwn;
+    const canDelete =
+      actions !== undefined &&
+      !message.deleted &&
+      (isOwn || actions.canModerate === true);
+    const items: ContextMenuItem[] = [];
+    if (text !== null && text !== '') {
+      items.push({
+        label: t.contextMenu.copyText,
+        icon: <CopyMenuIcon />,
+        onClick: () => copyWithToast(text, t.app.copied),
+      });
+    }
+    items.push({
+      label: t.contextMenu.copyMessageId,
+      icon: <CopyMenuIcon />,
+      onClick: () => copyWithToast(message.msg_id, t.app.copied),
+    });
+    if (actions !== undefined && !message.deleted) {
+      items.push({
+        label: interpolate(t.contextMenu.mention, { name: nameOf(message.author) }),
+        icon: <MentionMenuIcon />,
+        separatorBefore: true,
+        onClick: () => requestMentionInsert(nameOf(message.author)),
+      });
+    }
+    const flow: ContextMenuItem[] = [];
+    if (!message.deleted && actions?.onReply !== undefined) {
+      flow.push({
+        label: t.dm.reply,
+        icon: <ReplyMenuIcon />,
+        onClick: () => actions.onReply?.(message),
+      });
+    }
+    if (!message.deleted && actions !== undefined) {
+      flow.push({
+        label: t.dm.forward,
+        icon: <ForwardMenuIcon />,
+        onClick: () => setForwarding(message),
+      });
+    }
+    if (!message.deleted && actions?.onTogglePin !== undefined) {
+      flow.push({
+        label: pinned ? t.serveur.unpin : t.serveur.pin,
+        icon: <PinMenuIcon />,
+        onClick: () => actions.onTogglePin?.(message, pinned),
+      });
+    }
+    flow.forEach((item, i) => items.push(i === 0 ? { ...item, separatorBefore: true } : item));
+
+    const management: ContextMenuItem[] = [];
+    if (canEdit) {
+      management.push({
+        label: t.dm.edit,
+        icon: <EditMenuIcon />,
+        onClick: () => setEditingId(message.msg_id),
+      });
+    }
+    if (canDelete) {
+      management.push({
+        label: t.dm.delete,
+        icon: <DeleteMenuIcon />,
+        danger: true,
+        onClick: () => actions?.onDelete(message),
+      });
+    }
+    management.forEach((item, i) =>
+      items.push(i === 0 ? { ...item, separatorBefore: true } : item),
+    );
+
+    return items;
+  };
+
   return (
     <>
     <div
@@ -479,6 +614,15 @@ export function MessageList({
                   ? 'py-[var(--message-pad-y-grouped)]'
                   : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
               } ${highlightId === m.msg_id ? 'msg-flash' : ''}`}
+              onContextMenu={(e) => {
+                // Édition en place (textarea) : laisse le clic droit natif
+                // (copier/coller) plutôt que d'ouvrir le menu du message.
+                if (isEditableTarget(e.target)) return;
+                e.preventDefault();
+                useContextMenu
+                  .getState()
+                  .openMenu(e.clientX, e.clientY, buildMessageItems(m, isOwn, pinned));
+              }}
             >
               {actionable && (
                 <MessageActions
@@ -510,6 +654,13 @@ export function MessageList({
                   type="button"
                   aria-label={interpolate(t.profil.openProfile, { name })}
                   onClick={(e) => ouvrirProfil(m.author, e.currentTarget)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    useContextMenu
+                      .getState()
+                      .openMenu(e.clientX, e.clientY, buildUserItems(m.author, e.currentTarget));
+                  }}
                   className="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
                 >
                   <Avatar
@@ -539,6 +690,13 @@ export function MessageList({
                       <button
                         type="button"
                         onClick={(e) => ouvrirProfil(m.author, e.currentTarget)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          useContextMenu
+                            .getState()
+                            .openMenu(e.clientX, e.clientY, buildUserItems(m.author, e.currentTarget));
+                        }}
                         className="font-medium text-header hover:underline focus-visible:underline focus-visible:outline-none"
                         style={nameColor !== null ? { color: nameColor } : undefined}
                       >
