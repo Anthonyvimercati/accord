@@ -62,3 +62,9 @@ pub const DHT_MAX_EXPIRY_S: u32 = 7 * 24 * 3600;
 
 /// Adresses maximales portées par un NodeInfo.
 pub const MAX_NODE_ADDRS: usize = 4;
+
+/// Candidats d'adresse maximum portés par une demande ou une réponse de
+/// poinçonnage coordonné (SPEC §11.2). Borne stricte anti-abus : un pair,
+/// même authentifié, ne peut pas faire émettre des HELLO vers plus de
+/// 8 cibles par échange.
+pub const MAX_PUNCH_CANDIDATES: usize = 8;

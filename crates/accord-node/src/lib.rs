@@ -22,7 +22,7 @@ use accord_api::{ApiServer, AuthToken, NotificationHub};
 use accord_core::db::Db;
 use accord_dht::{DhtConfig, KademliaNode};
 use accord_proto::types::{node_flags, NodeInfo, WireAddr};
-use accord_transport::{Endpoint, EndpointConfig, UdpDatagram};
+use accord_transport::{DatagramSocket, Endpoint, EndpointConfig, UdpDatagram};
 
 pub use error::NodeError;
 pub use identity::{Paths, Unlocked};
@@ -203,8 +203,13 @@ pub async fn run_with_maintenance(
         node::network::read_stored_port(&db)?
     };
 
-    // Transport chiffré sur UDP réel.
-    let socket = Arc::new(bind_p2p(config.p2p_addr.ip(), preferred_port).await?);
+    // Transport chiffré sur UDP réel, multiplexé avec les liens TCP de repli
+    // (SPEC §11.3) : l'endpoint voit un unique socket datagramme ; un
+    // datagramme vers une adresse couverte par un lien TCP poinçonné part
+    // encadré sur le flux, tout le reste part en UDP.
+    let udp = Arc::new(bind_p2p(config.p2p_addr.ip(), preferred_port).await?);
+    let p2p_port = udp.local_addr().port();
+    let (socket, tcp_links) = accord_transport::MuxSocket::new(udp);
     let clock = Arc::new(accord_transport::SystemClock);
     let ep_config = EndpointConfig {
         pow_bits: config.pow_bits,
@@ -295,6 +300,44 @@ pub async fn run_with_maintenance(
         hub,
     )
     .await?;
+    // Repli TCP (SPEC §11.3) : registre des liens câblé au runtime, écouteur
+    // sur le MÊME port que l'UDP (partagé avec les `connect()` de poinçonnage
+    // via SO_REUSEADDR/SO_REUSEPORT). Best-effort : un échec de liaison ne
+    // désactive que les liens TCP entrants, le poinçonnage sortant demeure.
+    runtime.set_tcp_links(Arc::clone(&tcp_links));
+    match bind_tcp_listener(config.p2p_addr.ip(), p2p_port) {
+        Ok(listener) => {
+            let links = Arc::clone(&tcp_links);
+            let mut stop = runtime.stop_signal();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        res = listener.accept() => match res {
+                            Ok((stream, _)) => {
+                                // Plafond de liens atteint ou pair déjà parti :
+                                // la connexion est simplement refusée.
+                                if let Err(e) = links.adopt(stream) {
+                                    tracing::debug!(erreur = %e, "tcp : connexion entrante refusée");
+                                }
+                            }
+                            // Erreur d'accept transitoire (descripteurs épuisés…) :
+                            // souffle avant de retenter, sans boucler à vide.
+                            Err(_) => {
+                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            }
+                        },
+                        res = stop.changed() => {
+                            if res.is_err() || *stop.borrow() {
+                                return;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        Err(e) => tracing::debug!(erreur = %e, "tcp : écouteur de repli indisponible"),
+    }
+
     runtime.spawn(events, outbound_rx);
 
     // Connexion facile : mapping de port automatique (UPnP-IGD puis NAT-PMP/PCP)
@@ -371,6 +414,23 @@ fn candidate_ports(preferred: Option<u16>) -> Vec<u16> {
     }
     ports.push(0);
     ports
+}
+
+/// Lie l'écouteur TCP de repli sur `ip:port` avec réutilisation d'adresse et
+/// de port : le poinçonnage TCP sortant ([`accord_transport::tcp::punch_connect`])
+/// se lie au même port local, prérequis de l'ouverture simultanée (SPEC §11.3).
+fn bind_tcp_listener(ip: IpAddr, port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    let addr = SocketAddr::new(ip, port);
+    let socket = if addr.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    socket.set_reuseaddr(true)?;
+    #[cfg(unix)]
+    socket.set_reuseport(true)?;
+    socket.bind(addr)?;
+    socket.listen(64)
 }
 
 /// Lie le socket UDP P2P en essayant les ports candidats dans l'ordre. Le

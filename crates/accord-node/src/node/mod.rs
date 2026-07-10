@@ -57,6 +57,7 @@ pub(crate) mod discovery;
 mod dm;
 mod files;
 mod groups;
+pub(crate) mod holepunch;
 mod mentions;
 pub(crate) mod nat;
 pub(crate) mod network;

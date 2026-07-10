@@ -154,9 +154,44 @@ fn control_msgs_roundtrip() {
         ControlMsg::ObserveAddrResp {
             addr: WireAddr("10.0.0.1:9".parse().unwrap()),
         },
+        ControlMsg::PunchRequest {
+            token: 5,
+            candidates: vec![
+                WireAddr("203.0.113.7:48016".parse().unwrap()),
+                WireAddr("[2001:db8::1]:48016".parse().unwrap()),
+            ],
+        },
+        ControlMsg::PunchResponse {
+            token: 5,
+            candidates: vec![],
+        },
     ] {
         roundtrip_channel(&ChannelMsg::Control(m));
     }
+}
+
+#[test]
+fn punch_candidates_bornes_au_decodage() {
+    // Un pair malveillant qui force plus de MAX_PUNCH_CANDIDATES candidats doit
+    // être rejeté au décodage (anti-arrosage : SPEC §11.2).
+    let flood: Vec<WireAddr> = (0..limits::MAX_PUNCH_CANDIDATES + 1)
+        .map(|i| WireAddr(format!("203.0.113.7:{}", 1000 + i).parse().unwrap()))
+        .collect();
+    let bytes = ChannelMsg::Control(ControlMsg::PunchRequest {
+        token: 1,
+        candidates: flood.clone(),
+    })
+    .to_bytes();
+    assert!(
+        ChannelMsg::from_bytes(&bytes).is_err(),
+        "au-delà de la borne : décodage refusé"
+    );
+    // À la borne exacte : accepté.
+    let max: Vec<WireAddr> = flood[..limits::MAX_PUNCH_CANDIDATES].to_vec();
+    roundtrip_channel(&ChannelMsg::Control(ControlMsg::PunchResponse {
+        token: 2,
+        candidates: max,
+    }));
 }
 
 #[test]

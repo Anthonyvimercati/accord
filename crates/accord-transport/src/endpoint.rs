@@ -97,6 +97,26 @@ pub enum TransportEvent {
         /// Notre adresse vue par le pair.
         observed: SocketAddr,
     },
+    /// Un pair demande un poinçonnage coordonné vers ses candidats
+    /// (SPEC §11.2). La POLITIQUE (amitié requise, bornage, cadence, réponse)
+    /// appartient aux couches hautes : le transport se contente de remonter.
+    PunchRequested {
+        /// Clé publique Ed25519 du demandeur (session authentifiée).
+        static_pub: [u8; 32],
+        /// Jeton à répéter dans la réponse.
+        token: u64,
+        /// Candidats d'adresse du demandeur (déjà bornés au décodage).
+        candidates: Vec<SocketAddr>,
+    },
+    /// Un pair répond à notre demande de poinçonnage avec ses candidats.
+    PunchResponded {
+        /// Clé publique Ed25519 du répondeur (session authentifiée).
+        static_pub: [u8; 32],
+        /// Jeton de la demande d'origine (corrélation côté appelant).
+        token: u64,
+        /// Candidats d'adresse du répondeur (déjà bornés au décodage).
+        candidates: Vec<SocketAddr>,
+    },
     /// Session fermée (CLOSE reçu ou expiration).
     Disconnected {
         /// Adresse du pair.
@@ -515,9 +535,11 @@ impl Endpoint {
         ordered.sort_by_key(|c| c.kind);
 
         for _ in 0..PUNCH_ATTEMPTS {
-            // Première session gagnante : dès qu'un lien avec le pair attendu
-            // existe, on cesse d'émettre (pas de HELLO superflu).
-            if self.has_session_with(&expected_static) {
+            // Première session DIRECTE gagnante : dès qu'un lien direct avec le
+            // pair attendu existe, on cesse d'émettre (pas de HELLO superflu).
+            // Une session seulement RELAYÉE ne suffit pas : le poinçonnage sert
+            // précisément à la remplacer par un lien direct (SPEC §11.3).
+            if self.has_direct_session_with(&expected_static) {
                 return Ok(());
             }
             for cand in &ordered {
@@ -583,13 +605,15 @@ impl Endpoint {
         Ok(())
     }
 
-    /// Vrai si une session établie existe avec le pair d'identité `static_pub`
-    /// (comparaison temps constant, cohérente avec le reste de l'endpoint).
-    fn has_session_with(&self, static_pub: &[u8; 32]) -> bool {
+    /// Vrai si une session établie DIRECTE (non relayée) existe avec le pair
+    /// d'identité `static_pub` (comparaison temps constant, cohérente avec le
+    /// reste de l'endpoint). Publique : le runtime s'en sert pour décider s'il
+    /// faut tenter un poinçonnage d'upgrade quand seul un relais est en place.
+    pub fn has_direct_session_with(&self, static_pub: &[u8; 32]) -> bool {
         let st = self.state.lock().expect("state mutex");
         st.sessions_by_id
             .values()
-            .any(|s| bool::from(s.peer_static.ct_eq(static_pub)))
+            .any(|s| s.relay_circuit.is_none() && bool::from(s.peer_static.ct_eq(static_pub)))
     }
 
     async fn recv_loop(self: Arc<Self>) {
@@ -984,6 +1008,24 @@ impl Endpoint {
                     let _ = self
                         .events
                         .send(TransportEvent::ObservedAddr { observed: addr.0 });
+                    return Ok(());
+                }
+                ControlMsg::PunchRequest { token, candidates } => {
+                    // Remontée brute : la politique (amitié, cadence, filtrage
+                    // des candidats, réponse) vit dans le runtime applicatif.
+                    let _ = self.events.send(TransportEvent::PunchRequested {
+                        static_pub: peer_static,
+                        token: *token,
+                        candidates: candidates.iter().map(|a| a.0).collect(),
+                    });
+                    return Ok(());
+                }
+                ControlMsg::PunchResponse { token, candidates } => {
+                    let _ = self.events.send(TransportEvent::PunchResponded {
+                        static_pub: peer_static,
+                        token: *token,
+                        candidates: candidates.iter().map(|a| a.0).collect(),
+                    });
                     return Ok(());
                 }
             }

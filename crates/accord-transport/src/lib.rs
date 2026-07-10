@@ -10,6 +10,8 @@
 //! - [`ratelimit`] : token buckets par IP source ;
 //! - [`relay`] : circuits de relais opaques avec plafond de bande passante ;
 //! - [`nat`] : agrégation de candidats et détection de NAT symétrique ;
+//! - [`tcp`] : repli TCP (datagrammes encadrés, poinçonnage par ouverture
+//!   simultanée, multiplexage transparent avec le socket UDP) ;
 //! - [`clock`] : horloge abstraite (réelle / manuelle pour les tests).
 
 #![forbid(unsafe_code)]
@@ -23,9 +25,11 @@ pub mod nat;
 pub mod ratelimit;
 pub mod relay;
 pub mod socket;
+pub mod tcp;
 
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use endpoint::{Endpoint, EndpointConfig, TransportEvent};
 pub use error::TransportError;
 pub use ratelimit::RateLimiter;
 pub use socket::{DatagramSocket, UdpDatagram};
+pub use tcp::{MuxSocket, TcpLinks};

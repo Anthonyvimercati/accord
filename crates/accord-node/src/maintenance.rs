@@ -483,6 +483,12 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
                 if !rt_arc.is_peer_live(&friend) {
                     rt_arc.ensure_relay_to(friend).await;
                 }
+                // Upgrade relais → direct (SPEC §11.2) : une fois un lien en
+                // place (typiquement relayé), demande un poinçonnage coordonné
+                // avec échange de candidats FRAIS et salves synchronisées des
+                // deux côtés (UDP puis repli TCP). Cadencé par le coordinateur
+                // et sans effet si une session directe existe déjà.
+                rt_arc.request_punch(friend).await;
             });
         }
     }
