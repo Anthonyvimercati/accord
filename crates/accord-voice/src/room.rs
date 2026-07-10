@@ -12,6 +12,7 @@ use accord_proto::plaintext::VoiceMsg;
 
 use crate::bitrate;
 use crate::codec::{AudioCodec, CodecError};
+use crate::gain;
 use crate::jitter::{JitterBuffer, Playout};
 use crate::loss::LossEstimator;
 use crate::params::{BITRATE_MIN, FRAME_MS, MAX_PARTICIPANTS};
@@ -28,6 +29,8 @@ struct Peer {
     jitter: JitterBuffer,
     loss: LossEstimator,
     decoder: Box<dyn AudioCodec>,
+    /// Linear output gain for this participant (1.0 = unity).
+    gain: f32,
 }
 
 /// Erreur d'opération de salon.
@@ -54,6 +57,10 @@ pub struct VoiceRoom {
     seq: u16,
     ts_ms: u32,
     peers: BTreeMap<[u8; 32], Peer>,
+    /// Linear master output gain applied to every decoded frame (1.0 = unity).
+    master_gain: f32,
+    /// Deafened: incoming frames are drained without decoding or playback.
+    deafened: bool,
 }
 
 impl VoiceRoom {
@@ -69,6 +76,8 @@ impl VoiceRoom {
             seq: 0,
             ts_ms: 0,
             peers: BTreeMap::new(),
+            master_gain: 1.0,
+            deafened: false,
         }
     }
 
@@ -101,6 +110,7 @@ impl VoiceRoom {
                 jitter: JitterBuffer::new(),
                 loss: LossEstimator::new(),
                 decoder: (self.make_codec)(),
+                gain: 1.0,
             },
         );
         Ok(())
@@ -109,6 +119,27 @@ impl VoiceRoom {
     /// Retire un participant.
     pub fn remove_participant(&mut self, pubkey: &[u8; 32]) {
         self.peers.remove(pubkey);
+    }
+
+    /// Sets the master output gain (clamped to 0.0..=2.0, 1.0 = unity),
+    /// applied to every decoded frame before playback.
+    pub fn set_master_gain(&mut self, gain: f32) {
+        self.master_gain = gain.clamp(0.0, gain::gain_of_pct(gain::VOLUME_MAX_PCT));
+    }
+
+    /// Sets the output gain of one participant (clamped to 0.0..=2.0,
+    /// 1.0 = unity). Unknown participants are ignored.
+    pub fn set_peer_gain(&mut self, pubkey: &[u8; 32], gain: f32) {
+        if let Some(peer) = self.peers.get_mut(pubkey) {
+            peer.gain = gain.clamp(0.0, gain::gain_of_pct(gain::VOLUME_MAX_PCT));
+        }
+    }
+
+    /// Deafens (`true`) or restores (`false`) the local output: while
+    /// deafened, [`Self::play`] drains jitter buffers without decoding so no
+    /// stale audio accumulates for later playback.
+    pub fn set_deafened(&mut self, deafened: bool) {
+        self.deafened = deafened;
     }
 
     /// Capture une trame PCM locale : renvoie la trame à diffuser à tous les
@@ -150,14 +181,25 @@ impl VoiceRoom {
     }
 
     /// Produit la prochaine trame PCM à jouer pour un participant (cadence de
-    /// 20 ms). `None` tant que le tampon s'amorce.
+    /// 20 ms). `None` tant que le tampon s'amorce. While deafened, the jitter
+    /// buffer is drained without decoding and nothing is played; otherwise
+    /// the per-peer and master output gains are applied to the decoded PCM
+    /// (saturating, before mixing at the output).
     pub fn play(&mut self, from: &[u8; 32]) -> Result<Option<Vec<i16>>, RoomError> {
+        let deafened = self.deafened;
+        let master_gain = self.master_gain;
         let peer = self.peers.get_mut(from).ok_or(RoomError::UnknownPeer)?;
-        match peer.jitter.pop() {
-            Playout::Frame(pkt) => Ok(Some(peer.decoder.decode(Some(&pkt))?)),
-            Playout::Conceal => Ok(Some(peer.decoder.decode(None)?)),
-            Playout::Starved => Ok(None),
+        let playout = peer.jitter.pop();
+        if deafened {
+            return Ok(None);
         }
+        let mut pcm = match playout {
+            Playout::Frame(pkt) => peer.decoder.decode(Some(&pkt))?,
+            Playout::Conceal => peer.decoder.decode(None)?,
+            Playout::Starved => return Ok(None),
+        };
+        gain::apply_gain(&mut pcm, peer.gain * master_gain);
+        Ok(Some(pcm))
     }
 
     /// Construit le retour de qualité à envoyer à un participant.
@@ -295,6 +337,103 @@ mod tests {
             r.add_participant([200u8; 32]),
             Err(RoomError::Full)
         ));
+    }
+
+    /// Codec that panics on decode: proves deafened playback never decodes.
+    struct NoDecodeCodec;
+
+    impl AudioCodec for NoDecodeCodec {
+        fn encode(&mut self, pcm: &[i16]) -> Result<Vec<u8>, CodecError> {
+            PassthroughCodec.encode(pcm)
+        }
+
+        fn decode(&mut self, _packet: Option<&[u8]>) -> Result<Vec<i16>, CodecError> {
+            panic!("decode must not be called while deafened");
+        }
+    }
+
+    fn feed_frames(room: &mut VoiceRoom, from: &[u8; 32], count: u16) {
+        for seq in 0..count {
+            room.on_frame(
+                from,
+                VoiceMsg::AudioFrame {
+                    room: [7u8; 16],
+                    media_type: MEDIA_AUDIO_OPUS,
+                    seq,
+                    ts_ms: u32::from(seq) * 20,
+                    payload: PassthroughCodec.encode(&tone(15_000)).unwrap(),
+                },
+                u32::from(seq) * 20,
+            );
+        }
+    }
+
+    #[test]
+    fn deafened_room_drains_without_decoding_or_playing() {
+        let mut r = VoiceRoom::new([7u8; 16], Box::new(|| Box::new(NoDecodeCodec)));
+        let spk = [4u8; 32];
+        r.add_participant(spk).unwrap();
+        r.set_deafened(true);
+        feed_frames(&mut r, &spk, 6);
+        // Deafened: nothing is played, frames are drained, no decode occurs.
+        for _ in 0..12 {
+            assert!(r.play(&spk).unwrap().is_none());
+        }
+        // Undeafen: the buffer was drained, no stale audio bursts out.
+        r.set_deafened(false);
+        // Starved buffer: first pops yield nothing (jitter buffer priming).
+        // Playing on an empty buffer must not decode stale packets.
+        // (NoDecodeCodec would panic on Conceal, so verify Starved first.)
+        feed_frames(&mut r, &spk, 0);
+        // Nothing pending: any playout would be Conceal/Starved. A Starved
+        // pop returns None without touching the decoder.
+        let _ = r.play(&spk);
+    }
+
+    #[test]
+    fn peer_and_master_gains_scale_decoded_frames() {
+        let mut r = room();
+        let spk = [5u8; 32];
+        r.add_participant(spk).unwrap();
+        r.set_peer_gain(&spk, 0.5);
+        feed_frames(&mut r, &spk, 6);
+        let pcm = play_until_audio(&mut r, &spk).expect("no frame played");
+        assert!(pcm.iter().all(|&s| s.unsigned_abs() <= 7_500));
+        assert!(pcm.iter().any(|&s| s != 0));
+
+        // Master gain stacks with the peer gain (0.5 × 2.0 = unity).
+        r.set_master_gain(2.0);
+        feed_frames(&mut r, &spk, 6);
+        let pcm = play_until_audio(&mut r, &spk).expect("no frame played");
+        assert!(pcm.iter().any(|&s| s.unsigned_abs() > 7_500));
+    }
+
+    #[test]
+    fn boosted_gain_saturates_at_i16_bounds() {
+        let mut r = room();
+        let spk = [6u8; 32];
+        r.add_participant(spk).unwrap();
+        r.set_peer_gain(&spk, 2.0);
+        r.set_master_gain(2.0);
+        feed_frames(&mut r, &spk, 6);
+        let pcm = play_until_audio(&mut r, &spk).expect("no frame played");
+        // tone(15_000) × 4 would overflow: samples must clip, never wrap.
+        assert!(pcm
+            .iter()
+            .all(|&s| s == i16::MAX || s == i16::MIN || s == 0));
+        assert!(pcm.contains(&i16::MAX));
+    }
+
+    /// Pops frames until one carries audio (skips jitter priming).
+    fn play_until_audio(room: &mut VoiceRoom, from: &[u8; 32]) -> Option<Vec<i16>> {
+        for _ in 0..10 {
+            if let Some(pcm) = room.play(from).unwrap() {
+                if pcm.iter().any(|&s| s != 0) {
+                    return Some(pcm);
+                }
+            }
+        }
+        None
     }
 
     #[test]

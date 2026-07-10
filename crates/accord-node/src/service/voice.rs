@@ -7,7 +7,7 @@ use crate::error::NodeError;
 use crate::hex;
 use crate::voice::VoiceStatus;
 
-use super::helpers::{param_device, param_id16};
+use super::helpers::{param_device, param_id16, param_pubkey};
 use super::NodeService;
 
 impl NodeService {
@@ -45,9 +45,36 @@ impl NodeService {
                 voice.set_muted(muted).await?;
                 Ok(json!({}))
             }
+            "voice.deafen" => {
+                let on = params
+                    .get("on")
+                    .and_then(Value::as_bool)
+                    .ok_or(NodeError::Invalid("on booléen requis"))?;
+                voice.set_deafened(on).await?;
+                Ok(json!({}))
+            }
+            "voice.set_volume" => {
+                // `peer` absent = master output volume.
+                let peer = match params.get("peer") {
+                    None | Some(Value::Null) => None,
+                    Some(_) => Some(param_pubkey(params, "peer")?),
+                };
+                let volume = params
+                    .get("volume")
+                    .and_then(Value::as_u64)
+                    .ok_or(NodeError::Invalid("volume entier requis"))?;
+                let volume = u16::try_from(volume)
+                    .map_err(|_| NodeError::Invalid("volume hors bornes (0 à 200)"))?;
+                voice.set_volume(peer, volume).await?;
+                Ok(json!({}))
+            }
             "voice.status" => {
                 let status = voice.status().await?;
-                Ok(json!({ "active": status.as_ref().map(voice_status_json) }))
+                let master_volume = voice.master_volume().await?;
+                Ok(json!({
+                    "active": status.as_ref().map(voice_status_json),
+                    "master_volume": master_volume,
+                }))
             }
             "voice.devices" => {
                 let devices = voice.devices().await?;
@@ -77,15 +104,20 @@ impl NodeService {
     }
 }
 
-/// Rend l'état du salon vocal actif pour `voice.status` (contrat gelé).
+/// Rend l'état du salon vocal actif pour `voice.status` (contrat gelé,
+/// étendu de façon additive : deafen et volumes).
 fn voice_status_json(status: &VoiceStatus) -> Value {
     json!({
         "group_id": hex::encode(&status.group_id),
         "channel_id": hex::encode(&status.channel_id),
         "muted": status.muted,
+        "deafened": status.deafened,
         "participants": status.participants.iter().map(|p| json!({
             "pubkey": hex::encode(&p.pubkey),
             "speaking": p.speaking,
+            "muted": p.muted,
+            "deafened": p.deafened,
+            "volume": p.volume,
         })).collect::<Vec<_>>(),
     })
 }

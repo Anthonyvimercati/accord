@@ -1,8 +1,9 @@
 /**
  * Onglet Voix : sélection des périphériques d'entrée/sortie (voice.devices /
- * voice.set_devices), test du micro avec vumètre animé sur `event.voice_level`
- * (transform scaleX, compositor-friendly) et réglage de l'appui-pour-parler
- * (interrupteur + touche capturée au prochain appui, persistés).
+ * voice.set_devices), volume de sortie principal (voice.set_volume, persisté),
+ * test du micro avec vumètre animé sur `event.voice_level` (transform scaleX,
+ * compositor-friendly) et réglage de l'appui-pour-parler (interrupteur +
+ * touche capturée au prochain appui, persistés).
  */
 
 import { useEffect, useState } from 'react';
@@ -10,6 +11,7 @@ import type { VoiceDeviceSelection, VoiceDevices } from '../../lib/api';
 import { api, rpc } from '../../lib/client';
 import { formatKeyLabel } from '../../hooks/usePushToTalk';
 import { useUi, useT } from '../../stores/ui';
+import { useVoice } from '../../stores/voice';
 import { SettingsSection, ToggleRow } from './controls';
 
 /** Niveau micro poussé par le nœud pendant le test (event.voice_level). */
@@ -96,6 +98,8 @@ export function VoiceTab() {
   const pttKey = useUi((s) => s.pttKey);
   const setPttEnabled = useUi((s) => s.setPttEnabled);
   const setPttKey = useUi((s) => s.setPttKey);
+  const masterVolume = useVoice((s) => s.masterVolume);
+  const setVolume = useVoice((s) => s.setVolume);
 
   const [devices, setDevices] = useState<VoiceDevices | null>(null);
   const [testing, setTesting] = useState(false);
@@ -116,6 +120,16 @@ export function VoiceTab() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Volume de sortie principal persisté : rechargé à l'ouverture de l'onglet.
+  useEffect(() => {
+    useVoice
+      .getState()
+      .loadMasterVolume()
+      .catch(() => {
+        // Nœud indisponible : la valeur du store fait foi.
+      });
   }, []);
 
   // Test du micro : abonnement aux niveaux, arrêt propre à la fermeture.
@@ -180,6 +194,10 @@ export function VoiceTab() {
     setMic(IDLE_LEVEL);
   };
 
+  const onMasterVolume = (value: number): void => {
+    setVolume(null, value).catch(() => toast('error', t.errors.actionFailed));
+  };
+
   return (
     <div>
       <SettingsSection title={t.settings.devicesTitle}>
@@ -196,6 +214,27 @@ export function VoiceTab() {
             selected={devices?.selected_output ?? null}
             onSelect={(output) => applyDevices({ output })}
           />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title={t.settings.outputVolumeTitle}
+        hint={t.settings.outputVolumeHint}
+      >
+        <div className="flex items-center gap-4 rounded-lg bg-sidebar px-4 py-3">
+          <input
+            type="range"
+            min={0}
+            max={200}
+            step={1}
+            value={masterVolume}
+            aria-label={t.settings.outputVolumeLabel}
+            onChange={(e) => onMasterVolume(Number(e.target.value))}
+            className="h-1 w-full accent-blurple"
+          />
+          <span className="w-12 shrink-0 text-right text-sm tabular-nums text-norm">
+            {masterVolume}%
+          </span>
         </div>
       </SettingsSection>
 

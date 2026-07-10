@@ -27,6 +27,9 @@ pub(crate) enum RosterEvent {
     Left([u8; 32]),
     /// L'état « parle » d'un participant a changé.
     Speaking([u8; 32], bool),
+    /// The broadcast mute/deafen state of a participant changed:
+    /// `(pubkey, muted, deafened)`.
+    MuteState([u8; 32], bool, bool),
 }
 
 /// Salon plein : le full mesh est borné.
@@ -40,6 +43,23 @@ struct PeerState {
     last_seen_ms: u64,
     last_frame_ms: Option<u64>,
     speaking: bool,
+    /// Microphone muted, as broadcast by the participant (VoiceSignal).
+    muted: bool,
+    /// Output deafened, as broadcast by the participant (VoiceSignal).
+    deafened: bool,
+}
+
+/// Snapshot of a participant as exposed by [`Roster::participants`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RosterPeer {
+    /// Participant public key.
+    pub(crate) pubkey: [u8; 32],
+    /// Speaking indicator (frame activity with hysteresis).
+    pub(crate) speaking: bool,
+    /// Microphone muted (broadcast state).
+    pub(crate) muted: bool,
+    /// Output deafened (broadcast state).
+    pub(crate) deafened: bool,
 }
 
 /// Participants d'un salon vocal, ordonnés par clé publique.
@@ -69,9 +89,17 @@ impl Roster {
         self.peers.keys().copied().collect()
     }
 
-    /// Participants avec leur état « parle » (ordre stable).
-    pub(crate) fn participants(&self) -> Vec<([u8; 32], bool)> {
-        self.peers.iter().map(|(k, p)| (*k, p.speaking)).collect()
+    /// Participants avec leur état « parle » et micro/sortie (ordre stable).
+    pub(crate) fn participants(&self) -> Vec<RosterPeer> {
+        self.peers
+            .iter()
+            .map(|(k, p)| RosterPeer {
+                pubkey: *k,
+                speaking: p.speaking,
+                muted: p.muted,
+                deafened: p.deafened,
+            })
+            .collect()
     }
 
     /// Ajoute un participant (idempotent : rafraîchit sa vivacité s'il est
@@ -90,9 +118,28 @@ impl Roster {
                 last_seen_ms: now_ms,
                 last_frame_ms: None,
                 speaking: false,
+                muted: false,
+                deafened: false,
             },
         );
         Ok(true)
+    }
+
+    /// Records the broadcast mute/deafen state of a participant. Returns the
+    /// transition event when the state actually changed.
+    pub(crate) fn set_mute_state(
+        &mut self,
+        pubkey: &[u8; 32],
+        muted: bool,
+        deafened: bool,
+    ) -> Option<RosterEvent> {
+        let peer = self.peers.get_mut(pubkey)?;
+        if peer.muted == muted && peer.deafened == deafened {
+            return None;
+        }
+        peer.muted = muted;
+        peer.deafened = deafened;
+        Some(RosterEvent::MuteState(*pubkey, muted, deafened))
     }
 
     /// Retire un participant ; rend `true` s'il était présent.
@@ -241,6 +288,29 @@ mod tests {
         assert!(r.tick(10_000, ACTIVE_TIMEOUT_MS, None).is_empty());
         let events = r.tick(9_000 + ACTIVE_TIMEOUT_MS, ACTIVE_TIMEOUT_MS, None);
         assert_eq!(events, vec![RosterEvent::Left(pk(1))]);
+    }
+
+    #[test]
+    fn mute_state_transitions_are_reported_once() {
+        let mut r = Roster::default();
+        r.join(pk(1), 0).unwrap();
+        // Initial state: unmuted, undeafened — setting it again is a no-op.
+        assert_eq!(r.set_mute_state(&pk(1), false, false), None);
+        assert_eq!(
+            r.set_mute_state(&pk(1), true, false),
+            Some(RosterEvent::MuteState(pk(1), true, false))
+        );
+        // Idempotent while unchanged.
+        assert_eq!(r.set_mute_state(&pk(1), true, false), None);
+        assert_eq!(
+            r.set_mute_state(&pk(1), true, true),
+            Some(RosterEvent::MuteState(pk(1), true, true))
+        );
+        // Unknown participant: ignored.
+        assert_eq!(r.set_mute_state(&pk(9), true, true), None);
+        let peers = r.participants();
+        assert_eq!(peers.len(), 1);
+        assert!(peers[0].muted && peers[0].deafened);
     }
 
     #[test]

@@ -15,6 +15,7 @@ use accord_api::NotificationHub;
 use accord_proto::core_msg::CoreMsg;
 use accord_proto::limits::VOICE_MAX_PARTICIPANTS;
 use accord_proto::plaintext::VoiceMsg;
+use accord_voice::gain;
 use accord_voice::params::{FRAME_MS, FRAME_SAMPLES};
 use accord_voice::room::CodecFactory;
 use accord_voice::{Pcm8Codec, VoiceRoom};
@@ -38,6 +39,9 @@ const ACTION_LEAVE: u8 = 1;
 const ACTION_STATE: u8 = 2;
 /// Bitflag média : audio.
 const MEDIA_AUDIO: u8 = 0x01;
+/// `media_kinds` bitflag carrying the sender's deafen state (SPEC §6:
+/// receivers ignore unknown bits, which keeps the wire backward compatible).
+const MEDIA_DEAFENED: u8 = 0x80;
 
 /// Un ping de qualité par participant chaque seconde (50 trames de 20 ms).
 const PING_PERIOD_TICKS: u64 = 50;
@@ -71,7 +75,12 @@ type RoomKey = ([u8; 16], [u8; 16]);
 struct Active {
     group_id: [u8; 16],
     channel_id: [u8; 16],
+    /// Effective mute (forced to `true` while deafened).
     muted: bool,
+    /// Local output deafened (session-scoped, never persisted).
+    deafened: bool,
+    /// Last user-requested mute state, restored on undeafen.
+    mute_restore: bool,
     room: VoiceRoom,
 }
 
@@ -122,6 +131,10 @@ pub(crate) struct Engine {
     active: Option<Active>,
     /// Capture de substitution (mode simulé / tests).
     injected: VecDeque<Vec<i16>>,
+    /// Master output volume in percent (persisted, 100 = unity).
+    master_volume: u16,
+    /// Per-peer output volumes in percent (cache over the persisted values).
+    peer_volumes: HashMap<[u8; 32], u16>,
     /// Périphérique d'entrée choisi (`None` = défaut ; persisté, D-029).
     input_device: Option<String>,
     /// Périphérique de sortie choisi (`None` = défaut ; persisté, D-029).
@@ -170,6 +183,11 @@ impl Engine {
                 tracing::warn!(erreur = %e, "voix : choix de périphériques illisible, défauts appliqués");
                 (None, None)
             });
+        // Volume principal persisté ; illisible = 100 %.
+        let master_volume = deps.node.voice_master_volume().unwrap_or_else(|e| {
+            tracing::warn!(erreur = %e, "voix : volume principal illisible, défaut appliqué");
+            gain::VOLUME_DEFAULT_PCT
+        });
         Self {
             node: deps.node,
             outbound: deps.outbound,
@@ -180,6 +198,8 @@ impl Engine {
             rooms: HashMap::new(),
             active: None,
             injected: VecDeque::new(),
+            master_volume,
+            peer_volumes: HashMap::new(),
             input_device,
             output_device,
             #[cfg(feature = "hardware")]
@@ -230,6 +250,16 @@ impl Engine {
                 self.handle_mute(muted);
                 let _ = resp.send(());
             }
+            Cmd::Deafen { deafened, resp } => {
+                self.handle_deafen(deafened);
+                let _ = resp.send(());
+            }
+            Cmd::SetVolume { peer, volume, resp } => {
+                let _ = resp.send(self.handle_set_volume(peer, volume));
+            }
+            Cmd::MasterVolume { resp } => {
+                let _ = resp.send(self.master_volume);
+            }
             Cmd::Status { resp } => {
                 let _ = resp.send(self.handle_status());
             }
@@ -251,7 +281,9 @@ impl Engine {
                 group_id,
                 channel_id,
                 action,
-            } => self.handle_peer_signal(from, group_id, channel_id, action),
+                media_kinds,
+                mute,
+            } => self.handle_peer_signal(from, group_id, channel_id, action, media_kinds, mute),
             Cmd::PeerFrame { from, msg } => self.handle_peer_frame(from, msg),
             Cmd::InjectPcm { pcm } => {
                 if pcm.len() == FRAME_SAMPLES && self.injected.len() < MAX_INJECTED_FRAMES {
@@ -295,22 +327,28 @@ impl Engine {
 
         let now = self.now_ms();
         let mut room = VoiceRoom::new(channel_id, codec_factory(self.backend));
+        room.set_master_gain(gain::gain_of_pct(self.master_volume));
         let mut events = Vec::new();
-        let roster = self.rooms.entry(key).or_default();
-        // Grâce de vivacité : les entrées passives repartent d'un délai plein
-        // (elles seront confirmées par trames/pings, ou expireront).
-        roster.refresh_all(now);
-        for pk in roster.pubkeys() {
-            let _ = room.add_participant(pk);
+        let (existing, participants) = {
+            let roster = self.rooms.entry(key).or_default();
+            // Grâce de vivacité : les entrées passives repartent d'un délai
+            // plein (elles seront confirmées par trames/pings, ou expireront).
+            roster.refresh_all(now);
+            let existing = roster.pubkeys();
+            if roster.join(me, now).unwrap_or(false) {
+                events.push(RosterEvent::Joined(me));
+            }
+            (existing, roster.pubkeys())
+        };
+        for pk in &existing {
+            let _ = room.add_participant(*pk);
+            let volume = self.volume_for(pk);
+            room.set_peer_gain(pk, gain::gain_of_pct(volume));
         }
-        if roster.join(me, now).unwrap_or(false) {
-            events.push(RosterEvent::Joined(me));
-        }
-        let participants = roster.pubkeys();
         for event in &events {
             self.emit_room(key, event);
         }
-        self.broadcast_signal(group_id, channel_id, ACTION_JOIN, false);
+        self.broadcast_signal(group_id, channel_id, ACTION_JOIN, false, false);
         #[cfg(feature = "hardware")]
         if self.backend == VoiceBackend::Materiel {
             // Le salon prend la main sur la capture : fin du test micro.
@@ -324,9 +362,24 @@ impl Engine {
             group_id,
             channel_id,
             muted: false,
+            deafened: false,
+            mute_restore: false,
             room,
         });
         Ok(participants)
+    }
+
+    /// Persisted output volume of a peer, through the in-engine cache.
+    fn volume_for(&mut self, pubkey: &[u8; 32]) -> u16 {
+        if let Some(volume) = self.peer_volumes.get(pubkey) {
+            return *volume;
+        }
+        let volume = self.node.voice_peer_volume(pubkey).unwrap_or_else(|e| {
+            tracing::debug!(erreur = %e, "voix : volume d'un pair illisible, défaut appliqué");
+            gain::VOLUME_DEFAULT_PCT
+        });
+        self.peer_volumes.insert(*pubkey, volume);
+        volume
     }
 
     /// Quitte le salon actif : signal de départ, événements, libération du
@@ -341,6 +394,7 @@ impl Engine {
             active.channel_id,
             ACTION_LEAVE,
             active.muted,
+            active.deafened,
         );
         let me = self.node.public_key();
         let mut events = Vec::new();
@@ -368,32 +422,120 @@ impl Engine {
         let Some(active) = self.active.as_mut() else {
             return;
         };
-        active.muted = muted;
-        if !muted {
+        // The requested state is remembered so that undeafen restores it.
+        active.mute_restore = muted;
+        if active.deafened || active.muted == muted {
+            // Deafened: mute stays forced (Discord semantics). Unchanged
+            // state: idempotent, nothing to re-broadcast.
             return;
         }
-        let key = active.key();
-        let me = self.node.public_key();
-        let event = self.rooms.get_mut(&key).and_then(|r| r.force_silent(&me));
-        if let Some(event) = event {
-            self.emit_room(key, &event);
-        }
+        active.muted = muted;
+        self.apply_local_voice_state();
     }
 
-    fn handle_status(&self) -> Option<VoiceStatus> {
+    /// `voice.deafen` : stops (or restores) decoding/playing every incoming
+    /// voice locally. Deafen forces mute; undeafen restores the last
+    /// requested mute state. Idempotent; no effect outside a channel.
+    fn handle_deafen(&mut self, deafened: bool) {
+        let Some(active) = self.active.as_mut() else {
+            return;
+        };
+        if active.deafened == deafened {
+            return;
+        }
+        active.deafened = deafened;
+        active.muted = if deafened { true } else { active.mute_restore };
+        active.room.set_deafened(deafened);
+        self.apply_local_voice_state();
+    }
+
+    /// Reflects a local mute/deafen change: closes our speaking indicator,
+    /// records our roster flags, notifies the UI (`event.voice_mute`) and
+    /// broadcasts the new state right away (ahead of the periodic refresh).
+    fn apply_local_voice_state(&mut self) {
+        let Some(active) = self.active.as_ref() else {
+            return;
+        };
+        let key = active.key();
+        let (gid, cid, muted, deafened) = (
+            active.group_id,
+            active.channel_id,
+            active.muted,
+            active.deafened,
+        );
+        let me = self.node.public_key();
+        let mut events = Vec::new();
+        if let Some(roster) = self.rooms.get_mut(&key) {
+            if muted {
+                if let Some(event) = roster.force_silent(&me) {
+                    events.push(event);
+                }
+            }
+            if let Some(event) = roster.set_mute_state(&me, muted, deafened) {
+                events.push(event);
+            }
+        }
+        for event in &events {
+            self.emit_room(key, event);
+        }
+        self.broadcast_signal(gid, cid, ACTION_STATE, muted, deafened);
+    }
+
+    /// `voice.set_volume` : validates, persists (meta table, keyed by peer
+    /// public key for participants) and applies the gain live to the active
+    /// room. `peer: None` targets the master output volume.
+    fn handle_set_volume(&mut self, peer: Option<[u8; 32]>, volume: u16) -> Result<(), NodeError> {
+        match peer {
+            None => {
+                self.node.set_voice_master_volume(volume)?;
+                self.master_volume = volume;
+                if let Some(active) = self.active.as_mut() {
+                    active.room.set_master_gain(gain::gain_of_pct(volume));
+                }
+            }
+            Some(pk) => {
+                self.node.set_voice_peer_volume(&pk, volume)?;
+                self.peer_volumes.insert(pk, volume);
+                if let Some(active) = self.active.as_mut() {
+                    active.room.set_peer_gain(&pk, gain::gain_of_pct(volume));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_status(&mut self) -> Option<VoiceStatus> {
         let active = self.active.as_ref()?;
-        let participants = self
+        let key = active.key();
+        let (group_id, channel_id, muted, deafened) = (
+            active.group_id,
+            active.channel_id,
+            active.muted,
+            active.deafened,
+        );
+        let peers = self
             .rooms
-            .get(&active.key())
+            .get(&key)
             .map(Roster::participants)
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let participants = peers
             .into_iter()
-            .map(|(pubkey, speaking)| VoiceParticipant { pubkey, speaking })
+            .map(|p| {
+                let volume = self.volume_for(&p.pubkey);
+                VoiceParticipant {
+                    pubkey: p.pubkey,
+                    speaking: p.speaking,
+                    muted: p.muted,
+                    deafened: p.deafened,
+                    volume,
+                }
+            })
             .collect();
         Some(VoiceStatus {
-            group_id: active.group_id,
-            channel_id: active.channel_id,
-            muted: active.muted,
+            group_id,
+            channel_id,
+            muted,
+            deafened,
             participants,
         })
     }
@@ -544,13 +686,16 @@ impl Engine {
     }
 
     /// Signalisation reçue d'un pair authentifié : re-valide l'adhésion au
-    /// groupe puis met à jour la présence (et le salon actif le cas échéant).
+    /// groupe puis met à jour la présence, l'état micro/sortie diffusé (et le
+    /// salon actif le cas échéant).
     fn handle_peer_signal(
         &mut self,
         from: [u8; 32],
         group_id: [u8; 16],
         channel_id: [u8; 16],
         action: u8,
+        media_kinds: u8,
+        mute: bool,
     ) {
         let me = self.node.public_key();
         if from == me {
@@ -568,32 +713,44 @@ impl Engine {
         let mut events = Vec::new();
         match action {
             ACTION_JOIN | ACTION_STATE => {
-                let roster = self.rooms.entry(key).or_default();
-                match roster.join(from, now) {
-                    Ok(true) => events.push(RosterEvent::Joined(from)),
-                    Ok(false) => {}
-                    Err(e) => {
-                        tracing::debug!(erreur = %e, "voix : signal d'entrée ignoré");
-                        return;
+                let peer_deafened = media_kinds & MEDIA_DEAFENED != 0;
+                {
+                    let roster = self.rooms.entry(key).or_default();
+                    match roster.join(from, now) {
+                        Ok(true) => events.push(RosterEvent::Joined(from)),
+                        Ok(false) => {}
+                        Err(e) => {
+                            tracing::debug!(erreur = %e, "voix : signal d'entrée ignoré");
+                            return;
+                        }
+                    }
+                    if let Some(event) = roster.set_mute_state(&from, mute, peer_deafened) {
+                        events.push(event);
                     }
                 }
+                let volume = self.volume_for(&from);
                 let mut reply_state = false;
                 if let Some(active) = self.active.as_mut() {
                     if active.key() == key {
                         let _ = active.room.add_participant(from);
+                        active.room.set_peer_gain(&from, gain::gain_of_pct(volume));
                         reply_state = action == ACTION_JOIN;
                     }
                 }
                 if reply_state {
                     // Le nouvel arrivant apprend notre présence directement.
-                    let muted = self.active.as_ref().map(|a| a.muted).unwrap_or(false);
+                    let (muted, deafened) = self
+                        .active
+                        .as_ref()
+                        .map(|a| (a.muted, a.deafened))
+                        .unwrap_or((false, false));
                     self.outbound.send(Outbound::Core {
                         to: from,
                         msg: Box::new(CoreMsg::VoiceSignal {
                             group_id,
                             channel_id,
                             action: ACTION_STATE,
-                            media_kinds: MEDIA_AUDIO,
+                            media_kinds: media_flags(deafened),
                             mute: muted,
                         }),
                     });
@@ -722,8 +879,13 @@ impl Engine {
             }
             // Rafraîchit la présence passive des membres hors salon.
             if self.tick_count % STATE_PERIOD_TICKS == 0 {
-                let (gid, cid, muted) = (active.group_id, active.channel_id, active.muted);
-                self.broadcast_signal(gid, cid, ACTION_STATE, muted);
+                let (gid, cid, muted, deafened) = (
+                    active.group_id,
+                    active.channel_id,
+                    active.muted,
+                    active.deafened,
+                );
+                self.broadcast_signal(gid, cid, ACTION_STATE, muted, deafened);
             }
         }
 
@@ -769,14 +931,21 @@ impl Engine {
 
     /// Diffuse une signalisation à tous les membres du groupe (éphémère :
     /// jamais mise en file hors-ligne).
-    fn broadcast_signal(&self, group_id: [u8; 16], channel_id: [u8; 16], action: u8, muted: bool) {
+    fn broadcast_signal(
+        &self,
+        group_id: [u8; 16],
+        channel_id: [u8; 16],
+        action: u8,
+        muted: bool,
+        deafened: bool,
+    ) {
         self.outbound.send(Outbound::GroupCast {
             group_id,
             msg: Box::new(CoreMsg::VoiceSignal {
                 group_id,
                 channel_id,
                 action,
-                media_kinds: MEDIA_AUDIO,
+                media_kinds: media_flags(deafened),
                 mute: muted,
             }),
         });
@@ -801,8 +970,21 @@ impl Engine {
                 "event.voice_speaking",
                 json!({ "pubkey": hex::encode(pubkey), "speaking": speaking }),
             ),
+            RosterEvent::MuteState(pubkey, muted, deafened) => hub.notify(
+                "event.voice_mute",
+                json!({
+                    "pubkey": hex::encode(pubkey),
+                    "muted": muted,
+                    "deafened": deafened,
+                }),
+            ),
         }
     }
+}
+
+/// `media_kinds` bitflags of our own signals: audio, plus the deafen bit.
+fn media_flags(deafened: bool) -> u8 {
+    MEDIA_AUDIO | if deafened { MEDIA_DEAFENED } else { 0 }
 }
 
 #[cfg(test)]
@@ -895,6 +1077,118 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deafen_forces_mute_and_undeafen_restores_requested_state() {
+        let n = node();
+        let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
+        let (handle, _) = spawn_engine(Arc::clone(&n));
+
+        // Outside a channel: idempotent no-op, like voice.mute.
+        handle.set_deafened(true).await.unwrap();
+
+        handle.join(gid, gid).await.unwrap();
+        // Join resets the session state: neither muted nor deafened.
+        let status = handle.status().await.unwrap().unwrap();
+        assert!(!status.muted && !status.deafened);
+
+        // Deafen forces mute.
+        handle.set_deafened(true).await.unwrap();
+        let status = handle.status().await.unwrap().unwrap();
+        assert!(status.muted && status.deafened);
+
+        // Requesting unmute while deafened keeps the mute forced…
+        handle.set_muted(false).await.unwrap();
+        let status = handle.status().await.unwrap().unwrap();
+        assert!(status.muted && status.deafened);
+
+        // … and undeafen restores the last requested state (unmuted).
+        handle.set_deafened(false).await.unwrap();
+        let status = handle.status().await.unwrap().unwrap();
+        assert!(!status.muted && !status.deafened);
+
+        // Muted before deafen: undeafen keeps the mute.
+        handle.set_muted(true).await.unwrap();
+        handle.set_deafened(true).await.unwrap();
+        handle.set_deafened(false).await.unwrap();
+        let status = handle.status().await.unwrap().unwrap();
+        assert!(status.muted && !status.deafened);
+    }
+
+    #[tokio::test]
+    async fn peer_mute_and_deafen_states_surface_in_status() {
+        let n = node();
+        let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
+        let peer = Identity::generate_with_pow_bits(1).public_key();
+        n.group_invite(&gid, &peer).unwrap();
+        let (handle, _) = spawn_engine(Arc::clone(&n));
+        handle.join(gid, gid).await.unwrap();
+
+        // The peer joins muted and deafened (bit 0x80 of media_kinds).
+        handle.peer_signal(
+            peer,
+            gid,
+            gid,
+            ACTION_JOIN,
+            MEDIA_AUDIO | MEDIA_DEAFENED,
+            true,
+        );
+        let seen = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == peer && p.muted && p.deafened)
+        })
+        .await;
+        assert!(seen, "l'état muet/sourd du pair n'apparaît pas");
+
+        // A state refresh clears both flags.
+        handle.peer_signal(peer, gid, gid, ACTION_STATE, MEDIA_AUDIO, false);
+        let cleared = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == peer && !p.muted && !p.deafened)
+        })
+        .await;
+        assert!(cleared, "l'état muet/sourd du pair ne se referme pas");
+    }
+
+    #[tokio::test]
+    async fn set_volume_persists_and_surfaces_in_status() {
+        let n = node();
+        let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
+        let peer = Identity::generate_with_pow_bits(1).public_key();
+        n.group_invite(&gid, &peer).unwrap();
+        let (handle, _) = spawn_engine(Arc::clone(&n));
+
+        // Defaults: 100 % everywhere.
+        assert_eq!(handle.master_volume().await.unwrap(), 100);
+
+        // Master volume: persisted and exposed, even outside a channel.
+        handle.set_volume(None, 150).await.unwrap();
+        assert_eq!(handle.master_volume().await.unwrap(), 150);
+        assert_eq!(n.voice_master_volume().unwrap(), 150);
+
+        // Per-peer volume: persisted, applied and exposed in the status.
+        handle.set_volume(Some(peer), 40).await.unwrap();
+        assert_eq!(n.voice_peer_volume(&peer).unwrap(), 40);
+        handle.join(gid, gid).await.unwrap();
+        handle.peer_signal(peer, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
+        let seen = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == peer && p.volume == 40)
+        })
+        .await;
+        assert!(seen, "le volume du pair n'apparaît pas dans le statut");
+
+        // Out of range: explicit error, nothing persisted.
+        let err = handle.set_volume(None, 201).await.unwrap_err();
+        assert!(
+            err.to_string().contains("volume"),
+            "erreur inattendue : {err}"
+        );
+        assert_eq!(handle.master_volume().await.unwrap(), 150);
+    }
+
+    #[tokio::test]
     async fn capture_is_sent_to_participants_and_gated_by_mute() {
         let n = node();
         let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
@@ -904,7 +1198,7 @@ mod tests {
         let (handle, sender) = spawn_engine(Arc::clone(&n));
 
         handle.join(gid, gid).await.unwrap();
-        handle.peer_signal(peer, gid, gid, ACTION_JOIN);
+        handle.peer_signal(peer, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
 
         // La parole injectée part vers le pair.
         for _ in 0..10 {
@@ -959,7 +1253,7 @@ mod tests {
         n.group_invite(&gid, &peer).unwrap();
         let (handle, _) = spawn_engine(Arc::clone(&n));
         handle.join(gid, gid).await.unwrap();
-        handle.peer_signal(peer, gid, gid, ACTION_JOIN);
+        handle.peer_signal(peer, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
 
         // Trames du pair (encodées PCM 8 bits, room = channel_id).
         let mut codec = Pcm8Codec;
@@ -1023,7 +1317,7 @@ mod tests {
         }
         let (handle, _) = spawn_engine(Arc::clone(&n));
         for pk in &members {
-            handle.peer_signal(*pk, gid, gid, ACTION_JOIN);
+            handle.peer_signal(*pk, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
         }
         // Les commandes sont traitées dans l'ordre : les 10 signaux précèdent
         // la jointure, qui déborde donc le full mesh.
@@ -1099,7 +1393,7 @@ mod tests {
         let (handle, _) = spawn_engine(Arc::clone(&n));
         handle.join(gid, gid).await.unwrap();
         let stranger = Identity::generate_with_pow_bits(1).public_key();
-        handle.peer_signal(stranger, gid, gid, ACTION_JOIN);
+        handle.peer_signal(stranger, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
         tokio::time::sleep(Duration::from_millis(100)).await;
         let status = handle.status().await.unwrap().unwrap();
         assert_eq!(status.participants.len(), 1, "le non-membre a été admis");

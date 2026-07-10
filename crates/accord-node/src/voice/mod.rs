@@ -43,6 +43,13 @@ pub struct VoiceParticipant {
     /// Vrai si le participant parle (VAD locale pour soi, activité des trames
     /// pour les pairs, hystérésis dans les deux cas).
     pub speaking: bool,
+    /// Microphone muted, as broadcast by the participant.
+    pub muted: bool,
+    /// Output deafened, as broadcast by the participant.
+    pub deafened: bool,
+    /// Local output volume for this participant in percent (0..=200,
+    /// persisted per public key, 100 = unity).
+    pub volume: u16,
 }
 
 /// État du salon vocal actif.
@@ -54,6 +61,8 @@ pub struct VoiceStatus {
     pub channel_id: [u8; 16],
     /// Micro local coupé.
     pub muted: bool,
+    /// Local output deafened (implies `muted`, Discord semantics).
+    pub deafened: bool,
     /// Participants du salon, soi-même inclus.
     pub participants: Vec<VoiceParticipant>,
 }
@@ -116,6 +125,28 @@ pub(crate) enum Cmd {
         /// Accusé de traitement.
         resp: oneshot::Sender<()>,
     },
+    /// Deafen/undeafen the local output (deafen forces mute; undeafen
+    /// restores the previous mute state — Discord semantics).
+    Deafen {
+        /// True to deafen.
+        deafened: bool,
+        /// Processing acknowledgment.
+        resp: oneshot::Sender<()>,
+    },
+    /// Set an output volume (persisted; applied live to the active room).
+    SetVolume {
+        /// Target peer (`None` = master output volume).
+        peer: Option<[u8; 32]>,
+        /// Volume in percent (0..=200, validated).
+        volume: u16,
+        /// Response: explicit error when out of range or unpersistable.
+        resp: oneshot::Sender<Result<(), NodeError>>,
+    },
+    /// Persisted master output volume in percent.
+    MasterVolume {
+        /// Response: 0..=200 (default 100).
+        resp: oneshot::Sender<u16>,
+    },
     /// État du salon actif.
     Status {
         /// Réponse : `None` hors salon.
@@ -152,6 +183,10 @@ pub(crate) enum Cmd {
         channel_id: [u8; 16],
         /// 0=rejoint, 1=quitte, 2=état.
         action: u8,
+        /// Media bitflags (0x01 audio; bit 0x80 carries the deafen state).
+        media_kinds: u8,
+        /// Microphone muted, as broadcast by the sender.
+        mute: bool,
     },
     /// Message du canal VOICE reçu d'un pair authentifié.
     PeerFrame {
@@ -219,6 +254,38 @@ impl VoiceHandle {
         rx.await.map_err(|_| Self::stopped())
     }
 
+    /// Deafens (`true`) or restores (`false`) the local output. Deafening
+    /// stops decoding/playing every incoming voice and forces mute;
+    /// undeafening restores the mute state requested before (or during) the
+    /// deafen. Idempotent; no effect outside a voice channel.
+    pub async fn set_deafened(&self, deafened: bool) -> Result<(), NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::Deafen { deafened, resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())
+    }
+
+    /// Sets an output volume in percent (0..=200; 100 = unity). `peer: None`
+    /// targets the master output volume. Persisted (per peer public key for
+    /// participants) and applied live to the active room.
+    pub async fn set_volume(&self, peer: Option<[u8; 32]>, volume: u16) -> Result<(), NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::SetVolume { peer, volume, resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())?
+    }
+
+    /// Persisted master output volume in percent (default 100).
+    pub async fn master_volume(&self) -> Result<u16, NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::MasterVolume { resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())
+    }
+
     /// État du salon vocal actif (`None` hors salon).
     pub async fn status(&self) -> Result<Option<VoiceStatus>, NodeError> {
         let (resp, rx) = oneshot::channel();
@@ -281,18 +348,24 @@ impl VoiceHandle {
     /// Transmet une signalisation `VoiceSignal` reçue d'un pair authentifié.
     /// Point d'entrée du routeur réseau ; exposé aussi pour les tests
     /// d'intégration (l'adhésion au groupe est re-vérifiée par le moteur).
+    /// `media_kinds`/`mute` carry the sender's broadcast state (bit 0x80 of
+    /// `media_kinds` = deafened; unknown bits are ignored).
     pub fn peer_signal(
         &self,
         from: [u8; 32],
         group_id: [u8; 16],
         channel_id: [u8; 16],
         action: u8,
+        media_kinds: u8,
+        mute: bool,
     ) {
         let _ = self.tx.send(Cmd::PeerSignal {
             from,
             group_id,
             channel_id,
             action,
+            media_kinds,
+            mute,
         });
     }
 

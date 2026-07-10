@@ -16,6 +16,8 @@ vi.mock('../../lib/client', () => {
       voiceDevices: vi.fn(),
       voiceSetDevices: vi.fn(),
       voiceMicTest: vi.fn(),
+      voiceStatus: vi.fn(),
+      voiceSetVolume: vi.fn(),
     },
     rpc: {
       onEvent: (handler: (method: string, params: unknown) => void) => {
@@ -32,11 +34,14 @@ vi.mock('../../lib/client', () => {
 
 import { api, rpc } from '../../lib/client';
 import { useUi } from '../../stores/ui';
+import { useVoice } from '../../stores/voice';
 import { MicMeter, VoiceTab } from './VoiceTab';
 
 const devicesMock = api.voiceDevices as unknown as Mock;
 const setDevicesMock = api.voiceSetDevices as unknown as Mock;
 const micTestMock = api.voiceMicTest as unknown as Mock;
+const statusMock = api.voiceStatus as unknown as Mock;
+const setVolumeMock = api.voiceSetVolume as unknown as Mock;
 const fakeRpc = rpc as unknown as {
   emitEvent: (method: string, params: unknown) => void;
 };
@@ -58,12 +63,17 @@ async function renderVoiceTab(): Promise<ReturnType<typeof render>> {
 beforeEach(() => {
   window.localStorage.clear();
   useUi.setState({ lang: 'fr', toasts: [], pttEnabled: false, pttKey: 'Space' });
+  useVoice.setState({ masterVolume: 100 });
   devicesMock.mockReset();
   setDevicesMock.mockReset();
   micTestMock.mockReset();
+  statusMock.mockReset();
+  setVolumeMock.mockReset();
   devicesMock.mockResolvedValue(NO_DEVICES);
   setDevicesMock.mockResolvedValue({});
   micTestMock.mockResolvedValue({});
+  statusMock.mockResolvedValue({ master_volume: 100, active: null });
+  setVolumeMock.mockResolvedValue({});
 });
 
 describe('MicMeter — vumètre', () => {
@@ -188,6 +198,45 @@ describe('VoiceTab — périphériques', () => {
     await waitFor(() =>
       expect(setDevicesMock).toHaveBeenCalledWith({ output: 'Casque' }),
     );
+  });
+});
+
+describe('VoiceTab — volume de sortie', () => {
+  it('recharge et affiche le volume principal persisté', async () => {
+    statusMock.mockResolvedValue({ master_volume: 150, active: null });
+    await renderVoiceTab();
+
+    const slider = await screen.findByRole('slider', {
+      name: 'Volume de sortie général',
+    });
+    await waitFor(() => expect(slider).toHaveValue('150'));
+    expect(screen.getByText('150%')).toBeInTheDocument();
+  });
+
+  it('applique un réglage via voice.set_volume (volume principal, peer null)', async () => {
+    await renderVoiceTab();
+    const slider = screen.getByRole('slider', { name: 'Volume de sortie général' });
+
+    fireEvent.change(slider, { target: { value: '60' } });
+
+    await waitFor(() => expect(setVolumeMock).toHaveBeenCalledWith(null, 60));
+    await waitFor(() => expect(slider).toHaveValue('60'));
+  });
+
+  it('signale l’échec du réglage par un toast d’erreur', async () => {
+    setVolumeMock.mockRejectedValueOnce(new Error('hors ligne'));
+    await renderVoiceTab();
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Volume de sortie général' }), {
+      target: { value: '10' },
+    });
+
+    await waitFor(() => {
+      expect(useUi.getState().toasts).toHaveLength(1);
+    });
+    expect(useUi.getState().toasts[0]?.kind).toBe('error');
+    // Rien n'est mémorisé localement quand le nœud refuse.
+    expect(useVoice.getState().masterVolume).toBe(100);
   });
 });
 

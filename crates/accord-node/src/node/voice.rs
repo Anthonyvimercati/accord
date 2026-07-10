@@ -43,14 +43,75 @@ impl Node {
             Ok(())
         })
     }
+
+    /// Persisted master output volume in percent (0..=200, default 100).
+    /// Same `meta`-table pattern as the audio devices (D-029): no schema
+    /// migration.
+    pub fn voice_master_volume(&self) -> Result<u16, NodeError> {
+        self.with_db(|db| read_volume_meta(db, META_VOICE_MASTER_VOLUME))
+    }
+
+    /// Persists the master output volume (percent, validated 0..=200).
+    pub fn set_voice_master_volume(&self, volume: u16) -> Result<(), NodeError> {
+        validate_volume(volume)?;
+        self.with_db(|db| {
+            db.set_meta(META_VOICE_MASTER_VOLUME, volume.to_string().as_bytes())?;
+            Ok(())
+        })
+    }
+
+    /// Persisted output volume of one peer in percent (0..=200, default 100),
+    /// keyed by the peer's public key.
+    pub fn voice_peer_volume(&self, pubkey: &[u8; 32]) -> Result<u16, NodeError> {
+        let key = peer_volume_key(pubkey);
+        self.with_db(|db| read_volume_meta(db, &key))
+    }
+
+    /// Persists the output volume of one peer (percent, validated 0..=200).
+    pub fn set_voice_peer_volume(&self, pubkey: &[u8; 32], volume: u16) -> Result<(), NodeError> {
+        validate_volume(volume)?;
+        let key = peer_volume_key(pubkey);
+        self.with_db(|db| {
+            db.set_meta(&key, volume.to_string().as_bytes())?;
+            Ok(())
+        })
+    }
 }
 
 /// Clé de métadonnée du périphérique d'entrée audio choisi (D-029).
 const META_VOICE_INPUT: &str = "voice.input_device";
 /// Clé de métadonnée du périphérique de sortie audio choisi (D-029).
 const META_VOICE_OUTPUT: &str = "voice.output_device";
+/// Meta key of the persisted master output volume (percent).
+const META_VOICE_MASTER_VOLUME: &str = "voice.volume.master";
 /// Longueur maximale d'un nom de périphérique audio (caractères).
 const DEVICE_NAME_MAX_CHARS: usize = 256;
+
+/// Meta key of a peer's persisted output volume (percent).
+fn peer_volume_key(pubkey: &[u8; 32]) -> String {
+    format!("voice.volume.{}", crate::hex::encode(pubkey))
+}
+
+/// Validates a volume percent (0..=200).
+fn validate_volume(volume: u16) -> Result<(), NodeError> {
+    if volume > accord_voice::gain::VOLUME_MAX_PCT {
+        return Err(NodeError::Invalid("volume hors bornes (0 à 200)"));
+    }
+    Ok(())
+}
+
+/// Reads a persisted volume (absent or unreadable ⇒ default 100 %; a corrupt
+/// value must never make voice unusable).
+fn read_volume_meta(db: &Db, key: &str) -> Result<u16, NodeError> {
+    let Some(bytes) = db.meta(key)? else {
+        return Ok(accord_voice::gain::VOLUME_DEFAULT_PCT);
+    };
+    let parsed = std::str::from_utf8(&bytes)
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .filter(|v| *v <= accord_voice::gain::VOLUME_MAX_PCT);
+    Ok(parsed.unwrap_or(accord_voice::gain::VOLUME_DEFAULT_PCT))
+}
 
 /// Valide un nom de périphérique audio : non vide, borné, sans caractère de
 /// contrôle. Le nom `cpal` est une clé exacte : aucun trim.
@@ -85,4 +146,45 @@ fn read_device_meta(db: &Db, key: &str) -> Result<Option<String>, NodeError> {
 fn write_device_meta(db: &Db, key: &str, choice: Option<&str>) -> Result<(), NodeError> {
     db.set_meta(key, choice.unwrap_or_default().as_bytes())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::node::Node;
+    use crate::outbound::OutboundSink;
+    use accord_crypto::Identity;
+
+    fn node() -> Node {
+        let id = Identity::generate_with_pow_bits(1);
+        let db = accord_core::db::Db::open_in_memory(&[1u8; 32]).unwrap();
+        Node::new(id, db, OutboundSink::null())
+    }
+
+    #[test]
+    fn volumes_default_to_hundred_percent() {
+        let n = node();
+        assert_eq!(n.voice_master_volume().unwrap(), 100);
+        assert_eq!(n.voice_peer_volume(&[7u8; 32]).unwrap(), 100);
+    }
+
+    #[test]
+    fn volumes_persist_per_peer_and_master() {
+        let n = node();
+        n.set_voice_master_volume(150).unwrap();
+        n.set_voice_peer_volume(&[7u8; 32], 0).unwrap();
+        n.set_voice_peer_volume(&[8u8; 32], 200).unwrap();
+        assert_eq!(n.voice_master_volume().unwrap(), 150);
+        assert_eq!(n.voice_peer_volume(&[7u8; 32]).unwrap(), 0);
+        assert_eq!(n.voice_peer_volume(&[8u8; 32]).unwrap(), 200);
+        // Other peers are untouched.
+        assert_eq!(n.voice_peer_volume(&[9u8; 32]).unwrap(), 100);
+    }
+
+    #[test]
+    fn out_of_range_volume_is_rejected() {
+        let n = node();
+        assert!(n.set_voice_master_volume(201).is_err());
+        assert!(n.set_voice_peer_volume(&[7u8; 32], 999).is_err());
+        assert_eq!(n.voice_master_volume().unwrap(), 100);
+    }
 }
