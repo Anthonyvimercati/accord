@@ -552,6 +552,13 @@ interface GroupsState {
     allow: number,
     deny: number,
   ) => Promise<void>;
+  /** Fixe le mode lent d'un salon en secondes (`0` = désactivé) puis recharge. */
+  setSlowmode: (groupId: string, channelId: string, seconds: number) => Promise<void>;
+  /**
+   * Remplace la liste des mots filtrés par l'AutoMod (masquage au rendu côté
+   * clients honnêtes) puis recharge l'état.
+   */
+  setAutomodWords: (groupId: string, words: string[]) => Promise<void>;
   deleteChannel: (groupId: string, channelId: string) => Promise<void>;
   addCategory: (groupId: string, name: string) => Promise<string>;
   renameCategory: (groupId: string, categoryId: string, name: string) => Promise<void>;
@@ -927,6 +934,16 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   setChannelPerms: async (groupId, channelId, roleId, allow, deny) => {
     await api.groupsChannelPerms(groupId, channelId, roleId, allow, deny);
+    await get().loadState(groupId);
+  },
+
+  setSlowmode: async (groupId, channelId, seconds) => {
+    await api.groupsChannelSlowmode(groupId, channelId, seconds);
+    await get().loadState(groupId);
+  },
+
+  setAutomodWords: async (groupId, words) => {
+    await api.groupsAutomodSet(groupId, words);
     await get().loadState(groupId);
   },
 

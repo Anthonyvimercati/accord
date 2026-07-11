@@ -16,6 +16,7 @@ import {
   channelKey,
   hasPerm,
   memberColor,
+  myChannelPermissions,
   nicknameOf,
   serverAvatarOf,
   sortRoles,
@@ -841,6 +842,35 @@ export function GroupView({
 
   const onActionError = (): void => toast('error', t.errors.actionFailed);
   const pinnedIds = new Set(pins ?? []);
+
+  // AutoMod du serveur : mots masqués au rendu du fil et avertissement
+  // émetteur dans le composeur (jamais transmis en MP).
+  const automodWords = state?.automod_words ?? [];
+
+  // Mode lent : échéance murale du prochain envoi permis — reproduit la règle
+  // d'exemption du nœud (`slowmode_exempt` : MANAGE_CHANNELS ou
+  // MANAGE_MESSAGES effectif dans le salon) à partir du dernier message de
+  // l'utilisateur courant dans l'historique chargé. `null` = aucune
+  // contrainte active ; le composeur tient lui-même le compte à rebours.
+  const slowmodeSecs = channel.slowmode_secs ?? 0;
+  let slowmodeUntilMs: number | null = null;
+  if (slowmodeSecs > 0 && state !== undefined && self !== null) {
+    const eff = myChannelPermissions(state, channelId, self.pubkey);
+    const exempt =
+      hasPerm(eff, PERMISSIONS.MANAGE_CHANNELS) ||
+      hasPerm(eff, PERMISSIONS.MANAGE_MESSAGES);
+    if (!exempt) {
+      let lastOwnMs: number | null = null;
+      for (const m of messages) {
+        if (m.author === self.pubkey) lastOwnMs = m.sent_ms;
+      }
+      if (lastOwnMs !== null) {
+        const until = lastOwnMs + slowmodeSecs * 1000;
+        slowmodeUntilMs = until > Date.now() ? until : null;
+      }
+    }
+  }
+
   const colorOf = (author: string): string | null =>
     state === undefined
       ? null
@@ -969,6 +999,7 @@ export function GroupView({
           colorOf={colorOf}
           emojiMap={emojiMap}
           knownMentions={knownMentions}
+          automodWords={automodWords}
           groupId={groupId}
         />
         {replyTo !== null && (
@@ -986,6 +1017,8 @@ export function GroupView({
           groupId={groupId}
           typingTarget={{ kind: 'group', groupId, channelId }}
           focusKey={replyTo?.msg_id ?? null}
+          automodWords={automodWords}
+          slowmodeUntilMs={slowmodeUntilMs}
           onSend={async (text, attachments) => {
             await send(groupId, channelId, text, replyTo?.msg_id, attachments);
             setReplyTo(null);

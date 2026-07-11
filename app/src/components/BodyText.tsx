@@ -4,6 +4,7 @@
  * pour les messages supprimés ou au corps non pris en charge.
  */
 
+import { maskFiltered } from '../lib/automod';
 import { useT } from '../stores/ui';
 import { MarkdownText } from './MarkdownText';
 import { displayText, type DisplayMessage } from './messageModel';
@@ -13,9 +14,17 @@ interface BodyTextProps {
   emojiMap?: ReadonlyMap<string, string> | undefined;
   knownMentions?: ReadonlySet<string> | undefined;
   roleColors?: ReadonlyMap<string, number> | undefined;
+  /** Mots filtrés par l'AutoMod du serveur, masqués au rendu (absent en MP). */
+  automodWords?: readonly string[] | undefined;
 }
 
-export function BodyText({ message, emojiMap, knownMentions, roleColors }: BodyTextProps) {
+export function BodyText({
+  message,
+  emojiMap,
+  knownMentions,
+  roleColors,
+  automodWords,
+}: BodyTextProps) {
   const t = useT();
   if (message.deleted) {
     return <em className="text-faint">{t.dm.deletedMessage}</em>;
@@ -24,10 +33,16 @@ export function BodyText({ message, emojiMap, knownMentions, roleColors }: BodyT
   if (text === null) {
     return <em className="text-faint">{t.dm.unsupported}</em>;
   }
+  // AutoMod appliqué au rendu (modèle serverless) : les clients honnêtes
+  // masquent, rien n'est supprimé du réseau.
+  const masked =
+    automodWords !== undefined && automodWords.length > 0
+      ? maskFiltered(text, automodWords)
+      : text;
   return (
     <span className="selectable whitespace-pre-wrap break-words">
       <MarkdownText
-        text={text}
+        text={masked}
         emojis={emojiMap}
         knownMentions={knownMentions}
         roleColors={roleColors}

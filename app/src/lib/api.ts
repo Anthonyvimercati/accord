@@ -184,6 +184,12 @@ export interface GroupChannel {
   category: string | null;
   position: number;
   topic: string;
+  /**
+   * Mode lent du salon (`groups.channel.slowmode`) : délai minimal en
+   * secondes entre deux messages d'un même auteur, `0` = désactivé.
+   * Optionnel par tolérance (nœud plus ancien).
+   */
+  slowmode_secs?: number;
 }
 
 export interface GroupCategory {
@@ -366,6 +372,12 @@ export interface GroupStateJson {
    * ancien) — question/options vivent dans le message (`groups.history`).
    */
   polls?: GroupPoll[];
+  /**
+   * Mots filtrés par l'AutoMod (`groups.automod.set`) : appliqués au rendu
+   * par les clients honnêtes (masquage, jamais de suppression réseau).
+   * Optionnel par tolérance (nœud plus ancien).
+   */
+  automod_words?: string[];
 }
 
 /**
@@ -997,6 +1009,31 @@ export class Api {
       ...(changes.position !== undefined ? { position: changes.position } : {}),
       ...(changes.category !== undefined ? { category: changes.category } : {}),
     });
+  }
+
+  /**
+   * Fixe le mode lent d'un salon : délai minimal en secondes entre deux
+   * messages d'un même auteur (`0` = désactivé). Le nœud refuse déjà les
+   * envois prématurés ; l'UI reflète la même règle (voir `slowmode_exempt`).
+   */
+  groupsChannelSlowmode(
+    groupId: string,
+    channelId: string,
+    seconds: number,
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.channel.slowmode', {
+      group_id: groupId,
+      channel_id: channelId,
+      seconds,
+    });
+  }
+
+  /**
+   * Remplace la liste des mots filtrés par l'AutoMod du groupe (masquage au
+   * rendu côté clients honnêtes — rien n'est supprimé du réseau).
+   */
+  groupsAutomodSet(groupId: string, words: string[]): Promise<{ ok: true }> {
+    return this.rpc.call('groups.automod.set', { group_id: groupId, words });
   }
 
   /**

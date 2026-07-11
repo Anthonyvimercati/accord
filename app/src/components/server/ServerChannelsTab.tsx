@@ -33,6 +33,17 @@ function kindLabel(t: Dict, kind: GroupChannelKind): string {
   return KINDS.find((k) => k.kind === kind)?.label(t) ?? kind;
 }
 
+/** Choix de mode lent proposés (secondes ; `0` = désactivé). */
+const SLOWMODE_CHOICES = [0, 5, 10, 30, 60, 300, 900, 3600] as const;
+
+/** Libellé d'un délai de mode lent : 5s, 10s, 30s, 1min, 5min, 15min, 1h. */
+function slowmodeLabel(t: Dict, seconds: number): string {
+  if (seconds === 0) return t.serveur.slowmodeOff;
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${seconds / 60}min`;
+  return `${seconds / 3600}h`;
+}
+
 /** Channel-scoped permission bits offered in the override editor. */
 const OVERRIDE_BITS: Array<{ bit: number; label: (t: Dict) => string }> = [
   { bit: PERMISSIONS.VIEW, label: (t) => t.serveur.permView },
@@ -141,19 +152,24 @@ function ChannelEditor({
   const renameChannel = useGroups((s) => s.renameChannel);
   const setChannelCategory = useGroups((s) => s.setChannelCategory);
   const setTopic = useGroups((s) => s.setTopic);
+  const setSlowmode = useGroups((s) => s.setSlowmode);
   const deleteChannel = useGroups((s) => s.deleteChannel);
   const [name, setName] = useState(channel.name);
   const [topic, setTopicDraft] = useState(channel.topic);
   const [category, setCategory] = useState(channel.category ?? '');
+  const [slowmode, setSlowmodeDraft] = useState(channel.slowmode_secs ?? 0);
   const [permsOpen, setPermsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const hasTopic = channel.kind !== 'voice';
+  // Le mode lent ne concerne que les salons où l'on écrit (pas les vocaux).
+  const hasSlowmode = channel.kind !== 'voice';
   const nameTrimmed = name.trim();
   const nameDirty = nameTrimmed !== channel.name && nameTrimmed !== '';
   const topicDirty = hasTopic && topic.trim() !== channel.topic;
   const categoryDirty = category !== (channel.category ?? '');
-  const dirty = nameDirty || topicDirty || categoryDirty;
+  const slowmodeDirty = hasSlowmode && slowmode !== (channel.slowmode_secs ?? 0);
+  const dirty = nameDirty || topicDirty || categoryDirty || slowmodeDirty;
 
   const save = async (): Promise<void> => {
     if (busy || !dirty) return;
@@ -168,6 +184,7 @@ function ChannelEditor({
           category === '' ? null : category,
         );
       }
+      if (slowmodeDirty) await setSlowmode(groupId, channel.channel_id, slowmode);
       toast('info', t.serveur.channelSaved);
     } catch (e) {
       toast('error', messageOf(e, t.errors.actionFailed));
@@ -225,6 +242,25 @@ function ChannelEditor({
             {state.categories.map((c) => (
               <option key={c.category_id} value={c.category_id}>
                 {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {hasSlowmode && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-xs font-medium uppercase text-faint">
+            {t.serveur.slowmodeLabel}
+          </span>
+          <select
+            aria-label={t.serveur.slowmodeLabel}
+            value={slowmode}
+            onChange={(e) => setSlowmodeDraft(Number(e.target.value))}
+            className="rounded-md bg-input px-2 py-1.5 text-sm text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+          >
+            {SLOWMODE_CHOICES.map((seconds) => (
+              <option key={seconds} value={seconds}>
+                {slowmodeLabel(t, seconds)}
               </option>
             ))}
           </select>

@@ -177,6 +177,8 @@ export const en: Dict = {
     // Read-only composer.
     timedOutNotice: 'You’re timed out — you can post again on {time}.',
     announcementReadOnly: 'Announcement channel — only managers can post.',
+    // Slow mode (composer countdown).
+    slowmodeWait: 'Slow mode — you can send a message in {seconds}s.',
     // Scheduled events.
     eventsEntry: 'Events',
     eventsBadge: '{count} upcoming event(s)',
@@ -226,6 +228,7 @@ export const en: Dict = {
     // Tabs.
     tabProfile: 'Profile',
     tabChannels: 'Channels',
+    tabAutomod: 'AutoMod',
     tabRoles: 'Roles',
     tabEmojis: 'Emojis',
     tabStickers: 'Stickers',
@@ -260,6 +263,9 @@ export const en: Dict = {
     channelSaved: 'Channel updated!',
     deleteChannel: 'Delete',
     deleteChannelConfirm: 'Delete #{name}? Its messages will be lost.',
+    // Per-channel slow mode.
+    slowmodeLabel: 'Slow mode',
+    slowmodeOff: 'Off',
     // Roles.
     newRoleTitle: 'New role',
     roleNamePlaceholder: 'Role name',
@@ -411,6 +417,22 @@ export const en: Dict = {
     auditAddEmoji: 'added the emoji :{name}:',
     auditDelEmoji: 'removed the emoji :{name}:',
     auditUnknown: 'performed an unknown action',
+  },
+  automod: {
+    hint:
+      'Filtered words are masked at display time on members’ clients (serverless model: nothing is removed from the network). Lowercase words, up to 32 characters, 100 words at most.',
+    count: 'Filtered words — {count}/100',
+    empty: 'No filtered words yet.',
+    addPlaceholder: 'Add a word to filter (Enter)',
+    addAction: 'Add',
+    removeWord: 'Remove {word}',
+    duplicate: 'This word is already in the list.',
+    wordTooLong: 'Word too long (32 characters max).',
+    limitReached: '100 words at most.',
+    save: 'Save',
+    saved: 'AutoMod list updated!',
+    senderWarning:
+      'This message contains a word filtered by AutoMod: it will be masked for other members.',
   },
   emoji: {
     pickerLabel: 'Emojis',

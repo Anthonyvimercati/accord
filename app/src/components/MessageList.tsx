@@ -94,6 +94,8 @@ export interface MessageListProps {
   emojiMap?: ReadonlyMap<string, string> | undefined;
   /** Noms connus (minuscules) mis en « pill » dans les mentions. */
   knownMentions?: ReadonlySet<string> | undefined;
+  /** Mots filtrés par l'AutoMod du serveur, masqués au rendu (absent en MP). */
+  automodWords?: readonly string[] | undefined;
   /** Contexte serveur (rôles au clic, émojis custom des réactions). */
   groupId?: string | null | undefined;
   /** Message à révéler (défilement + surbrillance) ; `nonce` rejoue le saut. */
@@ -109,6 +111,7 @@ export function MessageList({
   colorOf,
   emojiMap,
   knownMentions,
+  automodWords,
   groupId = null,
   scrollTarget = null,
 }: MessageListProps) {
@@ -593,6 +596,7 @@ export function MessageList({
                           emojiMap={emojiMap}
                           knownMentions={knownMentions}
                           roleColors={roleColors}
+                          automodWords={automodWords}
                         />
                       </div>
                     )

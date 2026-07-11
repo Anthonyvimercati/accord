@@ -17,6 +17,7 @@ import { useUi, useT } from '../../stores/ui';
 import { CloseIcon } from '../ContextMenu';
 import { ConfirmButton, messageOf } from './controls';
 import { ServerAuditTab } from './ServerAuditTab';
+import { ServerAutomodTab } from './ServerAutomodTab';
 import { ServerBansTab } from './ServerBansTab';
 import { ServerChannelsTab } from './ServerChannelsTab';
 import { ServerEmojisTab } from './ServerEmojisTab';
@@ -26,7 +27,15 @@ import { ServerRolesTab } from './ServerRolesTab';
 import { ServerStickersTab } from './ServerStickersTab';
 
 export type ServerTabId =
-  'profile' | 'channels' | 'roles' | 'emojis' | 'stickers' | 'members' | 'bans' | 'audit';
+  | 'profile'
+  | 'channels'
+  | 'automod'
+  | 'roles'
+  | 'emojis'
+  | 'stickers'
+  | 'members'
+  | 'bans'
+  | 'audit';
 
 interface ServerTab {
   id: ServerTabId;
@@ -39,6 +48,14 @@ interface ServerTab {
 const TABS: ServerTab[] = [
   { id: 'profile', label: (t) => t.serveur.tabProfile, Content: ServerProfileTab },
   { id: 'channels', label: (t) => t.serveur.tabChannels, Content: ServerChannelsTab },
+  {
+    id: 'automod',
+    label: (t) => t.serveur.tabAutomod,
+    Content: ServerAutomodTab,
+    // Le filtre de mots relève de la gestion du serveur (MANAGE_CHANNELS),
+    // comme la porte `groups.automod.set` côté nœud.
+    visible: (perms) => hasPerm(perms, PERMISSIONS.MANAGE_CHANNELS),
+  },
   { id: 'roles', label: (t) => t.serveur.tabRoles, Content: ServerRolesTab },
   {
     id: 'emojis',

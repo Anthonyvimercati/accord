@@ -794,3 +794,94 @@ describe('MessageInput — focus demandé par le parent (focusKey)', () => {
     await waitFor(() => expect(champ).toHaveFocus());
   });
 });
+
+describe('MessageInput — avertissement AutoMod émetteur', () => {
+  it('affiche l’avertissement quand le texte contient un mot filtré, sans bloquer l’envoi', async () => {
+    const onSend = vi.fn(async () => {});
+    render(<MessageInput placeholder="p" onSend={onSend} automodWords={['zut']} />);
+
+    const champ = screen.getByRole('textbox');
+    fireEvent.change(champ, { target: { value: 'oh zut alors' } });
+
+    expect(screen.getByRole('status').textContent).toMatch(/mot filtré/);
+
+    fireEvent.keyDown(champ, { key: 'Enter' });
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('oh zut alors', undefined));
+  });
+
+  it('aucun avertissement pour un mot filtré au milieu d’un autre mot ou sans liste', () => {
+    render(<MessageInput placeholder="p" onSend={vi.fn()} automodWords={['chat']} />);
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'le chaton dort' } });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'sans souci' } });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageInput — compte à rebours du mode lent', () => {
+  it('affiche le décompte et désactive l’envoi tant que l’échéance court', () => {
+    vi.useFakeTimers();
+    try {
+      const onSend = vi.fn(async () => {});
+      render(
+        <MessageInput
+          placeholder="p"
+          onSend={onSend}
+          slowmodeUntilMs={Date.now() + 3000}
+        />,
+      );
+
+      expect(screen.getByRole('status').textContent).toBe('3s');
+
+      const champ = screen.getByRole('textbox');
+      fireEvent.change(champ, { target: { value: 'bonjour' } });
+      expect(screen.getByRole('button', { name: 'Envoyer' })).toBeDisabled();
+
+      // Entrée n'envoie pas non plus pendant le mode lent.
+      fireEvent.keyDown(champ, { key: 'Enter' });
+      expect(onSend).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('décompte chaque seconde puis réactive l’envoi à expiration', () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <MessageInput
+          placeholder="p"
+          onSend={vi.fn()}
+          slowmodeUntilMs={Date.now() + 2000}
+        />,
+      );
+
+      expect(screen.getByRole('status').textContent).toBe('2s');
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.getByRole('status').textContent).toBe('1s');
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'bonjour' } });
+      expect(screen.getByRole('button', { name: 'Envoyer' })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sans échéance (null), aucun indicateur et envoi permis', () => {
+    render(<MessageInput placeholder="p" onSend={vi.fn()} slowmodeUntilMs={null} />);
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'bonjour' } });
+    expect(screen.getByRole('button', { name: 'Envoyer' })).toBeEnabled();
+  });
+});

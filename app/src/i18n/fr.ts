@@ -177,6 +177,8 @@ export const fr = {
     // Composeur en lecture seule.
     timedOutNotice: 'Vous êtes en sourdine — vous pourrez écrire à nouveau le {time}.',
     announcementReadOnly: 'Salon d’annonces — seuls les gestionnaires peuvent écrire.',
+    // Mode lent (compte à rebours du composeur).
+    slowmodeWait: 'Mode lent — vous pourrez envoyer un message dans {seconds} s.',
     // Événements planifiés.
     eventsEntry: 'Événements',
     eventsBadge: '{count} événement(s) à venir',
@@ -226,6 +228,7 @@ export const fr = {
     // Onglets.
     tabProfile: 'Profil',
     tabChannels: 'Salons',
+    tabAutomod: 'AutoMod',
     tabRoles: 'Rôles',
     tabEmojis: 'Émojis',
     tabStickers: 'Stickers',
@@ -260,6 +263,9 @@ export const fr = {
     channelSaved: 'Salon mis à jour !',
     deleteChannel: 'Supprimer',
     deleteChannelConfirm: 'Supprimer #{name} ? Ses messages seront perdus.',
+    // Mode lent par salon.
+    slowmodeLabel: 'Mode lent',
+    slowmodeOff: 'Désactivé',
     // Rôles.
     newRoleTitle: 'Nouveau rôle',
     roleNamePlaceholder: 'Nom du rôle',
@@ -418,6 +424,22 @@ export const fr = {
     auditAddEmoji: 'a ajouté l’émoji :{name}:',
     auditDelEmoji: 'a supprimé l’émoji :{name}:',
     auditUnknown: 'a effectué une action inconnue',
+  },
+  automod: {
+    hint:
+      'Les mots filtrés sont masqués à l’affichage chez les membres (modèle sans serveur : rien n’est supprimé du réseau). Mots en minuscules, 32 caractères au plus, 100 mots au maximum.',
+    count: 'Mots filtrés — {count}/100',
+    empty: 'Aucun mot filtré pour le moment.',
+    addPlaceholder: 'Ajouter un mot à filtrer (Entrée)',
+    addAction: 'Ajouter',
+    removeWord: 'Retirer {word}',
+    duplicate: 'Ce mot est déjà dans la liste.',
+    wordTooLong: 'Mot trop long (32 caractères au plus).',
+    limitReached: '100 mots au maximum.',
+    save: 'Enregistrer',
+    saved: 'Liste AutoMod mise à jour !',
+    senderWarning:
+      'Ce message contient un mot filtré par l’AutoMod : il sera masqué chez les autres membres.',
   },
   emoji: {
     pickerLabel: 'Émojis',

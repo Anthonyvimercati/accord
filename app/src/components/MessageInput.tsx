@@ -15,6 +15,7 @@ import {
   fichierEnDataUrl,
   validerAjout,
 } from '../lib/attachments';
+import { containsFiltered } from '../lib/automod';
 import { jetonTexteEmoji, type EmojiPick } from '../lib/emoji';
 import {
   findActiveMention,
@@ -85,6 +86,17 @@ interface MessageInputProps {
   typingTarget?: TypingTarget | undefined;
   /** Quand cette clé devient non-nulle (ex. msg_id d'une réponse), le champ prend le focus. */
   focusKey?: string | null;
+  /**
+   * Mots filtrés par l'AutoMod du serveur (vue groupe seulement) : un texte
+   * saisi qui en contient déclenche un avertissement — sans bloquer l'envoi.
+   */
+  automodWords?: readonly string[] | undefined;
+  /**
+   * Échéance murale (ms) du mode lent : envoi désactivé et compte à rebours
+   * affiché jusque-là. `null`/absent = pas de mode lent actif. Le tick d'une
+   * seconde vit ici — l'expiration réactive l'envoi sans re-render du parent.
+   */
+  slowmodeUntilMs?: number | null;
 }
 
 let prochainId = 1;
@@ -95,6 +107,8 @@ export function MessageInput({
   groupId = null,
   typingTarget,
   focusKey = null,
+  automodWords,
+  slowmodeUntilMs = null,
 }: MessageInputProps) {
   const t = useT();
   const lang = useUi((s) => s.lang);
@@ -115,6 +129,30 @@ export function MessageInput({
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
+  /** Secondes restantes du mode lent (0 : envoi permis). */
+  const [slowmodeRemaining, setSlowmodeRemaining] = useState(0);
+
+  // Compte à rebours du mode lent : tick local d'une seconde, interval
+  // nettoyé au changement d'échéance comme au démontage. Quand le compte
+  // atteint zéro, l'interval s'arrête de lui-même — l'envoi se réactive sans
+  // re-render global (la prop du parent n'a pas changé).
+  useEffect(() => {
+    if (slowmodeUntilMs === null) {
+      setSlowmodeRemaining(0);
+      return;
+    }
+    const restant = (): number =>
+      Math.max(0, Math.ceil((slowmodeUntilMs - Date.now()) / 1000));
+    setSlowmodeRemaining(restant());
+    const id = window.setInterval(() => {
+      const secondes = restant();
+      setSlowmodeRemaining(secondes);
+      if (secondes === 0) window.clearInterval(id);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [slowmodeUntilMs]);
+
+  const slowmodeActive = slowmodeRemaining > 0;
 
   /* @mention autocomplete: candidates from the group state (members, roles
    * and the two broadcasts); no candidates in a direct message. */
@@ -263,7 +301,7 @@ export function MessageInput({
 
   const submit = async (): Promise<void> => {
     const trimmed = text.trim();
-    if ((trimmed === '' && pieces.length === 0) || sending) return;
+    if ((trimmed === '' && pieces.length === 0) || sending || slowmodeActive) return;
     setSending(true);
     try {
       // Publication séquentielle des pièces dans le magasin local.
@@ -364,6 +402,14 @@ export function MessageInput({
   }, []);
 
   const publierEnCours = sending && pieces.length > 0;
+
+  // Avertissement émetteur AutoMod : le texte saisi contient un mot filtré du
+  // serveur — purement informatif, l'envoi reste permis (le masquage se fait
+  // au rendu chez les clients honnêtes).
+  const automodWarn =
+    automodWords !== undefined &&
+    automodWords.length > 0 &&
+    containsFiltered(text, automodWords);
 
   // Composeur en lecture seule : sourdine active de l'utilisateur local, ou
   // salon d'annonces sans MANAGE_CHANNELS effectif. Le fil reste consultable.
@@ -558,6 +604,11 @@ export function MessageInput({
           {erreur}
         </p>
       )}
+      {automodWarn && (
+        <p className="mb-1 px-1 text-sm text-yellow" role="status">
+          {t.automod.senderWarning}
+        </p>
+      )}
       <div
         className={`relative flex items-end gap-0.5 rounded-xl border bg-input px-1.5 py-1 shadow-1 transition-colors duration-fast focus-within:border-blurple/50 ${
           pieces.length > 0 ? 'rounded-t-none' : ''
@@ -735,6 +786,34 @@ export function MessageInput({
           }}
           className="max-h-48 min-h-[40px] flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
         />
+        {slowmodeActive && !recording && (
+          <span
+            role="status"
+            title={interpolate(t.groups.slowmodeWait, {
+              seconds: String(slowmodeRemaining),
+            })}
+            aria-label={interpolate(t.groups.slowmodeWait, {
+              seconds: String(slowmodeRemaining),
+            })}
+            className="mx-1 flex shrink-0 select-none items-center gap-1 self-center text-[13px] tabular-nums text-muted"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            <span aria-hidden>{slowmodeRemaining}s</span>
+          </span>
+        )}
         {recording ? (
           <>
             <button
@@ -840,7 +919,9 @@ export function MessageInput({
               type="button"
               aria-label={t.app.send}
               title={t.app.send}
-              disabled={(text.trim() === '' && pieces.length === 0) || sending}
+              disabled={
+                (text.trim() === '' && pieces.length === 0) || sending || slowmodeActive
+              }
               onClick={() => void submit()}
               className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
             >
