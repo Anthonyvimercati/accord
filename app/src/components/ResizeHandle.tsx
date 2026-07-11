@@ -127,10 +127,15 @@ export function ResizeHandle({
       onKeyDown={onKeyDown}
       className={`group relative z-10 w-1.5 shrink-0 select-none touch-none cursor-col-resize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 ${ringOffsetClassName}`}
     >
+      {/*
+       * Aucun indicateur visuel au survol (retour utilisateur : la ligne
+       * bleue était intrusive) — le curseur col-resize suffit. Un fin
+       * liseré neutre n'apparaît que PENDANT le glissement, comme repère.
+       */}
       <span
         aria-hidden
-        className={`pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-blurple opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100 ${
-          isDragging ? 'opacity-100' : ''
+        className={`pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-norm/20 transition-opacity duration-fast ${
+          isDragging ? 'opacity-100' : 'opacity-0'
         }`}
       />
     </div>
