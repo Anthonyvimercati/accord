@@ -1057,14 +1057,40 @@ impl Runtime {
             }
             return;
         }
+        // Signalisation d'appel 1-à-1 : éphémère, routée vers le moteur voix
+        // sans passer par la base (amitié, cadence et corrélation stricte y
+        // sont vérifiées ; jamais mise en file hors-ligne).
+        if matches!(
+            core_msg,
+            CoreMsg::CallOffer { .. }
+                | CoreMsg::CallAnswer { .. }
+                | CoreMsg::CallDecline { .. }
+                | CoreMsg::CallHangup { .. }
+        ) {
+            if let Some(voice) = self.voice.get() {
+                voice.peer_call(*static_pub, core_msg);
+            }
+            return;
+        }
         // Un accusé applicatif solde l'élément d'outbox correspondant.
         if let CoreMsg::MsgAck { msg_id } = &core_msg {
             if let Err(e) = self.node.outbox_ack(static_pub, msg_id) {
                 tracing::debug!(erreur = %e, "core : purge d'outbox sur accusé impossible");
             }
         }
+        // Une op de groupe ingérée peut changer la modération vocale ou les
+        // priorités d'orateur : le moteur voix rafraîchit son cache.
+        let voice_refresh = match &core_msg {
+            CoreMsg::GroupOpMsg { op } => Some(op.group_id),
+            _ => None,
+        };
         match self.node.ingest_core(static_pub, core_msg) {
             Ok(replies) => {
+                if let Some(group_id) = voice_refresh {
+                    if let Some(voice) = self.voice.get() {
+                        voice.group_changed(group_id);
+                    }
+                }
                 for reply in replies {
                     self.deliver_core(static_pub, reply).await;
                 }

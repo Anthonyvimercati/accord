@@ -7,6 +7,7 @@
 //! des trames reçues, signalisation `VoiceSignal` (canal CORE) et présence
 //! des salons. Le reste du nœud lui parle par un [`VoiceHandle`] clonable.
 
+pub(crate) mod calls;
 mod engine;
 mod roster;
 
@@ -16,12 +17,15 @@ mod hw;
 use std::sync::Arc;
 
 use accord_api::NotificationHub;
+use accord_proto::core_msg::CoreMsg;
 use accord_proto::plaintext::VoiceMsg;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::NodeError;
 use crate::node::Node;
 use crate::outbound::OutboundSink;
+
+pub use calls::{CallPhase, CallSnapshot};
 
 /// Mode d'exécution du sous-système voix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,15 +54,25 @@ pub struct VoiceParticipant {
     /// Local output volume for this participant in percent (0..=200,
     /// persisted per public key, 100 = unity).
     pub volume: u16,
+    /// Force-muted by a group moderator (op 0x1F, group rooms only).
+    pub server_muted: bool,
+    /// Force-deafened by a group moderator (op 0x1F, group rooms only).
+    pub server_deafened: bool,
+    /// Holds the `PRIORITY_SPEAKER` permission in this group: while speaking,
+    /// the other participants are ducked locally.
+    pub priority_speaker: bool,
 }
 
 /// État du salon vocal actif.
 #[derive(Debug, Clone)]
 pub struct VoiceStatus {
-    /// Groupe du salon.
+    /// Groupe du salon (tout à zéro pour la session audio d'un appel 1-à-1).
     pub group_id: [u8; 16],
-    /// Salon vocal (par convention UI, `channel_id == group_id`).
+    /// Salon vocal (par convention UI, `channel_id == group_id` ; pour un
+    /// appel 1-à-1, `channel_id == call_id`).
     pub channel_id: [u8; 16],
+    /// Vrai si la session active est celle d'un appel 1-à-1.
+    pub is_call: bool,
     /// Micro local coupé.
     pub muted: bool,
     /// Local output deafened (implies `muted`, Discord semantics).
@@ -172,6 +186,66 @@ pub(crate) enum Cmd {
         enabled: bool,
         /// Réponse : erreur explicite si le matériel audio est indisponible.
         resp: oneshot::Sender<Result<(), NodeError>>,
+    },
+    /// `calls.start` : lance un appel 1-à-1 vers un ami.
+    CallStart {
+        /// Appelé (clé publique Ed25519).
+        peer: [u8; 32],
+        /// Réponse : identifiant d'appel, ou erreur explicite (non-ami,
+        /// appel déjà en cours).
+        resp: oneshot::Sender<Result<[u8; 16], NodeError>>,
+    },
+    /// `calls.accept` : accepte la sonnerie entrante.
+    CallAccept {
+        /// Appel accepté (doit corréler la sonnerie courante).
+        call_id: [u8; 16],
+        /// Réponse : erreur explicite si aucun appel entrant ne corrèle.
+        resp: oneshot::Sender<Result<(), NodeError>>,
+    },
+    /// `calls.decline` : refuse la sonnerie entrante.
+    CallDecline {
+        /// Appel refusé (doit corréler la sonnerie courante).
+        call_id: [u8; 16],
+        /// Réponse : erreur explicite si aucun appel entrant ne corrèle.
+        resp: oneshot::Sender<Result<(), NodeError>>,
+    },
+    /// `calls.hangup` : termine l'appel courant (toute phase, idempotent).
+    CallHangup {
+        /// Accusé de traitement.
+        resp: oneshot::Sender<()>,
+    },
+    /// `calls.status` : photographie de l'appel courant.
+    CallStatus {
+        /// Réponse : phase, pair et identifiant le cas échéant.
+        resp: oneshot::Sender<CallSnapshot>,
+    },
+    /// Message d'appel (`CallOffer`/`CallAnswer`/`CallDecline`/`CallHangup`)
+    /// reçu d'un pair authentifié (routé par le runtime).
+    PeerCall {
+        /// Émetteur (clé de session).
+        from: [u8; 32],
+        /// Message d'appel (les autres variantes sont ignorées).
+        msg: CoreMsg,
+    },
+    /// Réglages DSP de capture (persistés, appliqués à chaud).
+    SetDsp {
+        /// Suppression de bruit : `None` = inchangée.
+        noise_suppression: Option<bool>,
+        /// Contrôle automatique de gain : `None` = inchangé.
+        agc: Option<bool>,
+        /// Réponse : erreur si la persistance échoue.
+        resp: oneshot::Sender<Result<(), NodeError>>,
+    },
+    /// Réglages DSP courants `(suppression de bruit, AGC)`.
+    DspConfig {
+        /// Réponse : drapeaux courants.
+        resp: oneshot::Sender<(bool, bool)>,
+    },
+    /// L'op-log d'un groupe a changé : rafraîchit la modération vocale et la
+    /// priorité d'orateur du salon actif le cas échéant.
+    GroupChanged {
+        /// Groupe modifié.
+        group_id: [u8; 16],
     },
     /// Signalisation `VoiceSignal` reçue d'un pair authentifié.
     PeerSignal {
@@ -336,6 +410,95 @@ impl VoiceHandle {
             .send(Cmd::MicTest { enabled, resp })
             .map_err(|_| Self::stopped())?;
         rx.await.map_err(|_| Self::stopped())?
+    }
+
+    /// Lance un appel 1-à-1 vers un ami confirmé ; rend l'identifiant
+    /// d'appel. Erreur explicite si l'appelé n'est pas un ami ou si un appel
+    /// est déjà en cours (état « occupé »).
+    pub async fn call_start(&self, peer: [u8; 32]) -> Result<[u8; 16], NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::CallStart { peer, resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())?
+    }
+
+    /// Accepte la sonnerie entrante identifiée par `call_id` : la session
+    /// audio démarre (le salon vocal actif éventuel est quitté).
+    pub async fn call_accept(&self, call_id: [u8; 16]) -> Result<(), NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::CallAccept { call_id, resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())?
+    }
+
+    /// Refuse la sonnerie entrante identifiée par `call_id`.
+    pub async fn call_decline(&self, call_id: [u8; 16]) -> Result<(), NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::CallDecline { call_id, resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())?
+    }
+
+    /// Termine l'appel courant, quelle que soit sa phase (annule une
+    /// sonnerie sortante, refuse une entrante, raccroche un appel actif).
+    /// Idempotent au repos.
+    pub async fn call_hangup(&self) -> Result<(), NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::CallHangup { resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())
+    }
+
+    /// Photographie de l'appel courant (`idle` au repos).
+    pub async fn call_status(&self) -> Result<CallSnapshot, NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::CallStatus { resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())
+    }
+
+    /// Transmet un message d'appel reçu d'un pair authentifié (point
+    /// d'entrée du routeur réseau ; les variantes non-appel sont ignorées).
+    pub fn peer_call(&self, from: [u8; 32], msg: CoreMsg) {
+        let _ = self.tx.send(Cmd::PeerCall { from, msg });
+    }
+
+    /// Règle la chaîne DSP de capture (champ `None` = inchangé) ; persisté
+    /// et appliqué à chaud à la session active.
+    pub async fn set_dsp(
+        &self,
+        noise_suppression: Option<bool>,
+        agc: Option<bool>,
+    ) -> Result<(), NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::SetDsp {
+                noise_suppression,
+                agc,
+                resp,
+            })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())?
+    }
+
+    /// Réglages DSP courants `(suppression de bruit, AGC)`.
+    pub async fn dsp_config(&self) -> Result<(bool, bool), NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::DspConfig { resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())
+    }
+
+    /// Signale un changement d'op-log de groupe (modération vocale,
+    /// priorités) ; sans effet hors du salon actif de ce groupe.
+    pub fn group_changed(&self, group_id: [u8; 16]) {
+        let _ = self.tx.send(Cmd::GroupChanged { group_id });
     }
 
     /// Injecte une trame PCM (960 échantillons mono 48 kHz) comme capture

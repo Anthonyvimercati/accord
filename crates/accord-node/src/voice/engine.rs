@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use accord_api::NotificationHub;
+use accord_core::group::GroupState;
 use accord_proto::core_msg::CoreMsg;
 use accord_proto::limits::VOICE_MAX_PARTICIPANTS;
 use accord_proto::plaintext::VoiceMsg;
@@ -19,9 +20,11 @@ use accord_voice::gain;
 use accord_voice::params::{FRAME_MS, FRAME_SAMPLES};
 use accord_voice::room::CodecFactory;
 use accord_voice::{Pcm8Codec, VoiceRoom};
+use rand::RngCore;
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use super::calls::{CallAction, CallMachine};
 use super::roster::{Roster, RosterEvent, ACTIVE_TIMEOUT_MS, PASSIVE_TTL_MS};
 use super::{
     Cmd, FrameSender, VoiceBackend, VoiceDeps, VoiceDevices, VoiceParticipant, VoiceStatus,
@@ -56,6 +59,43 @@ const MAX_INJECTED_FRAMES: usize = 64;
 #[cfg(feature = "hardware")]
 const LEVEL_PERIOD_TICKS: u64 = 5;
 
+/// `group_id` sentinelle des sessions audio d'appel 1-à-1 (les identifiants
+/// de groupe réels sont tirés aléatoirement : la collision est négligeable).
+const CALL_GROUP_SENTINEL: [u8; 16] = [0u8; 16];
+
+/// Atténuation appliquée aux participants non prioritaires pendant qu'un
+/// orateur prioritaire parle (priority speaker, ≈ −10 dB).
+const PRIORITY_DUCK: f32 = 0.3;
+
+/// Drapeaux de modération vocale et de priorité d'un participant du salon de
+/// groupe actif (repli de l'op-log, cache rafraîchi sur changement).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct ModFlags {
+    /// Micro forcé coupé par un modérateur (op 0x1F).
+    muted: bool,
+    /// Sortie forcée coupée par un modérateur (op 0x1F).
+    deafened: bool,
+    /// Porteur de la permission `PRIORITY_SPEAKER`.
+    priority: bool,
+}
+
+/// Drapeaux de modération/priorité de `pk` d'après l'état replié du groupe.
+fn mod_flags_of(state: &GroupState, pk: &[u8; 32]) -> ModFlags {
+    let moderation = state.voice_moderation_of(pk);
+    ModFlags {
+        muted: moderation.mute,
+        deafened: moderation.deafen,
+        priority: state.is_priority_speaker(pk),
+    }
+}
+
+/// Identifiant d'appel frais (16 octets aléatoires).
+fn new_call_id() -> [u8; 16] {
+    let mut id = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut id);
+    id
+}
+
 /// Erreur uniforme quand la capture réelle n'existe pas (mode simulé ou
 /// feature `hardware` absente) — message du contrat gelé (D-029).
 fn audio_unavailable() -> NodeError {
@@ -71,10 +111,13 @@ fn audio_error(e: accord_voice::IoError) -> NodeError {
 /// Identifiant d'un salon : (groupe, salon).
 type RoomKey = ([u8; 16], [u8; 16]);
 
-/// Salon vocal actif (celui que l'on a rejoint).
+/// Salon vocal actif (celui que l'on a rejoint) ou session audio d'appel.
 struct Active {
     group_id: [u8; 16],
     channel_id: [u8; 16],
+    /// Session audio d'un appel 1-à-1 (`group_id` sentinelle,
+    /// `channel_id == call_id`) : pas de signalisation de groupe.
+    is_call: bool,
     /// Effective mute (forced to `true` while deafened).
     muted: bool,
     /// Local output deafened (session-scoped, never persisted).
@@ -139,6 +182,15 @@ pub(crate) struct Engine {
     input_device: Option<String>,
     /// Périphérique de sortie choisi (`None` = défaut ; persisté, D-029).
     output_device: Option<String>,
+    /// Machine d'états des appels 1-à-1 (sonnerie, occupé, timeout).
+    calls: CallMachine,
+    /// Modération vocale et priorité des participants du salon de GROUPE
+    /// actif (vide pour un appel ; rafraîchi à l'entrée et sur op de groupe).
+    mod_flags: HashMap<[u8; 32], ModFlags>,
+    /// Suppression de bruit de capture (persistée, appliquée à chaud).
+    dsp_noise_suppression: bool,
+    /// Contrôle automatique de gain de capture (persisté, appliqué à chaud).
+    dsp_agc: bool,
     #[cfg(feature = "hardware")]
     hw: Option<super::hw::HardwareIo>,
     /// Test micro en cours (`event.voice_level` à ~10 Hz, D-029).
@@ -188,6 +240,12 @@ impl Engine {
             tracing::warn!(erreur = %e, "voix : volume principal illisible, défaut appliqué");
             gain::VOLUME_DEFAULT_PCT
         });
+        // Réglages DSP persistés ; illisibles = tout désactivé.
+        let (dsp_noise_suppression, dsp_agc) = deps.node.voice_dsp_config().unwrap_or_else(|e| {
+            tracing::warn!(erreur = %e, "voix : réglages DSP illisibles, défauts appliqués");
+            (false, false)
+        });
+        let me = deps.node.public_key();
         Self {
             node: deps.node,
             outbound: deps.outbound,
@@ -202,6 +260,10 @@ impl Engine {
             peer_volumes: HashMap::new(),
             input_device,
             output_device,
+            calls: CallMachine::new(me),
+            mod_flags: HashMap::new(),
+            dsp_noise_suppression,
+            dsp_agc,
             #[cfg(feature = "hardware")]
             hw: None,
             #[cfg(feature = "hardware")]
@@ -243,7 +305,7 @@ impl Engine {
                 let _ = resp.send(self.handle_join(group_id, channel_id));
             }
             Cmd::Leave { resp } => {
-                self.leave_active();
+                self.leave_or_hangup();
                 let _ = resp.send(());
             }
             Cmd::Mute { muted, resp } => {
@@ -276,6 +338,52 @@ impl Engine {
             Cmd::MicTest { enabled, resp } => {
                 let _ = resp.send(self.handle_mic_test(enabled).await);
             }
+            Cmd::CallStart { peer, resp } => {
+                let _ = resp.send(self.handle_call_start(peer));
+            }
+            Cmd::CallAccept { call_id, resp } => {
+                let result = self
+                    .calls
+                    .accept(call_id, self.now_ms())
+                    .map_err(NodeError::Invalid);
+                let _ = resp.send(match result {
+                    Ok(actions) => {
+                        self.run_call_actions(actions);
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                });
+            }
+            Cmd::CallDecline { call_id, resp } => {
+                let result = self.calls.decline(call_id).map_err(NodeError::Invalid);
+                let _ = resp.send(match result {
+                    Ok(actions) => {
+                        self.run_call_actions(actions);
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                });
+            }
+            Cmd::CallHangup { resp } => {
+                let actions = self.calls.hangup();
+                self.run_call_actions(actions);
+                let _ = resp.send(());
+            }
+            Cmd::CallStatus { resp } => {
+                let _ = resp.send(self.calls.snapshot());
+            }
+            Cmd::PeerCall { from, msg } => self.handle_peer_call(from, msg),
+            Cmd::SetDsp {
+                noise_suppression,
+                agc,
+                resp,
+            } => {
+                let _ = resp.send(self.handle_set_dsp(noise_suppression, agc));
+            }
+            Cmd::DspConfig { resp } => {
+                let _ = resp.send((self.dsp_noise_suppression, self.dsp_agc));
+            }
+            Cmd::GroupChanged { group_id } => self.refresh_moderation(group_id),
             Cmd::PeerSignal {
                 from,
                 group_id,
@@ -294,12 +402,16 @@ impl Engine {
         }
     }
 
-    /// Rejoint un salon ; quitte l'ancien implicitement (contrat gelé).
+    /// Rejoint un salon ; quitte l'ancien implicitement (contrat gelé). Un
+    /// appel 1-à-1 ACTIF est raccroché (le salon prend la session audio) ;
+    /// une simple sonnerie survit.
     fn handle_join(
         &mut self,
         group_id: [u8; 16],
         channel_id: [u8; 16],
     ) -> Result<Vec<[u8; 32]>, NodeError> {
+        let takeover = self.calls.on_room_takeover();
+        self.run_call_actions(takeover);
         let me = self.node.public_key();
         let state = self
             .node
@@ -328,6 +440,8 @@ impl Engine {
         let now = self.now_ms();
         let mut room = VoiceRoom::new(channel_id, codec_factory(self.backend));
         room.set_master_gain(gain::gain_of_pct(self.master_volume));
+        room.set_noise_suppression(self.dsp_noise_suppression);
+        room.set_agc(self.dsp_agc);
         let mut events = Vec::new();
         let (existing, participants) = {
             let roster = self.rooms.entry(key).or_default();
@@ -361,12 +475,74 @@ impl Engine {
         self.active = Some(Active {
             group_id,
             channel_id,
+            is_call: false,
             muted: false,
             deafened: false,
             mute_restore: false,
             room,
         });
+        self.refresh_moderation(group_id);
         Ok(participants)
+    }
+
+    /// Démarre la session audio d'un appel accepté : salon dédié
+    /// (`room == call_id`), participants figés à { moi, pair }, aucune
+    /// signalisation de groupe.
+    fn join_call_room(&mut self, peer: [u8; 32], call_id: [u8; 16]) {
+        self.leave_active();
+        let me = self.node.public_key();
+        let now = self.now_ms();
+        let mut room = VoiceRoom::new(call_id, codec_factory(self.backend));
+        room.set_master_gain(gain::gain_of_pct(self.master_volume));
+        room.set_noise_suppression(self.dsp_noise_suppression);
+        room.set_agc(self.dsp_agc);
+        let volume = self.volume_for(&peer);
+        let _ = room.add_participant(peer);
+        room.set_peer_gain(&peer, gain::gain_of_pct(volume));
+        let key = (CALL_GROUP_SENTINEL, call_id);
+        let mut events = Vec::new();
+        {
+            let roster = self.rooms.entry(key).or_default();
+            if roster.join(me, now).unwrap_or(false) {
+                events.push(RosterEvent::Joined(me));
+            }
+            if roster.join(peer, now).unwrap_or(false) {
+                events.push(RosterEvent::Joined(peer));
+            }
+        }
+        for event in &events {
+            self.emit_room(key, event);
+        }
+        #[cfg(feature = "hardware")]
+        if self.backend == VoiceBackend::Materiel {
+            // La session d'appel prend la main sur la capture.
+            self.mic_test = None;
+            self.hw = Some(super::hw::HardwareIo::open(
+                self.input_device.clone(),
+                self.output_device.clone(),
+            ));
+        }
+        self.mod_flags.clear();
+        self.active = Some(Active {
+            group_id: CALL_GROUP_SENTINEL,
+            channel_id: call_id,
+            is_call: true,
+            muted: false,
+            deafened: false,
+            mute_restore: false,
+            room,
+        });
+    }
+
+    /// `voice.leave` : quitter la session active. Pour la session audio d'un
+    /// appel, quitter = raccrocher (signalisation d'appel comprise).
+    fn leave_or_hangup(&mut self) {
+        if self.active.as_ref().is_some_and(|a| a.is_call) {
+            let actions = self.calls.hangup();
+            self.run_call_actions(actions);
+            return;
+        }
+        self.leave_active();
     }
 
     /// Persisted output volume of a peer, through the in-engine cache.
@@ -382,20 +558,25 @@ impl Engine {
         volume
     }
 
-    /// Quitte le salon actif : signal de départ, événements, libération du
-    /// matériel. Sans effet hors salon.
+    /// Quitte le salon actif : signal de départ (salons de groupe
+    /// uniquement), événements, libération du matériel. Sans effet hors
+    /// salon. La présence d'un salon d'appel est retirée entièrement (aucune
+    /// notion de présence passive pour un appel terminé).
     fn leave_active(&mut self) {
         let Some(active) = self.active.take() else {
             return;
         };
         let key = active.key();
-        self.broadcast_signal(
-            active.group_id,
-            active.channel_id,
-            ACTION_LEAVE,
-            active.muted,
-            active.deafened,
-        );
+        if !active.is_call {
+            self.broadcast_signal(
+                active.group_id,
+                active.channel_id,
+                ACTION_LEAVE,
+                active.muted,
+                active.deafened,
+            );
+        }
+        self.mod_flags.clear();
         let me = self.node.public_key();
         let mut events = Vec::new();
         if let Some(roster) = self.rooms.get_mut(&key) {
@@ -404,6 +585,15 @@ impl Engine {
             }
             if roster.leave(&me) {
                 events.push(RosterEvent::Left(me));
+            }
+            if active.is_call {
+                // Fin d'appel : le pair sort du roster avec nous.
+                let peer_left: Vec<[u8; 32]> = roster.pubkeys();
+                for pk in peer_left {
+                    if roster.leave(&pk) {
+                        events.push(RosterEvent::Left(pk));
+                    }
+                }
             }
             if roster.is_empty() {
                 self.rooms.remove(&key);
@@ -435,8 +625,11 @@ impl Engine {
 
     /// `voice.deafen` : stops (or restores) decoding/playing every incoming
     /// voice locally. Deafen forces mute; undeafen restores the last
-    /// requested mute state. Idempotent; no effect outside a channel.
+    /// requested mute state. Idempotent; no effect outside a channel. A
+    /// server-side deafen (op 0x1F) keeps the room deafened regardless.
     fn handle_deafen(&mut self, deafened: bool) {
+        let me = self.node.public_key();
+        let server_deafened = self.mod_flags.get(&me).is_some_and(|f| f.deafened);
         let Some(active) = self.active.as_mut() else {
             return;
         };
@@ -445,7 +638,7 @@ impl Engine {
         }
         active.deafened = deafened;
         active.muted = if deafened { true } else { active.mute_restore };
-        active.room.set_deafened(deafened);
+        active.room.set_deafened(deafened || server_deafened);
         self.apply_local_voice_state();
     }
 
@@ -479,7 +672,9 @@ impl Engine {
         for event in &events {
             self.emit_room(key, event);
         }
-        self.broadcast_signal(gid, cid, ACTION_STATE, muted, deafened);
+        if !self.active.as_ref().is_some_and(|a| a.is_call) {
+            self.broadcast_signal(gid, cid, ACTION_STATE, muted, deafened);
+        }
     }
 
     /// `voice.set_volume` : validates, persists (meta table, keyed by peer
@@ -508,9 +703,10 @@ impl Engine {
     fn handle_status(&mut self) -> Option<VoiceStatus> {
         let active = self.active.as_ref()?;
         let key = active.key();
-        let (group_id, channel_id, muted, deafened) = (
+        let (group_id, channel_id, is_call, muted, deafened) = (
             active.group_id,
             active.channel_id,
+            active.is_call,
             active.muted,
             active.deafened,
         );
@@ -523,18 +719,23 @@ impl Engine {
             .into_iter()
             .map(|p| {
                 let volume = self.volume_for(&p.pubkey);
+                let flags = self.mod_flags.get(&p.pubkey).copied().unwrap_or_default();
                 VoiceParticipant {
                     pubkey: p.pubkey,
                     speaking: p.speaking,
                     muted: p.muted,
                     deafened: p.deafened,
                     volume,
+                    server_muted: flags.muted,
+                    server_deafened: flags.deafened,
+                    priority_speaker: flags.priority,
                 }
             })
             .collect();
         Some(VoiceStatus {
             group_id,
             channel_id,
+            is_call,
             muted,
             deafened,
             participants,
@@ -738,6 +939,10 @@ impl Engine {
                         reply_state = action == ACTION_JOIN;
                     }
                 }
+                if self.active.as_ref().is_some_and(|a| a.key() == key) {
+                    // Modération/priorité du nouvel arrivant (état déjà lu).
+                    self.mod_flags.insert(from, mod_flags_of(&state, &from));
+                }
                 if reply_state {
                     // Le nouvel arrivant apprend notre présence directement.
                     let (muted, deafened) = self
@@ -795,6 +1000,12 @@ impl Engine {
                 if *room != active.channel_id {
                     return;
                 }
+                // Défense en profondeur : les trames d'un membre réduit au
+                // silence par la modération (op 0x1F) sont jetées à la
+                // réception — un client modifié ne se fait pas entendre.
+                if !active.is_call && self.mod_flags.get(&from).is_some_and(|f| f.muted) {
+                    return;
+                }
                 let Some(roster) = self.rooms.get_mut(&key) else {
                     return;
                 };
@@ -824,15 +1035,21 @@ impl Engine {
         self.tick_mic_test();
         self.tick_count += 1;
         let now = self.now_ms();
+        // Machine d'appels : timeouts de sonnerie et réémission d'offre.
+        let call_actions = self.calls.tick(now);
+        self.run_call_actions(call_actions);
         let me = self.node.public_key();
+        let my_server_mute = self.mod_flags.get(&me).is_some_and(|f| f.muted);
         let pcm = self.next_capture();
         let mut events: Vec<(RoomKey, RosterEvent)> = Vec::new();
         let mut to_send: Vec<([u8; 32], VoiceMsg)> = Vec::new();
+        let mut call_peer_lost = false;
 
         if let Some(active) = self.active.as_mut() {
             let key = active.key();
-            // Capture locale (la VAD décide de la transmission).
-            if !active.muted {
+            // Capture locale (la VAD décide de la transmission) ; une
+            // sourdine de modération (op 0x1F) coupe l'émission à la source.
+            if !active.muted && !my_server_mute {
                 match active.room.capture(&pcm) {
                     Ok(Some(frame)) => {
                         if let Some(roster) = self.rooms.get_mut(&key) {
@@ -869,17 +1086,42 @@ impl Engine {
                         }
                     }
                 }
+                // Priority speaker : les non-prioritaires sont atténués tant
+                // qu'un orateur prioritaire parle (salons de groupe).
+                if !active.is_call {
+                    let participants = roster.participants();
+                    let any_priority_speaking = participants.iter().any(|p| {
+                        p.speaking && self.mod_flags.get(&p.pubkey).is_some_and(|f| f.priority)
+                    });
+                    for p in &participants {
+                        if p.pubkey == me {
+                            continue;
+                        }
+                        let priority = self.mod_flags.get(&p.pubkey).is_some_and(|f| f.priority);
+                        let duck = if any_priority_speaking && !priority {
+                            PRIORITY_DUCK
+                        } else {
+                            1.0
+                        };
+                        active.room.set_peer_duck(&p.pubkey, duck);
+                    }
+                }
                 // Vivacité : soi-même n'expire jamais (rafraîchi ici).
                 roster.touch(&me, now);
                 for event in roster.tick(now, ACTIVE_TIMEOUT_MS, Some(&me)) {
                     if let RosterEvent::Left(pk) = &event {
                         active.room.remove_participant(pk);
+                        if active.is_call {
+                            // Le pair d'appel a disparu : fin d'appel.
+                            call_peer_lost = true;
+                        }
                     }
                     events.push((key, event));
                 }
             }
-            // Rafraîchit la présence passive des membres hors salon.
-            if self.tick_count % STATE_PERIOD_TICKS == 0 {
+            // Rafraîchit la présence passive des membres hors salon (les
+            // appels 1-à-1 n'ont aucune signalisation de groupe).
+            if self.tick_count % STATE_PERIOD_TICKS == 0 && !active.is_call {
                 let (gid, cid, muted, deafened) = (
                     active.group_id,
                     active.channel_id,
@@ -888,6 +1130,10 @@ impl Engine {
                 );
                 self.broadcast_signal(gid, cid, ACTION_STATE, muted, deafened);
             }
+        }
+        if call_peer_lost {
+            let actions = self.calls.on_audio_lost();
+            self.run_call_actions(actions);
         }
 
         // Balayage des présences passives (salons non rejoints).
@@ -928,6 +1174,231 @@ impl Engine {
         self.injected
             .pop_front()
             .unwrap_or_else(|| vec![0i16; FRAME_SAMPLES])
+    }
+
+    // ---- Appels 1-à-1 (contrat `calls.*`) ----
+
+    /// Vrai si `peer` est un ami confirmé (lecture de la base : réservée aux
+    /// chemins déjà cadencés — démarrage d'appel local, offre entrante).
+    fn is_friend(&self, peer: &[u8; 32]) -> bool {
+        self.node
+            .friend_pubkeys()
+            .map(|friends| friends.contains(peer))
+            .unwrap_or(false)
+    }
+
+    /// `calls.start` : amitié requise, un seul appel à la fois.
+    fn handle_call_start(&mut self, peer: [u8; 32]) -> Result<[u8; 16], NodeError> {
+        if peer == self.node.public_key() {
+            return Err(NodeError::Invalid("impossible de s'appeler soi-même"));
+        }
+        if !self.is_friend(&peer) {
+            return Err(NodeError::Invalid("l'appelé n'est pas un ami confirmé"));
+        }
+        let call_id = new_call_id();
+        let actions = self
+            .calls
+            .start(peer, call_id, self.now_ms())
+            .map_err(NodeError::Invalid)?;
+        self.run_call_actions(actions);
+        Ok(call_id)
+    }
+
+    /// Message d'appel reçu d'un pair authentifié. Une offre n'est honorée
+    /// que d'un AMI (aucune réponse sinon : zéro amplification) ; réponses,
+    /// refus et raccrochages ne sont honorés que s'ils corrèlent strictement
+    /// l'appel courant (la machine ignore le reste en silence).
+    fn handle_peer_call(&mut self, from: [u8; 32], msg: CoreMsg) {
+        if from == self.node.public_key() {
+            return;
+        }
+        let now = self.now_ms();
+        let actions = match msg {
+            CoreMsg::CallOffer { call_id } => {
+                if !self.is_friend(&from) {
+                    tracing::debug!("appel : offre d'un non-ami ignorée");
+                    return;
+                }
+                self.calls.on_offer(from, call_id, now)
+            }
+            CoreMsg::CallAnswer { call_id } => self.calls.on_answer(from, call_id, now),
+            CoreMsg::CallDecline { call_id, reason } => {
+                self.calls.on_decline(from, call_id, reason)
+            }
+            CoreMsg::CallHangup { call_id } => self.calls.on_hangup(from, call_id),
+            _ => return,
+        };
+        self.run_call_actions(actions);
+    }
+
+    /// Exécute les actions décidées par la machine d'appels : signalisation
+    /// (canal CORE, éphémère — jamais mise en file hors-ligne), session
+    /// audio et événements API.
+    fn run_call_actions(&mut self, actions: Vec<CallAction>) {
+        for action in actions {
+            match action {
+                CallAction::SendOffer { to, call_id } => {
+                    self.send_call_msg(to, CoreMsg::CallOffer { call_id });
+                }
+                CallAction::SendAnswer { to, call_id } => {
+                    self.send_call_msg(to, CoreMsg::CallAnswer { call_id });
+                }
+                CallAction::SendDecline {
+                    to,
+                    call_id,
+                    reason,
+                } => {
+                    self.send_call_msg(to, CoreMsg::CallDecline { call_id, reason });
+                }
+                CallAction::SendHangup { to, call_id } => {
+                    self.send_call_msg(to, CoreMsg::CallHangup { call_id });
+                }
+                CallAction::JoinAudio { peer, call_id } => self.join_call_room(peer, call_id),
+                CallAction::LeaveAudio => self.leave_active(),
+                CallAction::EventIncoming { peer, call_id } => {
+                    self.emit_call("event.call_incoming", &peer, &call_id, None);
+                }
+                CallAction::EventOutgoing { peer, call_id } => {
+                    self.emit_call("event.call_outgoing", &peer, &call_id, None);
+                }
+                CallAction::EventAccepted { peer, call_id } => {
+                    self.emit_call("event.call_accepted", &peer, &call_id, None);
+                }
+                CallAction::EventEnded {
+                    peer,
+                    call_id,
+                    reason,
+                } => {
+                    self.emit_call("event.call_ended", &peer, &call_id, Some(reason));
+                }
+            }
+        }
+    }
+
+    /// Émet un message d'appel au pair (session chiffrée, canal CORE).
+    fn send_call_msg(&self, to: [u8; 32], msg: CoreMsg) {
+        self.outbound.send(Outbound::Core {
+            to,
+            msg: Box::new(msg),
+        });
+    }
+
+    /// Émet un événement `event.call_*` vers l'UI.
+    fn emit_call(&self, event: &str, peer: &[u8; 32], call_id: &[u8; 16], reason: Option<&str>) {
+        let Some(hub) = &self.hub else {
+            return;
+        };
+        let mut params = json!({
+            "peer": hex::encode(peer),
+            "call_id": hex::encode(call_id),
+        });
+        if let Some(reason) = reason {
+            params["reason"] = json!(reason);
+        }
+        hub.notify(event, params);
+    }
+
+    // ---- Modération vocale (op 0x1F) et priorité d'orateur ----
+
+    /// Recalcule les drapeaux de modération/priorité des participants du
+    /// salon de groupe actif d'après l'état replié, applique nos propres
+    /// contraintes (sourdine/surdité forcées) et émet `event.voice_moderate`
+    /// pour chaque participant dont l'état a changé.
+    fn refresh_moderation(&mut self, group_id: [u8; 16]) {
+        let key = match self.active.as_ref() {
+            Some(active) if !active.is_call && active.group_id == group_id => active.key(),
+            _ => return,
+        };
+        let Ok(state) = self.node.group_state(&group_id) else {
+            return;
+        };
+        let members = self
+            .rooms
+            .get(&key)
+            .map(Roster::pubkeys)
+            .unwrap_or_default();
+        let mut fresh = HashMap::new();
+        let mut changed = Vec::new();
+        for pk in members {
+            let flags = mod_flags_of(&state, &pk);
+            if self.mod_flags.get(&pk).copied().unwrap_or_default() != flags {
+                changed.push((pk, flags));
+            }
+            fresh.insert(pk, flags);
+        }
+        self.mod_flags = fresh;
+        self.apply_my_moderation();
+        for (pk, flags) in changed {
+            self.emit_voice_moderate(group_id, &pk, flags);
+        }
+    }
+
+    /// Applique nos propres drapeaux de modération à la session active :
+    /// surdité forcée sur la sortie, fermeture de l'indicateur « parle » si
+    /// le micro est forcé coupé (l'émission est déjà bloquée à la capture).
+    fn apply_my_moderation(&mut self) {
+        let me = self.node.public_key();
+        let flags = self.mod_flags.get(&me).copied().unwrap_or_default();
+        let Some(active) = self.active.as_mut() else {
+            return;
+        };
+        if active.is_call {
+            return;
+        }
+        active.room.set_deafened(active.deafened || flags.deafened);
+        if flags.muted {
+            let key = active.key();
+            let event = self
+                .rooms
+                .get_mut(&key)
+                .and_then(|roster| roster.force_silent(&me));
+            if let Some(event) = event {
+                self.emit_room(key, &event);
+            }
+        }
+    }
+
+    /// Émet `event.voice_moderate` (transition de modération d'un
+    /// participant du salon actif).
+    fn emit_voice_moderate(&self, group_id: [u8; 16], pubkey: &[u8; 32], flags: ModFlags) {
+        let Some(hub) = &self.hub else {
+            return;
+        };
+        hub.notify(
+            "event.voice_moderate",
+            json!({
+                "group_id": hex::encode(&group_id),
+                "pubkey": hex::encode(pubkey),
+                "server_muted": flags.muted,
+                "server_deafened": flags.deafened,
+                "priority_speaker": flags.priority,
+            }),
+        );
+    }
+
+    // ---- DSP de capture ----
+
+    /// `voice.set_noise_suppression` / `voice.set_agc` : persiste puis
+    /// applique à chaud à la session active.
+    fn handle_set_dsp(
+        &mut self,
+        noise_suppression: Option<bool>,
+        agc: Option<bool>,
+    ) -> Result<(), NodeError> {
+        self.node.set_voice_dsp_config(noise_suppression, agc)?;
+        if let Some(enabled) = noise_suppression {
+            self.dsp_noise_suppression = enabled;
+        }
+        if let Some(enabled) = agc {
+            self.dsp_agc = enabled;
+        }
+        if let Some(active) = self.active.as_mut() {
+            active
+                .room
+                .set_noise_suppression(self.dsp_noise_suppression);
+            active.room.set_agc(self.dsp_agc);
+        }
+        Ok(())
     }
 
     /// Diffuse une signalisation à tous les membres du groupe (éphémère :
@@ -1026,6 +1497,56 @@ mod tests {
             backend: VoiceBackend::Simule,
         });
         (handle, sender)
+    }
+
+    /// Variante avec capture des actions réseau sortantes (signalisation
+    /// d'appel émise par le moteur).
+    fn spawn_engine_with_outbound(
+        node: Arc<Node>,
+    ) -> (
+        super::super::VoiceHandle,
+        Arc<TestSender>,
+        mpsc::Receiver<Outbound>,
+    ) {
+        let (sink, outbound_rx) = OutboundSink::channel(256);
+        let sender = Arc::new(TestSender(Mutex::new(Vec::new())));
+        let handle = super::super::spawn(VoiceDeps {
+            node,
+            outbound: sink,
+            hub: None,
+            sender: Arc::clone(&sender) as Arc<dyn FrameSender>,
+            backend: VoiceBackend::Simule,
+        });
+        (handle, sender, outbound_rx)
+    }
+
+    /// Établit une amitié confirmée avec une identité de test et rend sa clé.
+    fn make_friend(node: &Node) -> [u8; 32] {
+        let peer = Identity::generate_with_pow_bits(1).public_key();
+        node.friend_request(&peer, "Pair").unwrap();
+        node.ingest_core(&peer, CoreMsg::FriendResponse { accepted: true })
+            .unwrap();
+        peer
+    }
+
+    /// Prochain message d'appel émis (les autres actions réseau — demandes
+    /// d'ami, signalisations de salon — sont ignorées). `None` après ~2 s.
+    async fn next_call_msg(rx: &mut mpsc::Receiver<Outbound>) -> Option<([u8; 32], CoreMsg)> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let action = tokio::time::timeout_at(deadline, rx.recv()).await.ok()??;
+            if let Outbound::Core { to, msg } = action {
+                if matches!(
+                    *msg,
+                    CoreMsg::CallOffer { .. }
+                        | CoreMsg::CallAnswer { .. }
+                        | CoreMsg::CallDecline { .. }
+                        | CoreMsg::CallHangup { .. }
+                ) {
+                    return Some((to, *msg));
+                }
+            }
+        }
     }
 
     fn tone() -> Vec<i16> {
@@ -1385,6 +1906,285 @@ mod tests {
         );
         // La désactivation reste idempotente, même sans matériel.
         handle.mic_test(false).await.unwrap();
+    }
+
+    // ---- Appels 1-à-1 ----
+
+    use super::super::CallPhase;
+
+    /// Attend que la machine d'appels atteigne la phase donnée.
+    async fn eventually_phase(handle: &super::super::VoiceHandle, phase: CallPhase) -> bool {
+        for _ in 0..200 {
+            if handle.call_status().await.unwrap().phase == phase {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn call_start_requires_friendship_and_rejects_self() {
+        let n = node();
+        let (handle, _) = spawn_engine(Arc::clone(&n));
+        let stranger = Identity::generate_with_pow_bits(1).public_key();
+        let err = handle.call_start(stranger).await.unwrap_err();
+        assert!(err.to_string().contains("ami"), "erreur inattendue : {err}");
+        let err = handle.call_start(n.public_key()).await.unwrap_err();
+        assert!(
+            err.to_string().contains("soi-même"),
+            "erreur inattendue : {err}"
+        );
+        let snap = handle.call_status().await.unwrap();
+        assert_eq!(snap.phase, CallPhase::Idle);
+    }
+
+    #[tokio::test]
+    async fn outgoing_call_flow_offer_answer_audio_hangup() {
+        let n = node();
+        let friend = make_friend(&n);
+        let (handle, _, mut out) = spawn_engine_with_outbound(Arc::clone(&n));
+
+        let call_id = handle.call_start(friend).await.unwrap();
+        let (to, msg) = next_call_msg(&mut out).await.expect("aucune offre émise");
+        assert_eq!(to, friend);
+        assert_eq!(msg, CoreMsg::CallOffer { call_id });
+        assert_eq!(
+            handle.call_status().await.unwrap().phase,
+            CallPhase::OutgoingRinging
+        );
+        // Occupé : un second appel simultané est refusé.
+        let err = handle.call_start(friend).await.unwrap_err();
+        assert!(err.to_string().contains("en cours"));
+
+        // Le pair répond : la session audio démarre (salon = call_id).
+        handle.peer_call(friend, CoreMsg::CallAnswer { call_id });
+        let active = eventually_status(&handle, |s| {
+            s.is_call && s.channel_id == call_id && s.participants.len() == 2
+        })
+        .await;
+        assert!(active, "la session audio d'appel n'a pas démarré");
+        assert_eq!(handle.call_status().await.unwrap().phase, CallPhase::Active);
+
+        // Les trames du pair (room == call_id) ouvrent son indicateur.
+        let mut codec = Pcm8Codec;
+        use accord_voice::AudioCodec;
+        for seq in 0..5u16 {
+            handle.peer_frame(
+                friend,
+                VoiceMsg::AudioFrame {
+                    room: call_id,
+                    media_type: MEDIA_AUDIO,
+                    seq,
+                    ts_ms: u32::from(seq) * 20,
+                    payload: codec.encode(&tone()).unwrap(),
+                },
+            );
+        }
+        let speaking = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == friend && p.speaking)
+        })
+        .await;
+        assert!(speaking, "le pair d'appel n'est jamais passé « parle »");
+
+        // Raccrochage local : signalisation émise, session fermée.
+        handle.call_hangup().await.unwrap();
+        assert_eq!(handle.call_status().await.unwrap().phase, CallPhase::Idle);
+        assert!(handle.status().await.unwrap().is_none());
+        let hangup = loop {
+            match next_call_msg(&mut out).await {
+                Some((_, CoreMsg::CallOffer { .. })) => continue, // réémissions
+                other => break other,
+            }
+        };
+        assert_eq!(hangup, Some((friend, CoreMsg::CallHangup { call_id })));
+    }
+
+    #[tokio::test]
+    async fn incoming_offer_rings_only_from_friends() {
+        let n = node();
+        let friend = make_friend(&n);
+        let (handle, _, mut out) = spawn_engine_with_outbound(Arc::clone(&n));
+
+        // Offre d'un inconnu : ignorée en silence (aucune réponse émise —
+        // zéro amplification, pas de sonnerie).
+        let stranger = Identity::generate_with_pow_bits(1).public_key();
+        handle.peer_call(stranger, CoreMsg::CallOffer { call_id: [1; 16] });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(handle.call_status().await.unwrap().phase, CallPhase::Idle);
+
+        // Offre d'un ami : sonnerie entrante.
+        handle.peer_call(friend, CoreMsg::CallOffer { call_id: [2; 16] });
+        let ringing = eventually_phase(&handle, CallPhase::IncomingRinging).await;
+        assert!(ringing, "l'offre d'un ami n'a pas déclenché la sonnerie");
+
+        // Acceptation : réponse émise, session audio active.
+        handle.call_accept([2; 16]).await.unwrap();
+        assert_eq!(
+            next_call_msg(&mut out).await,
+            Some((friend, CoreMsg::CallAnswer { call_id: [2; 16] }))
+        );
+        assert_eq!(handle.call_status().await.unwrap().phase, CallPhase::Active);
+        let status = handle.status().await.unwrap().unwrap();
+        assert!(status.is_call);
+        assert_eq!(status.group_id, [0u8; 16]);
+        assert_eq!(status.channel_id, [2; 16]);
+    }
+
+    #[tokio::test]
+    async fn ring_spam_is_limited_and_busy_decline_is_bounded() {
+        let n = node();
+        let friend = make_friend(&n);
+        let caller2 = make_friend(&n);
+        let (handle, _, mut out) = spawn_engine_with_outbound(Arc::clone(&n));
+
+        // Rafale d'offres avec des call_id différents : une seule sonnerie
+        // (cadence par pair), et AUCUNE réponse émise vers l'appelant.
+        for i in 0..10u8 {
+            handle.peer_call(friend, CoreMsg::CallOffer { call_id: [i; 16] });
+        }
+        let ringing = eventually_phase(&handle, CallPhase::IncomingRinging).await;
+        assert!(ringing);
+        // La sonnerie retenue est la première de la rafale.
+        assert_eq!(handle.call_status().await.unwrap().call_id, Some([0; 16]));
+
+        // Un second ami appelle pendant la sonnerie : refus « occupé »
+        // (borné à un par fenêtre malgré la rafale).
+        for _ in 0..5 {
+            handle.peer_call(caller2, CoreMsg::CallOffer { call_id: [99; 16] });
+        }
+        let mut busy_replies = 0;
+        while let Some((to, msg)) = next_call_msg(&mut out).await {
+            if let CoreMsg::CallDecline { reason, .. } = msg {
+                assert_eq!(to, caller2);
+                assert_eq!(reason, accord_proto::core_msg::CALL_DECLINE_BUSY);
+                busy_replies += 1;
+            }
+        }
+        assert_eq!(busy_replies, 1, "réponses occupé non bornées");
+    }
+
+    #[tokio::test]
+    async fn joining_a_group_room_hangs_up_the_active_call() {
+        let n = node();
+        let friend = make_friend(&n);
+        let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
+        let (handle, _, mut out) = spawn_engine_with_outbound(Arc::clone(&n));
+
+        handle.peer_call(friend, CoreMsg::CallOffer { call_id: [7; 16] });
+        assert!(eventually_phase(&handle, CallPhase::IncomingRinging).await);
+        handle.call_accept([7; 16]).await.unwrap();
+        assert!(handle.status().await.unwrap().unwrap().is_call);
+
+        // Rejoindre un salon de groupe raccroche l'appel actif.
+        handle.join(gid, gid).await.unwrap();
+        assert_eq!(handle.call_status().await.unwrap().phase, CallPhase::Idle);
+        let status = handle.status().await.unwrap().unwrap();
+        assert!(!status.is_call);
+        assert_eq!(status.group_id, gid);
+        // Le raccrochage a été signalé au pair.
+        let mut saw_hangup = false;
+        while let Some((to, msg)) = next_call_msg(&mut out).await {
+            if msg == (CoreMsg::CallHangup { call_id: [7; 16] }) {
+                assert_eq!(to, friend);
+                saw_hangup = true;
+            }
+        }
+        assert!(saw_hangup, "aucun CallHangup émis vers le pair");
+    }
+
+    // ---- Modération vocale (op 0x1F) ----
+
+    #[tokio::test]
+    async fn server_voice_mute_drops_member_frames_and_surfaces_flags() {
+        let n = node();
+        let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
+        let peer = Identity::generate_with_pow_bits(1).public_key();
+        n.test_force_add_member(&gid, &peer).unwrap();
+        let (handle, _) = spawn_engine(Arc::clone(&n));
+        handle.join(gid, gid).await.unwrap();
+        handle.peer_signal(peer, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
+
+        // Avant modération : les trames du pair ouvrent « parle ».
+        let mut codec = Pcm8Codec;
+        use accord_voice::AudioCodec;
+        let mut seq = 0u16;
+        let mut feed = |handle: &super::super::VoiceHandle, count: u16| {
+            for _ in 0..count {
+                handle.peer_frame(
+                    peer,
+                    VoiceMsg::AudioFrame {
+                        room: gid,
+                        media_type: MEDIA_AUDIO,
+                        seq,
+                        ts_ms: u32::from(seq) * 20,
+                        payload: codec.encode(&tone()).unwrap(),
+                    },
+                );
+                seq = seq.wrapping_add(1);
+            }
+        };
+        feed(&handle, 5);
+        let speaking = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == peer && p.speaking)
+        })
+        .await;
+        assert!(speaking, "le pair n'est jamais passé « parle »");
+
+        // Le fondateur force le mute du pair (op 0x1F) ; le moteur est
+        // notifié comme le fait le service après une op locale.
+        n.group_voice_moderate(&gid, &peer, true, false).unwrap();
+        handle.group_changed(gid);
+        let flagged = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == peer && p.server_muted && !p.server_deafened)
+        })
+        .await;
+        assert!(flagged, "le drapeau server_muted n'apparaît pas");
+
+        // L'indicateur « parle » se referme puis, malgré de nouvelles
+        // trames, ne se rouvre jamais : elles sont jetées à la réception.
+        let silent = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == peer && !p.speaking)
+        })
+        .await;
+        assert!(silent, "l'indicateur ne s'est pas refermé");
+        feed(&handle, 10);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let status = handle.status().await.unwrap().unwrap();
+        assert!(
+            status
+                .participants
+                .iter()
+                .any(|p| p.pubkey == peer && !p.speaking),
+            "des trames d'un membre server-muted ont été acceptées"
+        );
+
+        // Levée de la modération : les trames repassent.
+        n.group_voice_moderate(&gid, &peer, false, false).unwrap();
+        handle.group_changed(gid);
+        let cleared = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == peer && !p.server_muted)
+        })
+        .await;
+        assert!(cleared, "la modération ne se lève pas");
+        feed(&handle, 5);
+        let speaking_again = eventually_status(&handle, |s| {
+            s.participants
+                .iter()
+                .any(|p| p.pubkey == peer && p.speaking)
+        })
+        .await;
+        assert!(speaking_again, "les trames ne repassent pas après la levée");
     }
 
     #[tokio::test]

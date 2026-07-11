@@ -80,7 +80,7 @@ impl Service for NodeService {
         if method == "friends.resolve" {
             return self.resolve_code(&params).await.map_err(node_error_to_rpc);
         }
-        if method.starts_with("voice.") {
+        if method.starts_with("voice.") || method.starts_with("calls.") {
             return self
                 .call_voice(method, &params)
                 .await
@@ -92,7 +92,21 @@ impl Service for NodeService {
                 .await
                 .map_err(node_error_to_rpc);
         }
-        dispatch(&self.node, method, &params).map_err(node_error_to_rpc)
+        let result = dispatch(&self.node, method, &params).map_err(node_error_to_rpc)?;
+        // Une modération vocale émise localement doit s'appliquer sans
+        // attendre : le moteur voix rafraîchit son cache immédiatement.
+        if method == "groups.voice_moderate" {
+            if let Some(voice) = &self.voice {
+                if let Some(group_id) = params
+                    .get("group_id")
+                    .and_then(Value::as_str)
+                    .and_then(crate::hex::decode::<16>)
+                {
+                    voice.group_changed(group_id);
+                }
+            }
+        }
+        Ok(result)
     }
 }
 
