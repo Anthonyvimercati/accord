@@ -46,6 +46,20 @@ pub mod perms {
     pub const ADMIN: u32 = 256;
     /// Gérer les émojis de serveur (ajout/suppression).
     pub const MANAGE_EMOJIS: u32 = 512;
+    /// Orateur prioritaire : les autres participants d'un salon vocal sont
+    /// atténués pendant que ce membre parle. Jamais impliquée par ADMIN ni
+    /// par le statut de fondateur (attribution explicite de rôle uniquement).
+    pub const PRIORITY_SPEAKER: u32 = 1024;
+}
+
+/// Décode un booléen filaire strict (0 ou 1 ; toute autre valeur rejette la
+/// structure — entrée attaquant-contrôlée, jamais de tolérance).
+fn decode_bool(r: &mut Reader<'_>, what: &'static str) -> Result<bool, DecodeError> {
+    match r.u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(DecodeError::InvalidValue(what)),
+    }
 }
 
 /// Référence à un fichier partagé, embarquée dans un message.
@@ -519,6 +533,20 @@ pub enum GroupOpBody {
         /// Nickname (1-32 characters trimmed; empty clears).
         name: String,
     },
+    /// 0x1F — Server-side voice moderation: force-mute and/or force-deafen
+    /// `member` in every voice channel of the group (`mute == deafen == false`
+    /// clears the entry). Gated on `KICK` and the kick hierarchy at replay,
+    /// exactly like [`GroupOpBody::TimeoutMember`]; enforced by the voice
+    /// engine of every honest peer (capture gated on the target, frames from
+    /// a muted member dropped on receipt).
+    VoiceModerate {
+        /// Moderated member.
+        member: [u8; 32],
+        /// Microphone force-muted.
+        mute: bool,
+        /// Output force-deafened (implies mute, Discord semantics).
+        deafen: bool,
+    },
 }
 
 impl GroupOpBody {
@@ -555,6 +583,7 @@ impl GroupOpBody {
             Self::SetChannelCategory { .. } => 0x1C,
             Self::TimeoutMember { .. } => 0x1D,
             Self::SetNickname { .. } => 0x1E,
+            Self::VoiceModerate { .. } => 0x1F,
         }
     }
 
@@ -695,6 +724,15 @@ impl GroupOpBody {
                 w.put_arr(member);
                 w.put_str(name);
             }
+            Self::VoiceModerate {
+                member,
+                mute,
+                deafen,
+            } => {
+                w.put_arr(member);
+                w.put_u8(u8::from(*mute));
+                w.put_u8(u8::from(*deafen));
+            }
         }
         w.into_bytes()
     }
@@ -818,6 +856,11 @@ impl GroupOpBody {
             0x1E => Self::SetNickname {
                 member: r.arr()?,
                 name: r.str(MAX_NICKNAME, "op.nickname")?,
+            },
+            0x1F => Self::VoiceModerate {
+                member: r.arr()?,
+                mute: decode_bool(&mut r, "op.voice_moderate.mute")?,
+                deafen: decode_bool(&mut r, "op.voice_moderate.deafen")?,
             },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
@@ -992,7 +1035,44 @@ pub enum CoreMsg {
         /// Invitation refusée.
         invite_id: [u8; 16],
     },
+    /// 0x11 — Offre d'appel vocal 1-à-1 (sonnerie). Éphémère : jamais mise en
+    /// file hors-ligne. L'appelé n'honore l'offre que d'un AMI confirmé et
+    /// sous cadence par pair (anti sonnerie-spam) ; l'appelant réémet l'offre
+    /// périodiquement tant que ça sonne (transport UDP avec pertes), le
+    /// destinataire déduplique par `call_id`.
+    CallOffer {
+        /// Identifiant d'appel, tiré aléatoirement par l'appelant. Sert aussi
+        /// de `room` aux trames du canal VOICE une fois l'appel accepté.
+        call_id: [u8; 16],
+    },
+    /// 0x12 — Acceptation d'une offre d'appel : la session audio démarre des
+    /// deux côtés (trames VOICE, `room == call_id`). Ignorée si elle ne
+    /// corrèle pas une offre sortante fraîche (anti-rejeu).
+    CallAnswer {
+        /// Appel accepté.
+        call_id: [u8; 16],
+    },
+    /// 0x13 — Refus d'une offre d'appel. `reason` : 0 = refusé par
+    /// l'utilisateur, 1 = occupé (déjà en appel). Ignoré s'il ne corrèle pas
+    /// une offre sortante fraîche.
+    CallDecline {
+        /// Appel refusé.
+        call_id: [u8; 16],
+        /// 0 = refusé, 1 = occupé.
+        reason: u8,
+    },
+    /// 0x14 — Fin d'appel : raccrochage d'un appel actif ou annulation d'une
+    /// sonnerie par l'appelant. Ignoré s'il ne corrèle pas l'appel courant.
+    CallHangup {
+        /// Appel terminé.
+        call_id: [u8; 16],
+    },
 }
+
+/// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
+pub const CALL_DECLINE_REJECTED: u8 = 0;
+/// Raison d'un [`CoreMsg::CallDecline`] : destinataire déjà en appel.
+pub const CALL_DECLINE_BUSY: u8 = 1;
 
 /// Octets couverts par la signature d'un `CoreMsg::InviteTicket` (hors
 /// `sig`) : domaine séparé du reste du protocole, encodage canonique stable.
@@ -1172,6 +1252,23 @@ impl WireEncode for CoreMsg {
                 w.put_arr(group_id);
                 w.put_arr(invite_id);
             }
+            CoreMsg::CallOffer { call_id } => {
+                w.put_u8(0x11);
+                w.put_arr(call_id);
+            }
+            CoreMsg::CallAnswer { call_id } => {
+                w.put_u8(0x12);
+                w.put_arr(call_id);
+            }
+            CoreMsg::CallDecline { call_id, reason } => {
+                w.put_u8(0x13);
+                w.put_arr(call_id);
+                w.put_u8(*reason);
+            }
+            CoreMsg::CallHangup { call_id } => {
+                w.put_u8(0x14);
+                w.put_arr(call_id);
+            }
         }
     }
 }
@@ -1290,6 +1387,19 @@ impl WireDecode for CoreMsg {
                 group_id: r.arr()?,
                 invite_id: r.arr()?,
             }),
+            0x11 => Ok(CoreMsg::CallOffer { call_id: r.arr()? }),
+            0x12 => Ok(CoreMsg::CallAnswer { call_id: r.arr()? }),
+            0x13 => Ok(CoreMsg::CallDecline {
+                call_id: r.arr()?,
+                reason: {
+                    let reason = r.u8()?;
+                    if reason > CALL_DECLINE_BUSY {
+                        return Err(DecodeError::InvalidValue("call.decline.reason"));
+                    }
+                    reason
+                },
+            }),
+            0x14 => Ok(CoreMsg::CallHangup { call_id: r.arr()? }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }
@@ -1397,5 +1507,91 @@ mod tests {
         .encode_body();
         over.push(0xFF);
         assert!(GroupOpBody::decode_body(0x1D, &over).is_err());
+    }
+
+    #[test]
+    fn voice_moderate_roundtrips_and_rejects_forged_bytes() {
+        for (mute, deafen) in [(false, false), (true, false), (false, true), (true, true)] {
+            let body = GroupOpBody::VoiceModerate {
+                member: [0xCD; 32],
+                mute,
+                deafen,
+            };
+            assert_eq!(body.kind(), 0x1F);
+            assert_eq!(roundtrip(&body), body);
+        }
+        // Truncated: member only, missing the two flag bytes.
+        assert!(GroupOpBody::decode_body(0x1F, &[0u8; 32]).is_err());
+        // Forged flag bytes outside {0, 1} are rejected, never coerced.
+        let mut forged = [0u8; 34];
+        forged[32] = 2;
+        assert!(GroupOpBody::decode_body(0x1F, &forged).is_err());
+        let mut forged = [0u8; 34];
+        forged[33] = 0xFF;
+        assert!(GroupOpBody::decode_body(0x1F, &forged).is_err());
+        // Trailing garbage after a complete body is rejected.
+        let mut over = GroupOpBody::VoiceModerate {
+            member: [1; 32],
+            mute: true,
+            deafen: false,
+        }
+        .encode_body();
+        over.push(0);
+        assert!(GroupOpBody::decode_body(0x1F, &over).is_err());
+    }
+
+    /// Round-trips a CoreMsg through the full wire encoding.
+    fn core_roundtrip(msg: &CoreMsg) -> CoreMsg {
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        let mut r = Reader::new(&bytes);
+        let decoded = CoreMsg::decode(&mut r).expect("decode");
+        r.finish().expect("no trailing bytes");
+        decoded
+    }
+
+    #[test]
+    fn call_messages_roundtrip() {
+        for msg in [
+            CoreMsg::CallOffer { call_id: [9; 16] },
+            CoreMsg::CallAnswer { call_id: [9; 16] },
+            CoreMsg::CallDecline {
+                call_id: [9; 16],
+                reason: CALL_DECLINE_REJECTED,
+            },
+            CoreMsg::CallDecline {
+                call_id: [9; 16],
+                reason: CALL_DECLINE_BUSY,
+            },
+            CoreMsg::CallHangup { call_id: [9; 16] },
+        ] {
+            assert_eq!(core_roundtrip(&msg), msg);
+        }
+    }
+
+    #[test]
+    fn forged_call_messages_are_rejected_without_panic() {
+        // Truncated call_id on each call kind: decode fails cleanly.
+        for kind in [0x11u8, 0x12, 0x13, 0x14] {
+            let mut bytes = vec![kind];
+            bytes.extend_from_slice(&[0u8; 8]); // half a call_id
+            let mut r = Reader::new(&bytes);
+            assert!(CoreMsg::decode(&mut r).is_err(), "kind {kind:#x}");
+        }
+        // Decline with an out-of-domain reason byte is rejected.
+        let mut bytes = vec![0x13];
+        bytes.extend_from_slice(&[0u8; 16]);
+        bytes.push(2);
+        let mut r = Reader::new(&bytes);
+        assert!(CoreMsg::decode(&mut r).is_err());
+        // Trailing bytes after a complete CallOffer are rejected by finish().
+        let mut w = Writer::new();
+        CoreMsg::CallOffer { call_id: [1; 16] }.encode(&mut w);
+        let mut bytes = w.into_bytes();
+        bytes.push(0xAB);
+        let mut r = Reader::new(&bytes);
+        let _ = CoreMsg::decode(&mut r).expect("prefix decodes");
+        assert!(r.finish().is_err());
     }
 }
