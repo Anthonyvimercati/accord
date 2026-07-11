@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { api } from '../lib/client';
+import { useUi } from '../stores/ui';
 
 /** Intervalle minimal entre deux émissions (aligné sur la borne du nœud). */
 export const TYPING_EMIT_INTERVAL_MS = 2000;
@@ -47,6 +48,9 @@ export function useTypingEmitter(
   return useCallback((text: string) => {
     const cible = targetRef.current;
     if (cible === undefined || text.trim() === '') return;
+    // Réglage « Indicateur de frappe » désactivé : n'émet jamais (la
+    // réception, elle, reste intacte — voir stores/typing.ts).
+    if (!useUi.getState().typingIndicatorEnabled) return;
     const now = Date.now();
     if (
       lastSentRef.current !== null &&

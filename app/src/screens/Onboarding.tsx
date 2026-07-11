@@ -1,6 +1,11 @@
 /**
  * Onboarding : création d'identité (phrase de passe), restauration par phrase
  * de récupération, déverrouillage — pensé pour des non-techniciens.
+ * `CreateForm`/`RestoreForm` sont paramétrées par l'action de soumission
+ * (`onSubmit`) : réutilisées telles quelles par le sélecteur de comptes
+ * (`AccountPicker`) pour « Ajouter un compte » / « Importer depuis une
+ * phrase de récupération », câblées sur `createAccount`/`restoreAccount`
+ * plutôt que `create`/`restore` — jamais sur le profil actif courant.
  */
 
 import { useRef, useState } from 'react';
@@ -9,72 +14,21 @@ import { initials } from '../lib/format';
 import { isValidName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { AvatarCropper } from '../components/AvatarCropper';
+import { Card, Field, PrimaryButton } from './onboardingUi';
 
 const MIN_PASSPHRASE = 12;
 
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-full items-center justify-center bg-rail">
-      <div className="w-[460px] max-w-[94vw] rounded-lg bg-modal p-8 shadow-modal">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  type = 'password',
-  value,
-  onChange,
-  placeholder,
+export function CreateForm({
+  onSubmit,
+  onRestore,
+  onCancel,
 }: {
-  label: string;
-  type?: 'password' | 'text';
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
+  onSubmit: (passphrase: string) => Promise<void>;
+  onRestore: () => void;
+  /** Lien de retour additionnel (sélecteur de comptes) ; absent en 1er lancement. */
+  onCancel?: () => void;
 }) {
-  return (
-    <label className="mb-4 block">
-      <span className="mb-1.5 block text-xs font-semibold uppercase text-muted">
-        {label}
-      </span>
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded bg-rail px-3 py-2.5 text-norm placeholder-faint outline-none"
-      />
-    </label>
-  );
-}
-
-function PrimaryButton({
-  label,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled ?? false}
-      onClick={onClick}
-      className="w-full rounded bg-blurple py-2.5 font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50"
-    >
-      {label}
-    </button>
-  );
-}
-
-function CreateForm({ onRestore }: { onRestore: () => void }) {
   const t = useT();
-  const create = useSession((s) => s.create);
   const error = useSession((s) => s.error);
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -108,7 +62,7 @@ function CreateForm({ onRestore }: { onRestore: () => void }) {
       <PrimaryButton
         label={t.onboarding.create}
         disabled={!ready}
-        onClick={() => void create(pass)}
+        onClick={() => void onSubmit(pass)}
       />
       <button
         type="button"
@@ -117,13 +71,30 @@ function CreateForm({ onRestore }: { onRestore: () => void }) {
       >
         {t.onboarding.restoreLink}
       </button>
+      {onCancel !== undefined && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="mt-2 w-full text-center text-sm text-faint hover:underline"
+        >
+          {t.onboarding.backToList}
+        </button>
+      )}
     </Card>
   );
 }
 
-function RestoreForm({ onBack }: { onBack: () => void }) {
+export function RestoreForm({
+  onSubmit,
+  onBack,
+  onCancel,
+}: {
+  onSubmit: (phrase: string, passphrase: string) => Promise<void>;
+  onBack: () => void;
+  /** Lien de retour additionnel (sélecteur de comptes) ; absent en 1er lancement. */
+  onCancel?: () => void;
+}) {
   const t = useT();
-  const restore = useSession((s) => s.restore);
   const error = useSession((s) => s.error);
   const [phrase, setPhrase] = useState('');
   const [pass, setPass] = useState('');
@@ -149,7 +120,7 @@ function RestoreForm({ onBack }: { onBack: () => void }) {
       <PrimaryButton
         label={t.onboarding.restore}
         disabled={!ready}
-        onClick={() => void restore(phrase, pass)}
+        onClick={() => void onSubmit(phrase, pass)}
       />
       <button
         type="button"
@@ -158,6 +129,15 @@ function RestoreForm({ onBack }: { onBack: () => void }) {
       >
         {t.onboarding.createLink}
       </button>
+      {onCancel !== undefined && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="mt-2 w-full text-center text-sm text-faint hover:underline"
+        >
+          {t.onboarding.backToList}
+        </button>
+      )}
     </Card>
   );
 }
@@ -165,6 +145,7 @@ function RestoreForm({ onBack }: { onBack: () => void }) {
 function UnlockForm() {
   const t = useT();
   const unlock = useSession((s) => s.unlock);
+  const goToWelcome = useSession((s) => s.goToWelcome);
   const error = useSession((s) => s.error);
   const [pass, setPass] = useState('');
 
@@ -182,6 +163,13 @@ function UnlockForm() {
         disabled={pass.length === 0}
         onClick={() => void unlock(pass)}
       />
+      <button
+        type="button"
+        onClick={() => void goToWelcome()}
+        className="mt-4 w-full text-center text-sm text-link hover:underline"
+      >
+        {t.onboarding.switchAccountLink}
+      </button>
     </Card>
   );
 }
@@ -199,7 +187,12 @@ function Starting() {
   );
 }
 
-/** Affichage unique de la phrase de récupération après création. */
+/**
+ * Affichage unique de la phrase de récupération après création. Mise en
+ * page critique : la grille de mots reste sur une surface pleine (`bg-rail`,
+ * jamais le verre translucide du panneau) pour garder une lisibilité
+ * maximale de cette information irremplaçable.
+ */
 export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
   const t = useT();
   const ack = useSession((s) => s.ackRecoveryPhrase);
@@ -215,7 +208,7 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
         {words.map((word, i) => (
           <li
             key={`${word}-${i}`}
-            className="selectable rounded bg-rail px-2 py-1.5 font-mono text-sm text-header"
+            className="selectable rounded-md bg-rail px-2 py-1.5 font-mono text-sm text-header"
           >
             <span className="mr-1.5 text-faint">{i + 1}.</span>
             {word}
@@ -311,7 +304,7 @@ export function ChooseNameScreen() {
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="rounded bg-rail px-3 py-2 text-sm font-medium text-norm hover:bg-input"
+            className="rounded-sm bg-rail px-3 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input"
           >
             {t.onboarding.avatarChoose}
           </button>
@@ -355,13 +348,15 @@ export function ChooseNameScreen() {
 
 export function Onboarding() {
   const phase = useSession((s) => s.phase);
+  const create = useSession((s) => s.create);
+  const restore = useSession((s) => s.restore);
   const [mode, setMode] = useState<'create' | 'restore'>('create');
 
   if (phase === 'starting') return <Starting />;
   if (phase === 'locked') return <UnlockForm />;
   return mode === 'create' ? (
-    <CreateForm onRestore={() => setMode('restore')} />
+    <CreateForm onSubmit={create} onRestore={() => setMode('restore')} />
   ) : (
-    <RestoreForm onBack={() => setMode('create')} />
+    <RestoreForm onSubmit={restore} onBack={() => setMode('create')} />
   );
 }

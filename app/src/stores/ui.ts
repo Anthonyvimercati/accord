@@ -8,6 +8,7 @@
 
 import { create } from 'zustand';
 import { type Lang } from '../i18n';
+import { type OwnPresenceStatus } from '../lib/api';
 import {
   loadLastChannelByServer,
   loadLastDm,
@@ -64,8 +65,33 @@ export type Theme = 'dark' | 'light';
 export type Density = 'comfortable' | 'compact';
 
 /** Échelles de police proposées, en pourcentage de la taille de base. */
-export const FONT_SCALES = [90, 100, 110, 120] as const;
+export const FONT_SCALES = [75, 100, 125, 150] as const;
 export type FontScale = (typeof FONT_SCALES)[number];
+
+/**
+ * Réduction des animations : `system` suit `prefers-reduced-motion`, `on`
+ * force la réduction (via `data-motion` à la racine, voir global.css), `off`
+ * ne force rien — un système déjà en préférence réduite continue de
+ * s'appliquer (la requête média ne peut pas être vaincue depuis le DOM).
+ */
+export type ReducedMotionPref = 'system' | 'on' | 'off';
+
+/** Taille des émojis personnalisés (`:nom:`) rendus dans le corps des messages. */
+export type EmojiSize = 'normal' | 'large';
+
+/** Filtrage du blip sonore par nature de message entrant. */
+export type NotifySoundMode = 'all' | 'mentionsOnly' | 'none';
+
+/** Présence appliquée une fois au démarrage ; `null` = ne rien forcer. */
+export type StartupPresence = Extract<OwnPresenceStatus, 'online' | 'invisible'> | null;
+
+/** Préférence d'affichage des heures (`auto` suit la locale de l'interface). */
+export type TimeFormat = 'auto' | '12h' | '24h';
+
+/** Bornes de la saturation appliquée à toute l'application (%, 100 = neutre). */
+export const SATURATION_MIN = 0;
+export const SATURATION_MAX = 100;
+export const SATURATION_DEFAULT = 100;
 
 /**
  * Largeurs redimensionnables façon Discord (barre latérale de navigation,
@@ -93,6 +119,16 @@ const STORAGE_KEYS = {
   notifyOnlyUnfocused: 'accord.notifyOnlyUnfocused',
   sidebarWidth: 'accord.layout.sidebarWidth',
   membersWidth: 'accord.layout.membersWidth',
+  reducedMotion: 'accord.a11y.reducedMotion',
+  saturation: 'accord.a11y.saturation',
+  showMediaPreviews: 'accord.media.showPreviews',
+  emojiSize: 'accord.media.emojiSize',
+  notifySoundEnabled: 'accord.notify.soundEnabled',
+  notifyNative: 'accord.notify.native',
+  notifySoundMode: 'accord.notify.soundMode',
+  typingIndicatorEnabled: 'accord.privacy.typingIndicator',
+  startupPresence: 'accord.privacy.startupPresence',
+  timeFormat: 'accord.timeFormat',
 } as const;
 
 /** Touche d'appui-pour-parler par défaut (`KeyboardEvent.code`). */
@@ -174,6 +210,62 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function isReducedMotionPref(value: string | null): value is ReducedMotionPref {
+  return value === 'system' || value === 'on' || value === 'off';
+}
+
+function initialReducedMotion(): ReducedMotionPref {
+  const stored = readStored(STORAGE_KEYS.reducedMotion);
+  return isReducedMotionPref(stored) ? stored : 'system';
+}
+
+/** Saturation persistée (%), bornée à `[SATURATION_MIN, SATURATION_MAX]`. */
+function initialSaturation(): number {
+  const stored = readStored(STORAGE_KEYS.saturation);
+  if (stored === null) return SATURATION_DEFAULT;
+  const parsed = Number(stored);
+  return Number.isFinite(parsed)
+    ? clamp(parsed, SATURATION_MIN, SATURATION_MAX)
+    : SATURATION_DEFAULT;
+}
+
+function isEmojiSize(value: string | null): value is EmojiSize {
+  return value === 'normal' || value === 'large';
+}
+
+function initialEmojiSize(): EmojiSize {
+  const stored = readStored(STORAGE_KEYS.emojiSize);
+  return isEmojiSize(stored) ? stored : 'normal';
+}
+
+function isNotifySoundMode(value: string | null): value is NotifySoundMode {
+  return value === 'all' || value === 'mentionsOnly' || value === 'none';
+}
+
+function initialNotifySoundMode(): NotifySoundMode {
+  const stored = readStored(STORAGE_KEYS.notifySoundMode);
+  return isNotifySoundMode(stored) ? stored : 'all';
+}
+
+function isStartupPresence(value: string | null): value is Exclude<StartupPresence, null> {
+  return value === 'online' || value === 'invisible';
+}
+
+/** Préférence persistée ; `null` (absente ou invalide) = ne rien forcer. */
+function initialStartupPresence(): StartupPresence {
+  const stored = readStored(STORAGE_KEYS.startupPresence);
+  return isStartupPresence(stored) ? stored : null;
+}
+
+function isTimeFormat(value: string | null): value is TimeFormat {
+  return value === 'auto' || value === '12h' || value === '24h';
+}
+
+function initialTimeFormat(): TimeFormat {
+  const stored = readStored(STORAGE_KEYS.timeFormat);
+  return isTimeFormat(stored) ? stored : 'auto';
+}
+
 /**
  * Largeur persistée (px), bornée à `[min, max]` — une valeur absente ou non
  * numérique replie sur `fallback` plutôt que de clamper `0`.
@@ -197,6 +289,28 @@ function applyDensity(density: Density): void {
 
 function applyFontScale(scale: FontScale): void {
   document.documentElement.style.fontSize = `${scale}%`;
+}
+
+/**
+ * Force la réduction d'animations à la racine (`data-motion="reduce"`),
+ * consommé par le bloc `:root[data-motion='reduce']` de global.css (mirroir
+ * du bloc `@media (prefers-reduced-motion: reduce)`). `off`/`system` retirent
+ * l'attribut : `system` laisse la requête média seule décider, `off` ne peut
+ * pas vaincre une préférence système déjà réduite (limitation assumée — voir
+ * le commentaire du type `ReducedMotionPref`).
+ */
+function applyReducedMotion(pref: ReducedMotionPref): void {
+  if (pref === 'on') document.documentElement.dataset.motion = 'reduce';
+  else delete document.documentElement.dataset.motion;
+}
+
+/**
+ * Filtre `saturate()` appliqué à toute l'application via une variable CSS
+ * consommée à la racine (voir global.css) — un seul filtre au sommet de
+ * l'arbre, peu coûteux, plutôt qu'une répétition par composant.
+ */
+function applySaturation(percent: number): void {
+  document.documentElement.style.setProperty('--saturation', `${percent}%`);
 }
 
 /**
@@ -259,6 +373,26 @@ interface UiState {
   notifyGroups: boolean;
   /** Ne notifier que lorsque la fenêtre est en arrière-plan. */
   notifyOnlyUnfocused: boolean;
+  /** Réduction des animations (voir `ReducedMotionPref`). */
+  reducedMotion: ReducedMotionPref;
+  /** Saturation globale (%, 100 = neutre) — filtre CSS appliqué à la racine. */
+  saturation: number;
+  /** Aperçus d'images/médias en ligne ; désactivé = carte fichier seule. */
+  showMediaPreviews: boolean;
+  /** Taille par défaut des émojis personnalisés dans le corps des messages. */
+  emojiSize: EmojiSize;
+  /** Blip sonore de notification (message, mention, invitation). */
+  notifySoundEnabled: boolean;
+  /** Notifications natives du système (plugin Tauri). */
+  notifyNative: boolean;
+  /** Filtre supplémentaire sur le blip sonore d'un message entrant. */
+  notifySoundMode: NotifySoundMode;
+  /** Émission de l'indicateur de frappe vers le pair/salon (réception intacte). */
+  typingIndicatorEnabled: boolean;
+  /** Présence forcée une fois la session prête ; `null` = ne rien forcer. */
+  startupPresence: StartupPresence;
+  /** Format des heures affichées (horodatages de messages). */
+  timeFormat: TimeFormat;
   /**
    * Dernier salon (texte/annonces) consulté par serveur — clé `groupId`.
    * Restauré au reclic sur l'icône du serveur ; l'appelant valide que le
@@ -300,6 +434,17 @@ interface UiState {
   setNotifyDms: (enabled: boolean) => void;
   setNotifyGroups: (enabled: boolean) => void;
   setNotifyOnlyUnfocused: (enabled: boolean) => void;
+  setReducedMotion: (pref: ReducedMotionPref) => void;
+  /** Applique `percent` bornée à `[SATURATION_MIN, SATURATION_MAX]`. */
+  setSaturation: (percent: number) => void;
+  setShowMediaPreviews: (enabled: boolean) => void;
+  setEmojiSize: (size: EmojiSize) => void;
+  setNotifySoundEnabled: (enabled: boolean) => void;
+  setNotifyNative: (enabled: boolean) => void;
+  setNotifySoundMode: (mode: NotifySoundMode) => void;
+  setTypingIndicatorEnabled: (enabled: boolean) => void;
+  setStartupPresence: (presence: StartupPresence) => void;
+  setTimeFormat: (format: TimeFormat) => void;
   /** Applique `width` bornée à `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`. */
   setSidebarWidth: (width: number) => void;
   /** Restaure `SIDEBAR_WIDTH_DEFAULT` (double-clic sur la poignée). */
@@ -317,9 +462,13 @@ export const useUi = create<UiState>((set) => {
   const theme = initialTheme();
   const density = initialDensity();
   const fontScale = initialFontScale();
+  const reducedMotion = initialReducedMotion();
+  const saturation = initialSaturation();
   applyTheme(theme);
   applyDensity(density);
   applyFontScale(fontScale);
+  applyReducedMotion(reducedMotion);
+  applySaturation(saturation);
 
   return {
     view: { kind: 'friends' },
@@ -337,6 +486,16 @@ export const useUi = create<UiState>((set) => {
     notifyDms: initialBool(STORAGE_KEYS.notifyDms, true),
     notifyGroups: initialBool(STORAGE_KEYS.notifyGroups, true),
     notifyOnlyUnfocused: initialBool(STORAGE_KEYS.notifyOnlyUnfocused, true),
+    reducedMotion,
+    saturation,
+    showMediaPreviews: initialBool(STORAGE_KEYS.showMediaPreviews, true),
+    emojiSize: initialEmojiSize(),
+    notifySoundEnabled: initialBool(STORAGE_KEYS.notifySoundEnabled, true),
+    notifyNative: initialBool(STORAGE_KEYS.notifyNative, true),
+    notifySoundMode: initialNotifySoundMode(),
+    typingIndicatorEnabled: initialBool(STORAGE_KEYS.typingIndicatorEnabled, true),
+    startupPresence: initialStartupPresence(),
+    timeFormat: initialTimeFormat(),
     lastChannelByServer: loadLastChannelByServer(),
     lastDmPeer: loadLastDm(),
     sidebarWidth: initialWidth(
@@ -419,6 +578,50 @@ export const useUi = create<UiState>((set) => {
     setNotifyOnlyUnfocused: (enabled) => {
       writeStored(STORAGE_KEYS.notifyOnlyUnfocused, String(enabled));
       set({ notifyOnlyUnfocused: enabled });
+    },
+    setReducedMotion: (pref) => {
+      applyReducedMotion(pref);
+      writeStored(STORAGE_KEYS.reducedMotion, pref);
+      set({ reducedMotion: pref });
+    },
+    setSaturation: (percent) => {
+      const clamped = clamp(percent, SATURATION_MIN, SATURATION_MAX);
+      applySaturation(clamped);
+      writeStored(STORAGE_KEYS.saturation, String(clamped));
+      set({ saturation: clamped });
+    },
+    setShowMediaPreviews: (enabled) => {
+      writeStored(STORAGE_KEYS.showMediaPreviews, String(enabled));
+      set({ showMediaPreviews: enabled });
+    },
+    setEmojiSize: (size) => {
+      writeStored(STORAGE_KEYS.emojiSize, size);
+      set({ emojiSize: size });
+    },
+    setNotifySoundEnabled: (enabled) => {
+      writeStored(STORAGE_KEYS.notifySoundEnabled, String(enabled));
+      set({ notifySoundEnabled: enabled });
+    },
+    setNotifyNative: (enabled) => {
+      writeStored(STORAGE_KEYS.notifyNative, String(enabled));
+      set({ notifyNative: enabled });
+    },
+    setNotifySoundMode: (mode) => {
+      writeStored(STORAGE_KEYS.notifySoundMode, mode);
+      set({ notifySoundMode: mode });
+    },
+    setTypingIndicatorEnabled: (enabled) => {
+      writeStored(STORAGE_KEYS.typingIndicatorEnabled, String(enabled));
+      set({ typingIndicatorEnabled: enabled });
+    },
+    setStartupPresence: (presence) => {
+      if (presence === null) writeStored(STORAGE_KEYS.startupPresence, '');
+      else writeStored(STORAGE_KEYS.startupPresence, presence);
+      set({ startupPresence: presence });
+    },
+    setTimeFormat: (format) => {
+      writeStored(STORAGE_KEYS.timeFormat, format);
+      set({ timeFormat: format });
     },
 
     setSidebarWidth: (width) => {

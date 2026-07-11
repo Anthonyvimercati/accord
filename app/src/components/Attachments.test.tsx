@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { FileAttachment } from '../lib/api';
 import { MAX_TAILLE_PIECE } from '../lib/attachments';
 import { useSession } from '../stores/session';
@@ -56,6 +56,7 @@ function message(attachments: FileAttachment[], text = 'regarde'): DisplayMessag
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
+  useUi.getState().setShowMediaPreviews(true);
   useSession.setState({ self: null });
   lireMock.mockReset();
   statutMock.mockClear();
@@ -167,5 +168,31 @@ describe('Pièces jointes — carte de fichier', () => {
     expect(screen.queryByAltText('photo.png')).not.toBeInTheDocument();
     expect(screen.getByText(/Trop volumineux pour l’aperçu/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Télécharger photo.png' })).toBeDisabled();
+  });
+});
+
+describe('Pièces jointes — réglage « Aperçu des images et médias »', () => {
+  it('replie une image de taille normale en carte de fichier quand l’aperçu est désactivé', () => {
+    useUi.getState().setShowMediaPreviews(false);
+    render(<MessageList messages={[message([piece()])]} />);
+
+    expect(screen.queryByAltText('photo.png')).not.toBeInTheDocument();
+    expect(screen.getByText('photo.png')).toBeInTheDocument();
+    // Ce n'est pas une image "trop volumineuse" : pas de mention trompeuse.
+    expect(screen.queryByText(/Trop volumineux pour l’aperçu/)).not.toBeInTheDocument();
+    expect(lireMock).not.toHaveBeenCalled();
+  });
+
+  it('affiche de nouveau la vignette une fois l’aperçu réactivé', async () => {
+    lireMock.mockResolvedValueOnce('blob:image');
+    useUi.getState().setShowMediaPreviews(false);
+    render(<MessageList messages={[message([piece()])]} />);
+    expect(screen.queryByAltText('photo.png')).not.toBeInTheDocument();
+
+    act(() => {
+      useUi.getState().setShowMediaPreviews(true);
+    });
+
+    expect(await screen.findByAltText('photo.png')).toBeInTheDocument();
   });
 });

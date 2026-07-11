@@ -1,6 +1,6 @@
 /** Coquille principale trois colonnes : rail, barre latérale, contenu. */
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { dictionaries, interpolate } from '../i18n';
 import type { AccordEvent } from '../lib/api';
 import { rpc } from '../lib/client';
@@ -87,7 +87,10 @@ function isViewingConversation(view: View, ref: ConversationRef): boolean {
  * en mode Ne pas déranger (statut de présence local, `useFriends.ownStatus`),
  * ou quand la fenêtre a le focus sur exactement cette conversation/ce salon
  * (la pastille de non-lu suffit alors — voir lib/notifications.ts). Une
- * mention (`mentions_me`) joue le blip renforcé.
+ * mention (`mentions_me`) joue le blip renforcé. Respecte aussi le filtrage
+ * choisi par l'utilisateur (Paramètres → Notifications → « Jouer un son
+ * pour ») — le master `notifySoundEnabled` est vérifié plus bas, dans
+ * `playNotificationSound` lui-même.
  */
 function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean): void {
   const self = useSession.getState().self;
@@ -97,6 +100,8 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
     isDisplayedConversation: isViewingConversation(useUi.getState().view, ref),
     windowFocused: document.hasFocus(),
     dnd: useFriends.getState().ownStatus === 'dnd',
+    mode: useUi.getState().notifySoundMode,
+    isMention,
   });
   if (!eligible) return;
   playNotificationSound(isMention ? 'mention' : 'message');
@@ -292,6 +297,32 @@ function useNodeEvents() {
   }, []);
 }
 
+/**
+ * Statut de présence forcé au démarrage (Paramètres → Confidentialité →
+ * « Statut au démarrage »), une seule fois par session : dès que la session
+ * passe à `ready`, si une préférence est choisie (`null` = ne rien forcer),
+ * l'applique via l'action existante `friends.setOwnStatus`. Le nœud a déjà
+ * son propre statut persisté (chargé par `UserPanel` via `loadOwnStatus`) —
+ * ce réglage ne fait que le remplacer une fois, pas à chaque reconnexion.
+ */
+function useStartupPresence(): void {
+  const phase = useSession((s) => s.phase);
+  const startupPresence = useUi((s) => s.startupPresence);
+  const appliedRef = useRef(false);
+
+  useEffect(() => {
+    if (phase !== 'ready' || appliedRef.current) return;
+    appliedRef.current = true;
+    if (startupPresence === null) return;
+    useFriends
+      .getState()
+      .setOwnStatus(startupPresence)
+      .catch(() => {
+        // Best effort : la présence locale garde le statut persisté par le nœud.
+      });
+  }, [phase, startupPresence]);
+}
+
 export function AppShell() {
   const t = useT();
   const view = useUi((s) => s.view);
@@ -304,6 +335,7 @@ export function AppShell() {
   useNodeEvents();
   useNotificationNavigation();
   useSuppressNativeContextMenu();
+  useStartupPresence();
 
   // Appui-pour-parler global : actif dès qu'un salon vocal est rejoint.
   const onPttError = useCallback(() => toast('error', t.errors.actionFailed), [toast, t]);

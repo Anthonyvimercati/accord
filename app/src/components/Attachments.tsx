@@ -256,7 +256,12 @@ function CarteFichier({
   );
 }
 
-/** Pièces jointes de l'enveloppe d'un message, empilées sous le corps. */
+/**
+ * Pièces jointes de l'enveloppe d'un message, empilées sous le corps.
+ * Réglage « Aperçu des images et médias » (Paramètres → Texte & médias) :
+ * désactivé, les images se rabattent sur la carte de fichier existante
+ * (nom + téléchargement) au lieu de la vignette en ligne.
+ */
 export function AttachmentRow({
   pieces,
   hint,
@@ -265,21 +270,23 @@ export function AttachmentRow({
   hint?: string | undefined;
 }) {
   const t = useT();
+  const showPreviews = useUi((s) => s.showMediaPreviews);
   if (pieces.length === 0) return null;
   return (
     <div className="mt-1 flex flex-col items-start gap-1.5">
-      {pieces.map((piece, i) =>
-        estImage(piece.mime) && piece.size <= MAX_TAILLE_PIECE ? (
+      {pieces.map((piece, i) => {
+        const tropGrandPourApercu = estImage(piece.mime) && piece.size > MAX_TAILLE_PIECE;
+        return showPreviews && estImage(piece.mime) && !tropGrandPourApercu ? (
           <VignetteImage key={`${piece.merkle_root}-${i}`} piece={piece} hint={hint} />
         ) : (
           <CarteFichier
             key={`${piece.merkle_root}-${i}`}
             piece={piece}
             hint={hint}
-            mention={estImage(piece.mime) ? t.fichiers.apercuTropVolumineux : undefined}
+            mention={tropGrandPourApercu ? t.fichiers.apercuTropVolumineux : undefined}
           />
-        ),
-      )}
+        );
+      })}
     </div>
   );
 }

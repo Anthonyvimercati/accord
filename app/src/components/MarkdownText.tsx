@@ -14,8 +14,14 @@ import { Fragment, useState, type ReactNode } from 'react';
 import { analyserMarkdown, type MdNode } from '../lib/markdown';
 import { highlightCode, type TokenKind } from '../lib/highlight';
 import { roleColorCss } from '../stores/groups';
-import { useT } from '../stores/ui';
+import { useT, useUi, type EmojiSize } from '../stores/ui';
 import { CustomEmoji } from './CustomEmoji';
+
+/** Diamètre (px) d'un émoji personnalisé selon le réglage « Taille des émojis ». */
+const CUSTOM_EMOJI_PX: Record<EmojiSize, number | undefined> = {
+  normal: undefined, // laisse `CustomEmoji` appliquer son défaut en ligne (22px).
+  large: 44,
+};
 
 export interface MarkdownTextProps {
   text: string;
@@ -35,6 +41,8 @@ interface Ctx {
   knownMentions?: ReadonlySet<string> | undefined;
   roleColors?: ReadonlyMap<string, number> | undefined;
   hint?: string | undefined;
+  /** Taille des émojis personnalisés `:nom:` (Paramètres → Texte & médias). */
+  emojiSize: EmojiSize;
 }
 
 /** Style « pill » d'un rôle : texte à sa couleur, fond translucide assorti. */
@@ -255,7 +263,14 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
     case 'emoji': {
       const merkle = ctx.emojis?.get(node.name);
       if (merkle === undefined) return `:${node.name}:`;
-      return <CustomEmoji name={node.name} merkleRoot={merkle} hint={ctx.hint} />;
+      return (
+        <CustomEmoji
+          name={node.name}
+          merkleRoot={merkle}
+          hint={ctx.hint}
+          size={CUSTOM_EMOJI_PX[ctx.emojiSize]}
+        />
+      );
     }
   }
 }
@@ -268,6 +283,7 @@ export function MarkdownText({
   roleColors,
   hint,
 }: MarkdownTextProps) {
+  const emojiSize = useUi((s) => s.emojiSize);
   const nodes = analyserMarkdown(text);
-  return <>{renderNodes(nodes, { emojis, knownMentions, roleColors, hint })}</>;
+  return <>{renderNodes(nodes, { emojis, knownMentions, roleColors, hint, emojiSize })}</>;
 }

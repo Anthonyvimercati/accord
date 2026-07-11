@@ -1,8 +1,11 @@
 /**
  * Onglet Notifications : autorisation système (plugin Tauri, repli explicite
  * hors application) et réglages persistés — messages privés, messages de
- * groupe, « seulement en arrière-plan ». Le câblage de l'envoi vit dans
- * AppShell ; ici on ne gère que l'intention de l'utilisateur.
+ * groupe, « seulement en arrière-plan », sons de notification, notifications
+ * natives (interrupteurs maîtres) et filtrage du son par nature de message
+ * (tous / mentions seulement / aucun). Le câblage de l'envoi vit dans
+ * AppShell et lib/notifications.ts ; ici on ne gère que l'intention de
+ * l'utilisateur.
  */
 
 import { useEffect, useState } from 'react';
@@ -11,8 +14,8 @@ import {
   requestNotificationPermission,
   type NotificationPermission,
 } from '../../lib/notifications';
-import { useUi, useT } from '../../stores/ui';
-import { SettingsSection, ToggleRow } from './controls';
+import { useUi, useT, type NotifySoundMode } from '../../stores/ui';
+import { OptionPill, SettingsSection, ToggleRow } from './controls';
 
 export function NotificationsTab() {
   const t = useT();
@@ -22,6 +25,18 @@ export function NotificationsTab() {
   const setNotifyDms = useUi((s) => s.setNotifyDms);
   const setNotifyGroups = useUi((s) => s.setNotifyGroups);
   const setNotifyOnlyUnfocused = useUi((s) => s.setNotifyOnlyUnfocused);
+  const notifySoundEnabled = useUi((s) => s.notifySoundEnabled);
+  const setNotifySoundEnabled = useUi((s) => s.setNotifySoundEnabled);
+  const notifyNative = useUi((s) => s.notifyNative);
+  const setNotifyNative = useUi((s) => s.setNotifyNative);
+  const notifySoundMode = useUi((s) => s.notifySoundMode);
+  const setNotifySoundMode = useUi((s) => s.setNotifySoundMode);
+
+  const soundModes: { id: NotifySoundMode; label: string }[] = [
+    { id: 'all', label: t.settings.notifSoundModeAll },
+    { id: 'mentionsOnly', label: t.settings.notifSoundModeMentions },
+    { id: 'none', label: t.settings.notifSoundModeNone },
+  ];
 
   const [permission, setPermission] = useState<NotificationPermission | null>(null);
 
@@ -86,6 +101,35 @@ export function NotificationsTab() {
           checked={notifyOnlyUnfocused}
           onChange={setNotifyOnlyUnfocused}
         />
+      </SettingsSection>
+
+      <SettingsSection title={t.settings.notifMasterTitle}>
+        <ToggleRow
+          label={t.settings.notifSoundEnabled}
+          hint={t.settings.notifSoundEnabledHint}
+          checked={notifySoundEnabled}
+          onChange={setNotifySoundEnabled}
+        />
+        <ToggleRow
+          label={t.settings.notifNativeEnabled}
+          hint={t.settings.notifNativeEnabledHint}
+          checked={notifyNative}
+          onChange={setNotifyNative}
+        />
+      </SettingsSection>
+
+      <SettingsSection title={t.settings.notifSoundModeTitle}>
+        <div className="flex gap-2">
+          {soundModes.map(({ id, label }) => (
+            <OptionPill
+              key={id}
+              selected={notifySoundMode === id}
+              onSelect={() => setNotifySoundMode(id)}
+            >
+              {label}
+            </OptionPill>
+          ))}
+        </div>
       </SettingsSection>
     </div>
   );

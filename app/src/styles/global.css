@@ -141,6 +141,13 @@
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --glass-blur: 20px;
 
+  /*
+   * Saturation globale (Paramètres → Accessibilité), 100% = neutre. Posée
+   * sur `:root` par le store d'interface ; consommée par `html` ci-dessous
+   * (voir ce bloc pour le choix d'un filtre unique au sommet de l'arbre).
+   */
+  --saturation: 100%;
+
   color-scheme: dark;
 }
 
@@ -197,6 +204,16 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
+}
+
+/*
+ * Saturation réduite (Paramètres → Accessibilité) : un seul `filter` au
+ * sommet de l'arbre plutôt qu'un filtre répété par composant — bon marché
+ * (une seule couche de composition pour toute l'app) et couvre tout,
+ * y compris les surfaces futures sans réglage supplémentaire.
+ */
+html {
+  filter: saturate(var(--saturation, 100%));
 }
 
 body {
@@ -424,4 +441,21 @@ select:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*
+ * Réduction forcée (Paramètres → Accessibilité → « Réduire les
+ * animations » = Activé) : mirroir exact du bloc média ci-dessus, posé via
+ * `data-motion="reduce"` sur la racine par le store d'interface — applique
+ * la réduction même quand le système ne la demande pas. L'inverse (forcer
+ * « Désactivé » alors que le système préfère la réduction) n'a pas
+ * d'équivalent CSS fiable : la requête média ci-dessus continue de
+ * s'appliquer dans ce cas, ce réglage se contente de ne rien ajouter.
+ */
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] *::before,
+:root[data-motion='reduce'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }

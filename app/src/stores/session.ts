@@ -7,16 +7,28 @@ import { create } from 'zustand';
 import { api, rpc } from '../lib/client';
 import type { SelfProfile } from '../lib/api';
 import {
+  accountCreate,
+  accountRestore,
+  accountsList,
+  accountUnlock,
   createIdentity,
   lockIdentity,
   restoreIdentity,
+  sessionClose,
   unlockIdentity,
-  vaultStatus,
+  type AccountMeta,
   type SessionInfo,
 } from '../lib/bridge';
 import { clearPendingConversation } from '../lib/notifications';
 
-export type Phase = 'boot' | 'setup' | 'locked' | 'starting' | 'ready' | 'offline';
+export type { AccountMeta } from '../lib/bridge';
+
+/**
+ * `welcome` : sélecteur de comptes (2+ comptes locaux connus, ou atteint
+ * volontairement depuis `locked` via le lien « Changer de compte »).
+ */
+export type Phase =
+  'boot' | 'setup' | 'locked' | 'welcome' | 'starting' | 'ready' | 'offline';
 
 /** Bornes du pseudo (contrat profile.set : 2 à 32 caractères). */
 export const NAME_MIN = 2;
@@ -43,6 +55,8 @@ export function selfDisplayName(self: SelfProfile): string {
 interface SessionState {
   phase: Phase;
   self: SelfProfile | null;
+  /** Comptes locaux connus (sélecteur de comptes), du plus récent au moins récent. */
+  accounts: AccountMeta[];
   /** Phrase de récupération à afficher UNE fois après création, puis effacée. */
   recoveryPhrase: string | null;
   /** Vrai après création/restauration tant qu'aucun pseudo n'est choisi. */
@@ -58,6 +72,22 @@ interface SessionState {
    * a fresh launch on an existing vault.
    */
   lock: () => Promise<void>;
+  /** Rafraîchit `accounts` (best-effort) depuis le registre local. */
+  loadAccounts: () => Promise<void>;
+  /** Depuis l'écran de déverrouillage à compte unique : bascule vers le sélecteur de comptes. */
+  goToWelcome: () => Promise<void>;
+  /** Crée un compte **neuf** (jamais sur le profil actif courant) — sélecteur de comptes. */
+  createAccount: (passphrase: string) => Promise<void>;
+  /** Restaure un compte **neuf** depuis sa phrase de récupération — sélecteur de comptes. */
+  restoreAccount: (phrase: string, passphrase: string) => Promise<void>;
+  /** Déverrouille un compte existant du registre et bascule dessus. */
+  unlockAccount: (accountId: string, passphrase: string) => Promise<void>;
+  /**
+   * Change de compte sans quitter l'application : ferme la session active
+   * (nœud arrêté, secrets en mémoire effacés côté hôte) et ramène l'UI au
+   * sélecteur de comptes, avec la liste rafraîchie.
+   */
+  switchAccount: () => Promise<void>;
   ackRecoveryPhrase: () => void;
   /** Définit le pseudo (profile.set) puis rafraîchit le profil local. */
   setName: (name: string) => Promise<void>;
@@ -88,6 +118,17 @@ async function attach(session: SessionInfo): Promise<SelfProfile> {
   return api.identitySelf();
 }
 
+/**
+ * Écran d'accueil selon le nombre de comptes locaux connus : aucun → création
+ * (`setup`), un seul → déverrouillage direct (`locked`, comme aujourd'hui),
+ * deux ou plus → sélecteur de comptes (`welcome`).
+ */
+function phaseForAccountCount(count: number): 'setup' | 'locked' | 'welcome' {
+  if (count === 0) return 'setup';
+  if (count === 1) return 'locked';
+  return 'welcome';
+}
+
 export const useSession = create<SessionState>((set) => {
   rpc.onStatus((status) => {
     // Une fois prêt, reflète les coupures de lien dans l'UI.
@@ -100,14 +141,15 @@ export const useSession = create<SessionState>((set) => {
   return {
     phase: 'boot',
     self: null,
+    accounts: [],
     recoveryPhrase: null,
     askName: false,
     error: null,
 
     init: async () => {
       try {
-        const status = await vaultStatus();
-        set({ phase: status === 'absent' ? 'setup' : 'locked', error: null });
+        const accounts = await accountsList();
+        set({ accounts, phase: phaseForAccountCount(accounts.length), error: null });
       } catch (e) {
         set({ phase: 'setup', error: e instanceof Error ? e.message : String(e) });
       }
@@ -165,7 +207,13 @@ export const useSession = create<SessionState>((set) => {
       // Land on the unlock screen first, like a cold start on an existing
       // vault: the RPC 'closed' status below must never bounce the phase
       // through 'offline' (the onStatus guard only touches ready/offline).
-      set({ phase: 'locked', self: null, recoveryPhrase: null, askName: false, error: null });
+      set({
+        phase: 'locked',
+        self: null,
+        recoveryPhrase: null,
+        askName: false,
+        error: null,
+      });
       clearPendingConversation();
       rpc.close();
       try {
@@ -176,6 +224,90 @@ export const useSession = create<SessionState>((set) => {
         // Stay on the unlock screen: a later unlock restarts the node and
         // replaces any node that failed to stop.
         set({ error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    loadAccounts: async () => {
+      try {
+        const accounts = await accountsList();
+        set({ accounts });
+      } catch (e) {
+        set({ error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    goToWelcome: async () => {
+      set({ phase: 'welcome', error: null });
+      try {
+        const accounts = await accountsList();
+        set({ accounts });
+      } catch {
+        // Liste déjà en mémoire depuis `init()` : on continue avec elle.
+      }
+    },
+
+    createAccount: async (passphrase) => {
+      set({ phase: 'starting', error: null });
+      try {
+        const created = await accountCreate(passphrase);
+        const self = await attach(created.session);
+        set({
+          phase: 'ready',
+          self,
+          recoveryPhrase: created.recovery_phrase,
+          askName: self.name === null,
+        });
+      } catch (e) {
+        set({ phase: 'welcome', error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    restoreAccount: async (phrase, passphrase) => {
+      set({ phase: 'starting', error: null });
+      try {
+        const restored = await accountRestore(phrase, passphrase);
+        const self = await attach(restored.session);
+        set({ phase: 'ready', self, recoveryPhrase: null, askName: self.name === null });
+      } catch (e) {
+        set({ phase: 'welcome', error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    unlockAccount: async (accountId, passphrase) => {
+      set({ phase: 'starting', error: null });
+      try {
+        const session = await accountUnlock(accountId, passphrase);
+        const self = await attach(session);
+        // Pas d'invite au pseudo au déverrouillage : compte déjà établi.
+        set({ phase: 'ready', self, recoveryPhrase: null, askName: false });
+      } catch (e) {
+        set({ phase: 'welcome', error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    switchAccount: async () => {
+      // Land on the welcome screen first, same discipline as `lock()`: the
+      // RPC 'closed' status below must never bounce the phase through
+      // 'offline' (the onStatus guard only touches ready/offline).
+      set({
+        phase: 'welcome',
+        self: null,
+        recoveryPhrase: null,
+        askName: false,
+        error: null,
+      });
+      clearPendingConversation();
+      rpc.close();
+      try {
+        await sessionClose();
+      } catch (e) {
+        set({ error: e instanceof Error ? e.message : String(e) });
+      }
+      try {
+        const accounts = await accountsList();
+        set({ accounts });
+      } catch {
+        // Best effort : la liste déjà en mémoire reste affichée.
       }
     },
 

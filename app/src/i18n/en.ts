@@ -58,6 +58,15 @@ export const en: Dict = {
     avatarChoose: 'Choose an image',
     avatarRemove: 'Remove image',
     avatarInvalid: 'This file is not a usable image',
+    // Account picker (multi-account).
+    switchAccountLink: 'Switch account / Add account',
+    backToList: 'Back to the account list',
+    welcomeTitle: 'Choose an account',
+    welcomeHint: 'Pick an account to continue, or add a new one.',
+    addAccount: 'Add an account',
+    importPhrase: 'Import from a recovery phrase',
+    unlockAccountLabel: 'Unlock {name}',
+    accountLastUsed: 'Last used {date}',
   },
   friends: {
     title: 'Friends',
@@ -376,6 +385,7 @@ export const en: Dict = {
     friendCode: 'Friend code',
     openProfile: 'View {name}’s profile',
     editProfile: 'Edit my profile',
+    switchAccount: 'Switch account',
   },
   voice: {
     channels: 'Voice channels',
@@ -409,7 +419,10 @@ export const en: Dict = {
     account: 'My account',
     privacy: 'Privacy',
     appearance: 'Appearance',
+    accessibility: 'Accessibility',
+    textMedia: 'Text & media',
     language: 'Language',
+    languageAndTime: 'Language & time',
     voice: 'Voice',
     notifications: 'Notifications',
     network: 'Network',
@@ -422,6 +435,30 @@ export const en: Dict = {
     densityCompact: 'Compact',
     densityHint: 'Adjusts the spacing between messages in the feed.',
     fontSize: 'Font size',
+    // Accessibility.
+    reducedMotionTitle: 'Reduce motion',
+    reducedMotionHint:
+      'Controls interface animations, independently of the system setting.',
+    reducedMotionSystem: 'System',
+    reducedMotionOn: 'On',
+    reducedMotionOff: 'Off',
+    saturationTitle: 'Color saturation',
+    saturationHint: 'Reduces color intensity across the whole app.',
+    saturationSliderLabel: 'Adjust color saturation',
+    // Text & media.
+    mediaPreviewsTitle: 'Image & media previews',
+    mediaPreviewsHint:
+      'When off, attachments show as a downloadable file card instead of an inline preview.',
+    emojiSizeTitle: 'Emoji size',
+    emojiSizeHint: 'Applies to the server’s custom emoji (:name:) in message bodies.',
+    emojiSizeNormal: 'Normal',
+    emojiSizeLarge: 'Large',
+    // Language & time.
+    timeFormatTitle: 'Time format',
+    timeFormatHint: 'Applies to message timestamps.',
+    timeFormatAuto: 'Auto',
+    timeFormat12: '12-hour',
+    timeFormat24: '24-hour',
     languageHint: 'The interface language changes immediately.',
     french: 'Français',
     english: 'English',
@@ -433,6 +470,13 @@ export const en: Dict = {
     readReceiptsLabel: 'Send read receipts',
     readReceiptsHint:
       'Friends see “Seen” under the last of their messages you have read. When off, you still see theirs.',
+    typingIndicatorTitle: 'Typing indicator',
+    typingIndicatorLabel: 'Show when you’re typing',
+    typingIndicatorHint:
+      'When off, your friends no longer see that you’re typing. You still see theirs.',
+    startupPresenceTitle: 'Status on launch',
+    startupPresenceHint:
+      'Forces this status every time the app opens. Click the chosen status again to stop forcing one.',
     version: 'Version',
     license: 'License',
     licenseText:
@@ -517,6 +561,17 @@ export const en: Dict = {
     notifGroups: 'Group messages',
     notifOnlyUnfocused: 'Only when the window is in the background',
     notifPrivacyHint: 'For privacy, notifications never show the content of messages.',
+    notifMasterTitle: 'Sounds and system notifications',
+    notifSoundEnabled: 'Notification sounds',
+    notifSoundEnabledHint:
+      'Mutes the sound blip played for incoming messages, mentions and invites.',
+    notifNativeEnabled: 'Native notifications',
+    notifNativeEnabledHint:
+      'Mutes system notifications, independently of the granted permission.',
+    notifSoundModeTitle: 'Play a sound for',
+    notifSoundModeAll: 'All messages',
+    notifSoundModeMentions: 'Mentions only',
+    notifSoundModeNone: 'None',
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logout: 'Log out',

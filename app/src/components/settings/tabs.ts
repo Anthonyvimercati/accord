@@ -5,6 +5,7 @@
 
 import type { ComponentType } from 'react';
 import type { Dict } from '../../i18n';
+import { AccessibilityTab } from './AccessibilityTab';
 import { AccountTab } from './AccountTab';
 import { AdvancedTab } from './AdvancedTab';
 import { AppearanceTab } from './AppearanceTab';
@@ -12,12 +13,15 @@ import { LanguageTab } from './LanguageTab';
 import { NetworkTab } from './NetworkTab';
 import { NotificationsTab } from './NotificationsTab';
 import { PrivacyTab } from './PrivacyTab';
+import { TextMediaTab } from './TextMediaTab';
 import { VoiceTab } from './VoiceTab';
 
 export type SettingsTabId =
   | 'account'
   | 'privacy'
   | 'appearance'
+  | 'accessibility'
+  | 'textMedia'
   | 'language'
   | 'voice'
   | 'notifications'
@@ -57,7 +61,17 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     label: (t) => t.settings.appSection,
     tabs: [
       { id: 'appearance', label: (t) => t.settings.appearance, Content: AppearanceTab },
-      { id: 'language', label: (t) => t.settings.language, Content: LanguageTab },
+      {
+        id: 'accessibility',
+        label: (t) => t.settings.accessibility,
+        Content: AccessibilityTab,
+      },
+      { id: 'textMedia', label: (t) => t.settings.textMedia, Content: TextMediaTab },
+      {
+        id: 'language',
+        label: (t) => t.settings.languageAndTime,
+        Content: LanguageTab,
+      },
       { id: 'voice', label: (t) => t.settings.voice, Content: VoiceTab },
       {
         id: 'notifications',

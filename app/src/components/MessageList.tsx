@@ -280,6 +280,7 @@ export function MessageList({
   scrollTarget = null,
 }: MessageListProps) {
   const lang = useUi((s) => s.lang);
+  const timeFormat = useUi((s) => s.timeFormat);
   const openProfile = useUi((s) => s.openProfile);
   const requestJump = useUi((s) => s.requestJump);
   const requestMentionInsert = useUi((s) => s.requestMentionInsert);
@@ -679,7 +680,7 @@ export function MessageList({
               )}
               {grouped ? (
                 <div className="w-10 shrink-0 pt-1 text-right text-[10px] leading-5 text-faint opacity-0 group-hover:opacity-100">
-                  {formatTimestamp(m.sent_ms, lang)}
+                  {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
                 </div>
               ) : (
                 <button
@@ -735,7 +736,7 @@ export function MessageList({
                         {name}
                       </button>
                       <span className="text-xs text-faint">
-                        {formatTimestamp(m.sent_ms, lang)}
+                        {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
                       </span>
                       {pinned && (
                         <svg

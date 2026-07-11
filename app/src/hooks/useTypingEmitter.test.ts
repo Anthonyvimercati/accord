@@ -14,6 +14,7 @@ vi.mock('../lib/client', () => ({
 }));
 
 import { api } from '../lib/client';
+import { useUi } from '../stores/ui';
 import {
   useTypingEmitter,
   TYPING_EMIT_INTERVAL_MS,
@@ -29,10 +30,12 @@ beforeEach(() => {
   groupsTypingMock.mockReset();
   dmTypingMock.mockResolvedValue({ ok: true });
   groupsTypingMock.mockResolvedValue({ ok: true });
+  useUi.getState().setTypingIndicatorEnabled(true);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  useUi.getState().setTypingIndicatorEnabled(true);
 });
 
 describe('useTypingEmitter', () => {
@@ -80,6 +83,37 @@ describe('useTypingEmitter', () => {
 
     // Assert
     expect(dmTypingMock).not.toHaveBeenCalled();
+  });
+
+  it('n’émet rien quand l’indicateur de frappe est désactivé (réglage)', () => {
+    // Arrange
+    useUi.getState().setTypingIndicatorEnabled(false);
+    const { result } = renderHook(() =>
+      useTypingEmitter({ kind: 'dm', peer: 'alice-pk' }),
+    );
+
+    // Act
+    result.current('bonjour');
+
+    // Assert
+    expect(dmTypingMock).not.toHaveBeenCalled();
+  });
+
+  it('reprend l’émission une fois l’indicateur de frappe réactivé', () => {
+    // Arrange
+    useUi.getState().setTypingIndicatorEnabled(false);
+    const { result } = renderHook(() =>
+      useTypingEmitter({ kind: 'dm', peer: 'alice-pk' }),
+    );
+    result.current('b');
+    expect(dmTypingMock).not.toHaveBeenCalled();
+
+    // Act
+    useUi.getState().setTypingIndicatorEnabled(true);
+    result.current('bo');
+
+    // Assert
+    expect(dmTypingMock).toHaveBeenCalledWith('alice-pk');
   });
 
   it("n'émet rien sans cible", () => {

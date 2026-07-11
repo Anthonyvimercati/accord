@@ -61,6 +61,7 @@ function HitRow({
 }) {
   const t = useT();
   const lang = useUi((s) => s.lang);
+  const timeFormat = useUi((s) => s.timeFormat);
   const contacts = useFriends((s) => s.contacts);
   const groupStates = useGroups((s) => s.states);
   const self = useSession((s) => s.self);
@@ -90,7 +91,7 @@ function HitRow({
       <div className="flex items-baseline justify-between gap-2">
         <span className="truncate text-xs font-medium text-muted">{label}</span>
         <span className="shrink-0 text-[10px] text-faint">
-          {formatTimestamp(hit.timestamp, lang)}
+          {formatTimestamp(hit.timestamp, lang, undefined, timeFormat)}
         </span>
       </div>
       <div className="truncate text-sm text-norm">

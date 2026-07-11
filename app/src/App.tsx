@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { AppShell } from './components/AppShell';
 import { Toasts } from './components/Toasts';
+import { AccountPicker } from './screens/AccountPicker';
 import { ChooseNameScreen, Onboarding, RecoveryPhraseScreen } from './screens/Onboarding';
 import { useSession } from './stores/session';
 import { useT } from './stores/ui';
@@ -30,6 +31,15 @@ export function App() {
     return (
       <>
         <Onboarding />
+        <Toasts />
+      </>
+    );
+  }
+
+  if (phase === 'welcome') {
+    return (
+      <>
+        <AccountPicker />
         <Toasts />
       </>
     );

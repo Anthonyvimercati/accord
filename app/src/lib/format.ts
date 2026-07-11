@@ -2,8 +2,20 @@
 
 import type { Lang } from '../i18n';
 
+/**
+ * Préférence de format d'heure (Paramètres → Langue et heure) : `auto` suit
+ * la convention de la locale (fr-FR → 24 h, en-US → 12 h par défaut), les
+ * deux autres valeurs forcent `Intl`'s `hour12` indépendamment de la langue.
+ */
+export type HourFormat = 'auto' | '12h' | '24h';
+
 /** Horodatage court d'un message (heure si aujourd'hui, sinon date). */
-export function formatTimestamp(ms: number, lang: Lang, now = Date.now()): string {
+export function formatTimestamp(
+  ms: number,
+  lang: Lang,
+  now = Date.now(),
+  hourFormat: HourFormat = 'auto',
+): string {
   const locale = lang === 'fr' ? 'fr-FR' : 'en-US';
   const date = new Date(ms);
   const today = new Date(now);
@@ -12,7 +24,9 @@ export function formatTimestamp(ms: number, lang: Lang, now = Date.now()): strin
     date.getMonth() === today.getMonth() &&
     date.getDate() === today.getDate();
   if (sameDay) {
-    return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+    const options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+    if (hourFormat !== 'auto') options.hour12 = hourFormat === '12h';
+    return date.toLocaleTimeString(locale, options);
   }
   return date.toLocaleDateString(locale, {
     day: '2-digit',

@@ -57,6 +57,15 @@ export const fr = {
     avatarChoose: 'Choisir une image',
     avatarRemove: 'Retirer l’image',
     avatarInvalid: 'Ce fichier n’est pas une image exploitable',
+    // Sélecteur de comptes (multi-comptes).
+    switchAccountLink: 'Changer de compte / Ajouter un compte',
+    backToList: 'Retour à la liste des comptes',
+    welcomeTitle: 'Choisis un compte',
+    welcomeHint: 'Sélectionne un compte pour continuer, ou ajoute-en un nouveau.',
+    addAccount: 'Ajouter un compte',
+    importPhrase: 'Importer depuis une phrase de récupération',
+    unlockAccountLabel: 'Déverrouiller {name}',
+    accountLastUsed: 'Utilisé {date}',
   },
   friends: {
     title: 'Amis',
@@ -378,6 +387,7 @@ export const fr = {
     friendCode: 'Code ami',
     openProfile: 'Voir le profil de {name}',
     editProfile: 'Modifier mon profil',
+    switchAccount: 'Changer de compte',
   },
   voice: {
     channels: 'Salons vocaux',
@@ -411,7 +421,10 @@ export const fr = {
     account: 'Mon compte',
     privacy: 'Confidentialité',
     appearance: 'Apparence',
+    accessibility: 'Accessibilité',
+    textMedia: 'Texte & médias',
     language: 'Langue',
+    languageAndTime: 'Langue et heure',
     voice: 'Voix',
     notifications: 'Notifications',
     network: 'Réseau',
@@ -424,6 +437,31 @@ export const fr = {
     densityCompact: 'Compacte',
     densityHint: 'Ajuste l’espacement entre les messages du fil.',
     fontSize: 'Taille de la police',
+    // Accessibilité.
+    reducedMotionTitle: 'Réduire les animations',
+    reducedMotionHint:
+      'Contrôle les animations d’interface, indépendamment du réglage système.',
+    reducedMotionSystem: 'Système',
+    reducedMotionOn: 'Activé',
+    reducedMotionOff: 'Désactivé',
+    saturationTitle: 'Saturation des couleurs',
+    saturationHint: 'Réduit l’intensité des couleurs dans toute l’application.',
+    saturationSliderLabel: 'Régler la saturation des couleurs',
+    // Texte & médias.
+    mediaPreviewsTitle: 'Aperçu des images et médias',
+    mediaPreviewsHint:
+      'Désactivé, les pièces jointes s’affichent en carte de fichier téléchargeable plutôt qu’en aperçu.',
+    emojiSizeTitle: 'Taille des émojis',
+    emojiSizeHint:
+      'S’applique aux émojis personnalisés du serveur (:nom:) dans le corps des messages.',
+    emojiSizeNormal: 'Normal',
+    emojiSizeLarge: 'Grand',
+    // Langue et heure.
+    timeFormatTitle: 'Format de l’heure',
+    timeFormatHint: 'S’applique aux horodatages des messages.',
+    timeFormatAuto: 'Auto',
+    timeFormat12: '12 h',
+    timeFormat24: '24 h',
     languageHint: 'La langue de l’interface change immédiatement.',
     french: 'Français',
     english: 'English',
@@ -435,6 +473,13 @@ export const fr = {
     readReceiptsLabel: 'Envoyer les accusés de lecture',
     readReceiptsHint:
       'Vos amis voient « Vu » sous leur dernier message que vous avez lu. Désactivé, vous continuez de voir les leurs.',
+    typingIndicatorTitle: 'Indicateur de frappe',
+    typingIndicatorLabel: 'Afficher quand vous écrivez',
+    typingIndicatorHint:
+      'Désactivé, vos amis ne voient plus que vous êtes en train d’écrire. Vous continuez de voir le leur.',
+    startupPresenceTitle: 'Statut au démarrage',
+    startupPresenceHint:
+      'Force ce statut à chaque ouverture de l’application. Cliquez à nouveau sur le statut choisi pour ne plus rien forcer.',
     version: 'Version',
     license: 'Licence',
     licenseText:
@@ -521,6 +566,17 @@ export const fr = {
     notifOnlyUnfocused: 'Seulement quand la fenêtre est en arrière-plan',
     notifPrivacyHint:
       'Par confidentialité, les notifications n’affichent jamais le contenu des messages.',
+    notifMasterTitle: 'Sons et notifications système',
+    notifSoundEnabled: 'Sons de notification',
+    notifSoundEnabledHint:
+      'Coupe le blip sonore joué pour les messages, mentions et invitations entrants.',
+    notifNativeEnabled: 'Notifications natives',
+    notifNativeEnabledHint:
+      'Coupe les notifications système, indépendamment de l’autorisation accordée.',
+    notifSoundModeTitle: 'Jouer un son pour',
+    notifSoundModeAll: 'Tous les messages',
+    notifSoundModeMentions: 'Mentions seulement',
+    notifSoundModeNone: 'Aucun',
     // Zone de danger (déconnexion).
     dangerZoneTitle: 'Zone de danger',
     logout: 'Se déconnecter',

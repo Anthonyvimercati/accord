@@ -1,10 +1,12 @@
 /**
- * Onglet Apparence : thème (sombre/clair), densité des messages et taille de
- * police. Chaque réglage s'applique immédiatement à la racine du document et
- * est persisté dans localStorage par le store d'interface.
+ * Onglet Apparence : thème (sombre/clair) et densité des messages. Chaque
+ * réglage s'applique immédiatement à la racine du document et est persisté
+ * dans localStorage par le store d'interface. La taille de police a migré
+ * vers l'onglet Accessibilité (voir `AccessibilityTab.tsx`) pour rester
+ * groupée avec les autres réglages de confort visuel.
  */
 
-import { FONT_SCALES, useUi, useT, type Theme } from '../../stores/ui';
+import { useUi, useT, type Theme } from '../../stores/ui';
 import { OptionPill, SettingsSection } from './controls';
 
 /** Vignette de thème : aperçu miniature fidèle + libellé, façon Discord. */
@@ -63,10 +65,8 @@ export function AppearanceTab() {
   const t = useT();
   const theme = useUi((s) => s.theme);
   const density = useUi((s) => s.density);
-  const fontScale = useUi((s) => s.fontScale);
   const setTheme = useUi((s) => s.setTheme);
   const setDensity = useUi((s) => s.setDensity);
-  const setFontScale = useUi((s) => s.setFontScale);
 
   return (
     <div>
@@ -101,20 +101,6 @@ export function AppearanceTab() {
           >
             {t.settings.densityCompact}
           </OptionPill>
-        </div>
-      </SettingsSection>
-
-      <SettingsSection title={t.settings.fontSize}>
-        <div className="flex gap-2">
-          {FONT_SCALES.map((scale) => (
-            <OptionPill
-              key={scale}
-              selected={fontScale === scale}
-              onSelect={() => setFontScale(scale)}
-            >
-              {scale} %
-            </OptionPill>
-          ))}
         </div>
       </SettingsSection>
     </div>

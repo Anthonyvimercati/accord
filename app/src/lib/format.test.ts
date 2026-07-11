@@ -24,6 +24,26 @@ describe('formatTimestamp', () => {
     expect(formatTimestamp(CHRISTMAS, 'fr', NOW)).toBe('25/12/2025');
     expect(formatTimestamp(CHRISTMAS, 'en', NOW)).toBe('12/25/2025');
   });
+
+  it('suit la convention de la locale par défaut (« auto »)', () => {
+    // fr-FR : 24 h par défaut ; en-US : 12 h par défaut.
+    expect(formatTimestamp(SAME_DAY, 'fr', NOW)).toBe('09:05');
+    expect(formatTimestamp(SAME_DAY, 'en', NOW)).toMatch(/AM$/);
+  });
+
+  it('force le format 12 h indépendamment de la locale', () => {
+    expect(formatTimestamp(SAME_DAY, 'fr', NOW, '12h')).toMatch(/AM$/);
+    expect(formatTimestamp(SAME_DAY, 'en', NOW, '12h')).toMatch(/AM$/);
+  });
+
+  it('force le format 24 h indépendamment de la locale', () => {
+    expect(formatTimestamp(SAME_DAY, 'fr', NOW, '24h')).toBe('09:05');
+    expect(formatTimestamp(SAME_DAY, 'en', NOW, '24h')).not.toMatch(/AM$|PM$/);
+  });
+
+  it('ne change pas l’affichage d’une autre date (heure absente)', () => {
+    expect(formatTimestamp(CHRISTMAS, 'fr', NOW, '12h')).toBe('25/12/2025');
+  });
 });
 
 describe('formatDay', () => {

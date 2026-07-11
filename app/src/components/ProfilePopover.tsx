@@ -14,76 +14,15 @@ import { nicknameOf, roleColorCss, sortRoles, useGroups } from '../stores/groups
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { api } from '../lib/client';
-import { lireFichier } from '../lib/files';
 import { Avatar } from './Avatar';
 import { EnvelopeMenuIcon } from './ContextMenu';
 import { PresenceDot } from './PresenceDot';
+import { ProfileBanner } from './ProfileBanner';
 
 /** Largeur de la carte (px, façon Discord) ; sert au calcul de position initial. */
 const CARD_WIDTH = 340;
 /** Marge minimale au bord du viewport (px). */
 const MARGE = 8;
-
-/**
- * Bandeau de bannière en tête de carte : charge le blob par son hash Merkle
- * (comme `Avatar`) et l'affiche en paysage ; repli sur la couleur de
- * bannière tant qu'aucune image n'est définie (l'image l'emporte toujours,
- * y compris pendant son chargement ou en cas d'échec) ; fond neutre si ni
- * image ni couleur.
- */
-function BanniereProfil({
-  hash,
-  hint,
-  color,
-}: {
-  hash: string | null;
-  hint: string;
-  color: number | null;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    setUrl(null);
-    if (hash === null) return undefined;
-    lireFichier(hash, hint)
-      .then((blobUrl) => {
-        if (alive) setUrl(blobUrl);
-      })
-      .catch(() => {
-        // Bannière indisponible : on garde le fond neutre.
-      });
-    return () => {
-      alive = false;
-    };
-  }, [hash, hint]);
-
-  // Aucune image annoncée (`hash === null`) : la couleur de bannière tient
-  // lieu de repli. Une image annoncée mais encore en chargement ou en échec
-  // garde le fond neutre — jamais la couleur, pour ne pas laisser croire que
-  // l'image a été remplacée.
-  const colorHex = hash === null ? profileColorCss(color) : null;
-
-  return (
-    <div className="relative h-20 overflow-hidden">
-      {url === null ? (
-        <div
-          aria-hidden
-          data-testid="profile-banner-fill"
-          className={colorHex === null ? 'h-full bg-rail' : 'h-full'}
-          style={colorHex !== null ? { backgroundColor: colorHex } : undefined}
-        />
-      ) : (
-        <img src={url} alt="" aria-hidden className="h-full w-full object-cover" />
-      )}
-      {/* Fondu bas de bannière vers la surface de verre du panneau. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-10 bg-gradient-to-b from-transparent to-modal/70"
-      />
-    </div>
-  );
-}
 
 /** Icône « retirer cet ami » (voir ICON SPEC, styles/global.css). */
 function RemoveFriendIcon() {
@@ -328,7 +267,7 @@ export function ProfilePopover() {
       }}
       className="glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl"
     >
-      <BanniereProfil hash={bannerHash} hint={pubkey} color={bannerColor} />
+      <ProfileBanner hash={bannerHash} hint={pubkey} color={bannerColor} />
       <div className="-mt-8 px-4 pb-4">
         <div className="mb-2 flex items-end justify-between">
           <div className="relative z-10 rounded-full ring-4 ring-modal">

@@ -46,6 +46,8 @@ beforeEach(() => {
   useUi.getState().setTheme('dark');
   useUi.getState().setDensity('comfortable');
   useUi.getState().setFontScale(100);
+  useUi.getState().setReducedMotion('system');
+  useUi.getState().setSaturation(100);
   window.localStorage.clear();
   useSession.setState({ self, phase: 'ready' });
   useFriends.setState({
@@ -69,7 +71,9 @@ describe('SettingsModal — structure', () => {
       'Mon compte',
       'Confidentialité',
       'Apparence',
-      'Langue',
+      'Accessibilité',
+      'Texte & médias',
+      'Langue et heure',
       'Voix',
       'Notifications',
       'Avancé',
@@ -120,22 +124,46 @@ describe('SettingsModal — apparence', () => {
     expect(document.documentElement.dataset.density).toBe('compact');
     expect(window.localStorage.getItem('accord.density')).toBe('compact');
   });
+});
 
+describe('SettingsModal — accessibilité', () => {
   it('change la taille de police sur la racine', () => {
     render(<SettingsModal />);
-    openTab('Apparence');
+    openTab('Accessibilité');
 
-    fireEvent.click(screen.getByRole('button', { name: '120 %' }));
+    fireEvent.click(screen.getByRole('button', { name: '150 %' }));
 
-    expect(document.documentElement.style.fontSize).toBe('120%');
-    expect(window.localStorage.getItem('accord.fontScale')).toBe('120');
+    expect(document.documentElement.style.fontSize).toBe('150%');
+    expect(window.localStorage.getItem('accord.fontScale')).toBe('150');
+  });
+
+  it('force la réduction d’animations sur la racine et la persiste', () => {
+    render(<SettingsModal />);
+    openTab('Accessibilité');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Activé' }));
+
+    expect(document.documentElement.dataset.motion).toBe('reduce');
+    expect(window.localStorage.getItem('accord.a11y.reducedMotion')).toBe('on');
+  });
+
+  it('ajuste la saturation globale et la persiste', () => {
+    render(<SettingsModal />);
+    openTab('Accessibilité');
+
+    fireEvent.change(screen.getByLabelText('Régler la saturation des couleurs'), {
+      target: { value: '50' },
+    });
+
+    expect(document.documentElement.style.getPropertyValue('--saturation')).toBe('50%');
+    expect(window.localStorage.getItem('accord.a11y.saturation')).toBe('50');
   });
 });
 
-describe('SettingsModal — langue', () => {
+describe('SettingsModal — langue et heure', () => {
   it('bascule l’interface en anglais et persiste le choix', () => {
     render(<SettingsModal />);
-    openTab('Langue');
+    openTab('Langue et heure');
 
     fireEvent.click(screen.getByRole('button', { name: 'English' }));
 

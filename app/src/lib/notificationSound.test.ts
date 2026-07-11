@@ -99,4 +99,23 @@ describe('playNotificationSound', () => {
     expect(FakeAudioContext.instances).toHaveLength(1);
     expect(FakeAudioContext.instances[0]?.createOscillator).toHaveBeenCalledTimes(4);
   });
+
+  it('ne joue rien quand le réglage « Sons de notification » est désactivé', async () => {
+    w.AudioContext = FakeAudioContext as unknown as typeof AudioContext;
+    const { playNotificationSound } = await import('./notificationSound');
+    const { useUi } = await import('../stores/ui');
+
+    vi.setSystemTime(30_000);
+    useUi.getState().setNotifySoundEnabled(false);
+    playNotificationSound('message');
+
+    expect(FakeAudioContext.instances).toHaveLength(0);
+
+    // Réactivé, largement après la fenêtre de rafale : le blip rejoue.
+    vi.setSystemTime(40_000);
+    useUi.getState().setNotifySoundEnabled(true);
+    playNotificationSound('message');
+
+    expect(FakeAudioContext.instances).toHaveLength(1);
+  });
 });

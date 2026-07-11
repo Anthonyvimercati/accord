@@ -20,6 +20,28 @@ export interface CreatedIdentity {
   recovery_phrase: string;
 }
 
+/** Compte local tel qu'exposé au sélecteur de comptes (contrat `AccountMeta`). */
+export interface AccountMeta {
+  id: string;
+  name: string;
+  created_ms: number;
+  last_used_ms: number;
+  is_legacy: boolean;
+  pubkey_short: string | null;
+}
+
+export interface CreatedAccount {
+  session: SessionInfo;
+  /** Phrase de récupération de 12 mots — affichée une seule fois. */
+  recovery_phrase: string;
+  account_id: string;
+}
+
+export interface RestoredAccount {
+  session: SessionInfo;
+  account_id: string;
+}
+
 export function isTauri(): boolean {
   return '__TAURI_INTERNALS__' in window;
 }
@@ -85,4 +107,84 @@ export async function unlockIdentity(passphrase: string): Promise<SessionInfo> {
 export async function lockIdentity(): Promise<VaultStatus> {
   if (!isTauri()) return devSession() ? 'locked' : 'absent';
   return invoke<VaultStatus>('lock');
+}
+
+/** Identifiant du compte de secours en mode navigateur (développement UI). */
+const DEV_ACCOUNT_ID = 'dev-session';
+
+/**
+ * Liste les comptes locaux connus, du plus récemment utilisé au moins
+ * récent — peuple le sélecteur de comptes avant tout déverrouillage. Hors
+ * Tauri, dérivée de la session de secours seule (0 ou 1 entrée synthétique) :
+ * aucun registre réel n'existe en mode navigateur.
+ */
+export async function accountsList(): Promise<AccountMeta[]> {
+  if (!isTauri()) {
+    const session = devSession();
+    if (session === null) return [];
+    return [
+      {
+        id: DEV_ACCOUNT_ID,
+        name: 'Session de développement',
+        created_ms: 0,
+        last_used_ms: 0,
+        is_legacy: true,
+        pubkey_short: null,
+      },
+    ];
+  }
+  return invoke<AccountMeta[]>('accounts_list');
+}
+
+/**
+ * Crée un compte **neuf** (jamais sur le profil actif courant), démarre son
+ * nœud et rend la session ainsi que la phrase de récupération à faire noter.
+ */
+export async function accountCreate(passphrase: string): Promise<CreatedAccount> {
+  if (!isTauri()) {
+    throw new Error('création indisponible hors Tauri (mode développement)');
+  }
+  return invoke<CreatedAccount>('account_create', { passphrase });
+}
+
+/**
+ * Restaure un compte **neuf** depuis sa phrase de récupération (jamais sur
+ * le profil actif courant), le scelle sous la nouvelle phrase de passe
+ * locale, puis démarre son nœud.
+ */
+export async function accountRestore(
+  phrase: string,
+  passphrase: string,
+): Promise<RestoredAccount> {
+  if (!isTauri()) {
+    throw new Error('restauration indisponible hors Tauri (mode développement)');
+  }
+  return invoke<RestoredAccount>('account_restore', { phrase, passphrase });
+}
+
+/**
+ * Déverrouille un compte existant du registre et bascule dessus : arrête
+ * l'éventuel nœud actif avant de démarrer celui-ci. Le profil actif n'est
+ * changé qu'après succès du déverrouillage.
+ */
+export async function accountUnlock(
+  accountId: string,
+  passphrase: string,
+): Promise<SessionInfo> {
+  if (!isTauri()) {
+    const session = devSession();
+    if (session) return session;
+    throw new Error('aucune session de développement (accord.dev.session)');
+  }
+  return invoke<SessionInfo>('account_unlock', { accountId, passphrase });
+}
+
+/**
+ * Ferme la session courante : arrête le nœud actif et ramène l'UI au
+ * sélecteur de comptes, sans changer le profil actif ni rien effacer sur
+ * disque. Rend le statut de coffre frais, comme `lockIdentity`.
+ */
+export async function sessionClose(): Promise<VaultStatus> {
+  if (!isTauri()) return devSession() ? 'locked' : 'absent';
+  return invoke<VaultStatus>('session_close');
 }

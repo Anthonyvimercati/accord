@@ -4,7 +4,7 @@
  * exclusion systématique de ses propres messages.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearPendingConversation,
   isNotificationEligible,
@@ -136,6 +136,50 @@ describe('isSoundEligible', () => {
     expect(
       isSoundEligible({ ...BASE, isDisplayedConversation: false, windowFocused: true }),
     ).toBe(true);
+  });
+
+  it('mode par défaut (absent) : joue pour tous les messages, comme avant', () => {
+    expect(isSoundEligible(BASE)).toBe(true);
+  });
+
+  it('mode « aucun » : ne joue jamais, mention ou non', () => {
+    expect(isSoundEligible({ ...BASE, mode: 'none' })).toBe(false);
+    expect(isSoundEligible({ ...BASE, mode: 'none', isMention: true })).toBe(false);
+  });
+
+  it('mode « mentions seulement » : tait les messages ordinaires', () => {
+    expect(isSoundEligible({ ...BASE, mode: 'mentionsOnly', isMention: false })).toBe(
+      false,
+    );
+  });
+
+  it('mode « mentions seulement » : joue pour une mention', () => {
+    expect(isSoundEligible({ ...BASE, mode: 'mentionsOnly', isMention: true })).toBe(true);
+  });
+
+  it('mode « tous » : joue pour un message ordinaire comme pour une mention', () => {
+    expect(isSoundEligible({ ...BASE, mode: 'all', isMention: false })).toBe(true);
+    expect(isSoundEligible({ ...BASE, mode: 'all', isMention: true })).toBe(true);
+  });
+});
+
+describe('sendNativeNotification — réglage « Notifications natives »', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('ne fait rien quand le réglage est désactivé, même dans Tauri', async () => {
+    vi.doMock('./bridge', () => ({ isTauri: () => true }));
+    const { sendNativeNotification } = await import('./notifications');
+    const { useUi } = await import('../stores/ui');
+
+    useUi.getState().setNotifyNative(false);
+    const sent = await sendNativeNotification('Titre', 'Corps');
+
+    expect(sent).toBe(false);
+
+    useUi.getState().setNotifyNative(true);
+    vi.doUnmock('./bridge');
   });
 });
 

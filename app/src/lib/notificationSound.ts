@@ -10,6 +10,8 @@
  * casser la livraison des messages.
  */
 
+import { useUi } from '../stores/ui';
+
 export type NotificationSoundKind = 'message' | 'mention';
 
 const THROTTLE_MS = 1000;
@@ -80,9 +82,11 @@ function playTone(context: AudioContext, freq: number, startAt: number): void {
  * Joue le blip de notification, limité à une fois par seconde — une rafale
  * de messages entrants ne doit jamais empiler les sons. Ne lève jamais :
  * no-op silencieux sans support Web Audio ou pendant un blocage de lecture
- * automatique (réarmé pour le prochain geste utilisateur).
+ * automatique (réarmé pour le prochain geste utilisateur), ou si l'utilisateur
+ * a coupé les sons de notification (Paramètres → Notifications).
  */
 export function playNotificationSound(kind: NotificationSoundKind = 'message'): void {
+  if (!useUi.getState().notifySoundEnabled) return;
   const now = Date.now();
   if (now - lastPlayedAtMs < THROTTLE_MS) return;
   try {

@@ -28,6 +28,7 @@ function viewOf(conversation: MentionConversation): View {
 export function MentionInbox({ onClose }: { onClose: () => void }) {
   const t = useT();
   const lang = useUi((s) => s.lang);
+  const timeFormat = useUi((s) => s.timeFormat);
   const requestJump = useUi((s) => s.requestJump);
   const setView = useUi((s) => s.setView);
   const toast = useUi((s) => s.toast);
@@ -151,7 +152,7 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
                   {displayNameOf(contacts, entry.author)}
                 </span>
                 <span className="shrink-0 text-xs text-faint">
-                  {formatTimestamp(entry.ts_ms, lang)}
+                  {formatTimestamp(entry.ts_ms, lang, undefined, timeFormat)}
                 </span>
               </div>
               <div className="mt-0.5 break-words text-sm text-muted">{entry.snippet}</div>

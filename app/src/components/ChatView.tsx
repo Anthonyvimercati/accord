@@ -597,6 +597,7 @@ function PinnedPanel({
 }) {
   const t = useT();
   const lang = useUi((s) => s.lang);
+  const timeFormat = useUi((s) => s.timeFormat);
 
   return (
     <div
@@ -630,7 +631,7 @@ function PinnedPanel({
                 {nameOf(m.author)}
               </span>
               <span className="shrink-0 text-xs text-faint">
-                {formatTimestamp(m.sent_ms, lang)}
+                {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
               </span>
             </div>
             <div className="break-words text-sm text-norm">

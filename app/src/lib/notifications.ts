@@ -6,6 +6,7 @@
  */
 
 import { isTauri } from './bridge';
+import { useUi } from '../stores/ui';
 
 export type NotifyKind = 'dm' | 'group';
 
@@ -41,6 +42,12 @@ export function isNotificationEligible(options: {
  * messages, en mode Ne pas déranger, ou quand la fenêtre a le focus sur
  * exactement cette conversation/salon (la pastille seule suffit alors).
  */
+/**
+ * Filtrage additionnel choisi par l'utilisateur (Paramètres → Notifications
+ * → « Jouer un son pour ») : tous les messages, mentions seulement, ou aucun.
+ */
+export type NotifySoundMode = 'all' | 'mentionsOnly' | 'none';
+
 export interface SoundEligibilityOptions {
   isOwnMessage: boolean;
   /** Vrai si la conversation/le salon visé par le message est celui affiché. */
@@ -48,13 +55,26 @@ export interface SoundEligibilityOptions {
   windowFocused: boolean;
   /** Vrai si le statut de présence local est Ne pas déranger. */
   dnd: boolean;
+  /** Mode de filtrage courant ; absent = tous les messages (comportement historique). */
+  mode?: NotifySoundMode;
+  /** Vrai si le message mentionne l'utilisateur ; n'importe que pour `mentionsOnly`. */
+  isMention?: boolean;
 }
 
 /** Décide si le blip de notification doit jouer pour un message entrant. */
 export function isSoundEligible(options: SoundEligibilityOptions): boolean {
-  const { isOwnMessage, isDisplayedConversation, windowFocused, dnd } = options;
+  const {
+    isOwnMessage,
+    isDisplayedConversation,
+    windowFocused,
+    dnd,
+    mode = 'all',
+    isMention = false,
+  } = options;
   if (isOwnMessage) return false;
   if (dnd) return false;
+  if (mode === 'none') return false;
+  if (mode === 'mentionsOnly' && !isMention) return false;
   if (isDisplayedConversation && windowFocused) return false;
   return true;
 }
@@ -89,12 +109,16 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 /**
  * Envoie une notification native si l'autorisation est accordée. Best effort :
  * hors Tauri ou sans autorisation, ne fait rien (aucune erreur remontée).
- * Rend `true` si la notification a réellement été envoyée.
+ * Rend `true` si la notification a réellement été envoyée. Respecte le
+ * réglage global « Notifications natives » (Paramètres → Notifications),
+ * distinct des réglages fins MP/groupes déjà appliqués par l'appelant
+ * (`isNotificationEligible`).
  */
 export async function sendNativeNotification(
   title: string,
   body: string,
 ): Promise<boolean> {
+  if (!useUi.getState().notifyNative) return false;
   if (!isTauri()) return false;
   try {
     const plugin = await import('@tauri-apps/plugin-notification');

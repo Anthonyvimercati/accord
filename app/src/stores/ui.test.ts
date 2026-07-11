@@ -55,11 +55,11 @@ describe('useUi — densité', () => {
 
 describe('useUi — taille de police', () => {
   it('applique l’échelle en pourcentage sur la racine et la persiste', () => {
-    useUi.getState().setFontScale(120);
+    useUi.getState().setFontScale(150);
 
-    expect(root.style.fontSize).toBe('120%');
-    expect(window.localStorage.getItem('accord.fontScale')).toBe('120');
-    expect(useUi.getState().fontScale).toBe(120);
+    expect(root.style.fontSize).toBe('150%');
+    expect(window.localStorage.getItem('accord.fontScale')).toBe('150');
+    expect(useUi.getState().fontScale).toBe(150);
   });
 });
 
@@ -188,17 +188,17 @@ describe('useUi — restauration au démarrage', () => {
   it('restaure les préférences persistées valides', async () => {
     window.localStorage.setItem('accord.theme', 'light');
     window.localStorage.setItem('accord.density', 'compact');
-    window.localStorage.setItem('accord.fontScale', '110');
+    window.localStorage.setItem('accord.fontScale', '125');
 
     vi.resetModules();
     const fresh = await import('./ui');
 
     expect(fresh.useUi.getState().theme).toBe('light');
     expect(fresh.useUi.getState().density).toBe('compact');
-    expect(fresh.useUi.getState().fontScale).toBe(110);
+    expect(fresh.useUi.getState().fontScale).toBe(125);
     expect(root.dataset.theme).toBe('light');
     expect(root.dataset.density).toBe('compact');
-    expect(root.style.fontSize).toBe('110%');
+    expect(root.style.fontSize).toBe('125%');
   });
 
   it('replie sur les défauts quand les valeurs persistées sont invalides', async () => {
@@ -213,6 +213,144 @@ describe('useUi — restauration au démarrage', () => {
     expect(fresh.useUi.getState().density).toBe('comfortable');
     expect(fresh.useUi.getState().fontScale).toBe(100);
     expect(root.dataset.theme).toBe('dark');
+  });
+});
+
+describe('useUi — réduction des animations', () => {
+  it('force l’attribut data-motion et le persiste (Activé)', () => {
+    useUi.getState().setReducedMotion('on');
+
+    expect(root.dataset.motion).toBe('reduce');
+    expect(window.localStorage.getItem('accord.a11y.reducedMotion')).toBe('on');
+    expect(useUi.getState().reducedMotion).toBe('on');
+  });
+
+  it('retire l’attribut pour Système et Désactivé', () => {
+    useUi.getState().setReducedMotion('on');
+    useUi.getState().setReducedMotion('off');
+
+    expect(root.dataset.motion).toBeUndefined();
+    expect(window.localStorage.getItem('accord.a11y.reducedMotion')).toBe('off');
+
+    useUi.getState().setReducedMotion('on');
+    useUi.getState().setReducedMotion('system');
+
+    expect(root.dataset.motion).toBeUndefined();
+  });
+
+  it('restaure la préférence persistée au démarrage', async () => {
+    window.localStorage.setItem('accord.a11y.reducedMotion', 'on');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().reducedMotion).toBe('on');
+    expect(root.dataset.motion).toBe('reduce');
+  });
+
+  it('replie sur « système » quand la valeur persistée est invalide', async () => {
+    window.localStorage.setItem('accord.a11y.reducedMotion', 'flou');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().reducedMotion).toBe('system');
+  });
+});
+
+describe('useUi — saturation', () => {
+  it('applique la variable CSS et la persiste', () => {
+    useUi.getState().setSaturation(40);
+
+    expect(root.style.getPropertyValue('--saturation')).toBe('40%');
+    expect(window.localStorage.getItem('accord.a11y.saturation')).toBe('40');
+    expect(useUi.getState().saturation).toBe(40);
+  });
+
+  it('borne aux limites [0, 100]', () => {
+    useUi.getState().setSaturation(-20);
+    expect(useUi.getState().saturation).toBe(0);
+
+    useUi.getState().setSaturation(500);
+    expect(useUi.getState().saturation).toBe(100);
+  });
+});
+
+describe('useUi — texte & médias', () => {
+  it('bascule et persiste l’aperçu des médias', () => {
+    useUi.getState().setShowMediaPreviews(false);
+
+    expect(useUi.getState().showMediaPreviews).toBe(false);
+    expect(window.localStorage.getItem('accord.media.showPreviews')).toBe('false');
+  });
+
+  it('bascule et persiste la taille des émojis', () => {
+    useUi.getState().setEmojiSize('large');
+
+    expect(useUi.getState().emojiSize).toBe('large');
+    expect(window.localStorage.getItem('accord.media.emojiSize')).toBe('large');
+  });
+});
+
+describe('useUi — notifications (sons, natif, mode)', () => {
+  it('bascule et persiste les interrupteurs maîtres', () => {
+    useUi.getState().setNotifySoundEnabled(false);
+    useUi.getState().setNotifyNative(false);
+
+    expect(useUi.getState().notifySoundEnabled).toBe(false);
+    expect(useUi.getState().notifyNative).toBe(false);
+    expect(window.localStorage.getItem('accord.notify.soundEnabled')).toBe('false');
+    expect(window.localStorage.getItem('accord.notify.native')).toBe('false');
+  });
+
+  it('bascule et persiste le mode de filtrage du son', () => {
+    useUi.getState().setNotifySoundMode('mentionsOnly');
+
+    expect(useUi.getState().notifySoundMode).toBe('mentionsOnly');
+    expect(window.localStorage.getItem('accord.notify.soundMode')).toBe('mentionsOnly');
+  });
+});
+
+describe('useUi — confidentialité (frappe, statut au démarrage)', () => {
+  it('bascule et persiste l’indicateur de frappe', () => {
+    useUi.getState().setTypingIndicatorEnabled(false);
+
+    expect(useUi.getState().typingIndicatorEnabled).toBe(false);
+    expect(window.localStorage.getItem('accord.privacy.typingIndicator')).toBe('false');
+  });
+
+  it('choisit puis efface la présence forcée au démarrage', () => {
+    useUi.getState().setStartupPresence('online');
+    expect(useUi.getState().startupPresence).toBe('online');
+    expect(window.localStorage.getItem('accord.privacy.startupPresence')).toBe('online');
+
+    useUi.getState().setStartupPresence(null);
+    expect(useUi.getState().startupPresence).toBeNull();
+  });
+
+  it('replie sur null quand la valeur persistée est invalide', async () => {
+    window.localStorage.setItem('accord.privacy.startupPresence', 'busy');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().startupPresence).toBeNull();
+  });
+});
+
+describe('useUi — format de l’heure', () => {
+  it('bascule et persiste le format des heures', () => {
+    useUi.getState().setTimeFormat('12h');
+
+    expect(useUi.getState().timeFormat).toBe('12h');
+    expect(window.localStorage.getItem('accord.timeFormat')).toBe('12h');
+  });
+
+  it('replie sur « auto » quand rien n’est persisté', async () => {
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().timeFormat).toBe('auto');
   });
 });
 
