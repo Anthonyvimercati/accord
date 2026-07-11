@@ -402,6 +402,7 @@ export function DmView({ peer }: { peer: string }) {
       <MessageInput
         placeholder={interpolate(t.dm.placeholder, { name })}
         typingTarget={{ kind: 'dm', peer }}
+        focusKey={replyTo?.msg_id ?? null}
         onSend={async (text, attachments) => {
           await send(peer, text, replyTo?.msg_id, attachments);
           setReplyTo(null);
@@ -984,6 +985,7 @@ export function GroupView({
           placeholder={interpolate(t.groups.channelPlaceholder, { name: channel.name })}
           groupId={groupId}
           typingTarget={{ kind: 'group', groupId, channelId }}
+          focusKey={replyTo?.msg_id ?? null}
           onSend={async (text, attachments) => {
             await send(groupId, channelId, text, replyTo?.msg_id, attachments);
             setReplyTo(null);

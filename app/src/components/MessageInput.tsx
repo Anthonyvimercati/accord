@@ -83,6 +83,8 @@ interface MessageInputProps {
   groupId?: string | null;
   /** Cible de l'indicateur de frappe (absente : aucune émission). */
   typingTarget?: TypingTarget | undefined;
+  /** Quand cette clé devient non-nulle (ex. msg_id d'une réponse), le champ prend le focus. */
+  focusKey?: string | null;
 }
 
 let prochainId = 1;
@@ -92,6 +94,7 @@ export function MessageInput({
   onSend,
   groupId = null,
   typingTarget,
+  focusKey = null,
 }: MessageInputProps) {
   const t = useT();
   const lang = useUi((s) => s.lang);
@@ -191,6 +194,14 @@ export function MessageInput({
     const el = textareaRef.current;
     requestAnimationFrame(() => el?.focus());
   }, [mentionInsert, clearMentionInsert]);
+
+  // Focus demandé par le parent (ex. clic sur « Répondre ») : dès que la clé
+  // pointe un message, le champ prend le focus sans second clic.
+  useEffect(() => {
+    if (focusKey === null) return;
+    const el = textareaRef.current;
+    requestAnimationFrame(() => el?.focus());
+  }, [focusKey]);
 
   /** Insère le jeton d'un émoji choisi à la position du curseur. */
   const insererEmoji = (pick: EmojiPick): void => {

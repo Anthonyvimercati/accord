@@ -767,3 +767,30 @@ describe('MessageInput — commandes slash à l’envoi', () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('/foo bar', undefined));
   });
 });
+
+describe('MessageInput — focus demandé par le parent (focusKey)', () => {
+  it('donne le focus au champ quand focusKey passe à un msg_id (clic « Répondre »)', async () => {
+    const { rerender } = render(
+      <MessageInput placeholder="p" onSend={vi.fn()} focusKey={null} />,
+    );
+    const champ = screen.getByPlaceholderText('p');
+    expect(champ).not.toHaveFocus();
+
+    rerender(<MessageInput placeholder="p" onSend={vi.fn()} focusKey="m1" />);
+    await waitFor(() => expect(champ).toHaveFocus());
+  });
+
+  it('refait le focus quand on répond à un autre message (la clé change)', async () => {
+    const { rerender } = render(
+      <MessageInput placeholder="p" onSend={vi.fn()} focusKey="m1" />,
+    );
+    const champ = screen.getByPlaceholderText('p');
+    await waitFor(() => expect(champ).toHaveFocus());
+
+    (champ as HTMLTextAreaElement).blur();
+    expect(champ).not.toHaveFocus();
+
+    rerender(<MessageInput placeholder="p" onSend={vi.fn()} focusKey="m2" />);
+    await waitFor(() => expect(champ).toHaveFocus());
+  });
+});
