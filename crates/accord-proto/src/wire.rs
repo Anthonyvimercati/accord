@@ -247,6 +247,24 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// Lit un `opt<T>` **additif de fin de structure** : rend `None` sans
+    /// rien consommer si le tampon est déjà épuisé, au lieu d'échouer. Un
+    /// émetteur plus ancien qui ignore un champ ajouté après coup n'écrit
+    /// aucun octet pour lui ; ce champ manquant doit donc décoder à `None`
+    /// plutôt que rejeter tout le message (rétrocompatibilité filaire). Si au
+    /// moins un octet reste, décode normalement le tag `opt`. Réservé aux
+    /// champs strictement en fin de variant — un champ suivi d'autres champs
+    /// doit toujours utiliser [`Reader::opt`].
+    pub fn opt_tail<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, DecodeError>,
+    ) -> Result<Option<T>, DecodeError> {
+        if self.remaining() == 0 {
+            return Ok(None);
+        }
+        self.opt(f)
+    }
+
     /// Lit une `list<T>` bornée à `max` éléments.
     pub fn list<T>(
         &mut self,

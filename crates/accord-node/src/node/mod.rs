@@ -485,11 +485,16 @@ impl Node {
                 bio,
                 avatar,
                 banner,
+                pronouns,
+                accent_color,
+                banner_color,
             } => {
                 // Anti-abus : seuls les amis sont pris en compte (ignoré
-                // silencieusement sinon) ; pseudo validé (2-32 caractères),
-                // bio bornée (2048 caractères), hashes d'avatar et de bannière
-                // persistés.
+                // silencieusement sinon) ; pseudo validé (2-32 caractères,
+                // meilleur effort sur les caractères de format trompeur), bio
+                // bornée (2048 caractères), hashes d'avatar et de bannière
+                // persistés. Pronoms et couleurs : champs annexes, toujours
+                // en meilleur effort (jamais de rejet du profil entier).
                 let updated = self.with_db(|db| {
                     Ok(profile::ingest_peer_profile(
                         db,
@@ -498,6 +503,9 @@ impl Node {
                         &bio,
                         avatar,
                         banner,
+                        pronouns.as_deref(),
+                        accent_color,
+                        banner_color,
                         now_ms(),
                     )?)
                 })?;
@@ -519,6 +527,9 @@ impl Node {
                             "bio": applied.bio,
                             "avatar": applied.avatar.map(|h| hex::encode(&h)),
                             "banner": applied.banner.map(|h| hex::encode(&h)),
+                            "pronouns": applied.pronouns,
+                            "accent_color": applied.accent_color,
+                            "banner_color": applied.banner_color,
                         }),
                     );
                 }

@@ -516,6 +516,9 @@ fn core_msgs_roundtrip() {
             bio: "salut".into(),
             avatar: Some([1; 32]),
             banner: None,
+            pronouns: Some("il/lui".into()),
+            accent_color: Some(0x00_FF_AA),
+            banner_color: None,
         },
         CoreMsg::VoiceSignal {
             group_id: [2; 16],
@@ -564,28 +567,141 @@ fn core_msgs_roundtrip() {
     assert!(sb1.starts_with(b"accord-groupop-v1"));
 }
 
+/// `CoreMsg::Profile` sans les champs additifs (pronoms/couleurs), tel
+/// qu'un émetteur antérieur à leur introduction l'aurait construit.
+fn old_profile(
+    display_name: &str,
+    bio: &str,
+    avatar: Option<[u8; 32]>,
+    banner: Option<[u8; 32]>,
+) -> CoreMsg {
+    CoreMsg::Profile {
+        display_name: display_name.into(),
+        bio: bio.into(),
+        avatar,
+        banner,
+        pronouns: None,
+        accent_color: None,
+        banner_color: None,
+    }
+}
+
 #[test]
 fn profile_name_bound_is_strict_at_decode() {
     // 128 octets UTF-8 passent le décodage (la validation sémantique
     // 2-32 caractères a lieu à l'ingestion, côté cœur).
-    roundtrip_channel(&ChannelMsg::Core(CoreMsg::Profile {
-        display_name: "é".repeat(64), // 64 × 2 octets = 128 octets
-        bio: String::new(),
-        avatar: None,
-        banner: None,
-    }));
+    roundtrip_channel(&ChannelMsg::Core(old_profile(
+        &"é".repeat(64), // 64 × 2 octets = 128 octets
+        "",
+        None,
+        None,
+    )));
     // 129 octets : rejet strict (anti-abus).
-    let bytes = ChannelMsg::Core(CoreMsg::Profile {
-        display_name: "x".repeat(129),
-        bio: String::new(),
-        avatar: None,
-        banner: None,
-    })
-    .to_bytes();
+    let bytes = ChannelMsg::Core(old_profile(&"x".repeat(129), "", None, None)).to_bytes();
     assert_eq!(
         ChannelMsg::from_bytes(&bytes),
         Err(DecodeError::TooLarge("profile.name"))
     );
+}
+
+#[test]
+fn profile_pronouns_and_color_bounds_are_strict_at_decode() {
+    // 40 octets ASCII passent le décodage.
+    roundtrip_channel(&ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: String::new(),
+        avatar: None,
+        banner: None,
+        pronouns: Some("x".repeat(40)),
+        accent_color: Some(0xFF_FF_FF),
+        banner_color: Some(0),
+    }));
+    // 41 octets : rejet strict.
+    let bytes = ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: String::new(),
+        avatar: None,
+        banner: None,
+        pronouns: Some("x".repeat(41)),
+        accent_color: None,
+        banner_color: None,
+    })
+    .to_bytes();
+    assert_eq!(
+        ChannelMsg::from_bytes(&bytes),
+        Err(DecodeError::TooLarge("profile.pronouns"))
+    );
+    // Couleur > 0xFFFFFF : rejet strict, pour l'accent comme pour la
+    // bannière.
+    let bytes = ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: String::new(),
+        avatar: None,
+        banner: None,
+        pronouns: None,
+        accent_color: Some(0x0100_0000),
+        banner_color: None,
+    })
+    .to_bytes();
+    assert_eq!(
+        ChannelMsg::from_bytes(&bytes),
+        Err(DecodeError::InvalidValue("profile.accent_color"))
+    );
+    let bytes = ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: String::new(),
+        avatar: None,
+        banner: None,
+        pronouns: None,
+        accent_color: None,
+        banner_color: Some(0x0100_0000),
+    })
+    .to_bytes();
+    assert_eq!(
+        ChannelMsg::from_bytes(&bytes),
+        Err(DecodeError::InvalidValue("profile.banner_color"))
+    );
+}
+
+#[test]
+fn profile_decodes_old_format_without_additive_fields_to_none() {
+    // Vecteur figé : un message `Profile` tel qu'un émetteur antérieur à
+    // l'introduction de pronoms/couleurs l'aurait construit ne porte
+    // strictement AUCUN octet pour eux — pas même le tag `opt` — puisque son
+    // code ne connaît pas ces champs. Notre encodeur actuel, lui, écrit
+    // toujours un tag `opt` (0 ou 1) pour chaque champ, y compris `None`
+    // (`Writer::put_opt`) : `old_profile(..).to_bytes()` n'est donc PAS un
+    // vecteur d'ancien format, seulement un message moderne dont les trois
+    // champs additifs valent `None`. Pour simuler fidèlement l'ancien
+    // format, on retire les 3 octets de tag `None` finaux (un par champ
+    // additif) de cet encodage.
+    let old = old_profile("Anna", "bio", Some([1; 32]), Some([2; 32]));
+    let modern_bytes = old.to_bytes();
+    let legacy_bytes = &modern_bytes[..modern_bytes.len() - 3];
+    let decoded =
+        CoreMsg::from_bytes(legacy_bytes).expect("un ancien message doit toujours décoder");
+    assert_eq!(decoded, old);
+    match decoded {
+        CoreMsg::Profile {
+            pronouns,
+            accent_color,
+            banner_color,
+            ..
+        } => {
+            assert_eq!(pronouns, None);
+            assert_eq!(accent_color, None);
+            assert_eq!(banner_color, None);
+        }
+        other => panic!("variant inattendu : {other:?}"),
+    }
+    // Même vérification via le framing complet `ChannelMsg` (canal 0x02 +
+    // `CoreMsg`) : seuls les 3 derniers octets diffèrent entre l'ancien et
+    // le nouveau format.
+    let modern_channel_bytes = ChannelMsg::Core(old.clone()).to_bytes();
+    let legacy_channel_bytes = &modern_channel_bytes[..modern_channel_bytes.len() - 3];
+    let decoded_channel = ChannelMsg::from_bytes(legacy_channel_bytes)
+        .expect("un ancien message doit toujours décoder (framing complet)");
+    assert_eq!(decoded_channel, ChannelMsg::Core(old));
 }
 
 #[test]
@@ -716,15 +832,65 @@ fn random_garbage_never_panics() {
 
 #[test]
 fn truncation_fuzz_channel_msgs() {
-    // Toute troncature d'un message valide doit être rejetée proprement.
+    // Toute troncature d'un message valide doit être rejetée proprement,
+    // sauf les coupes qui tombent exactement à la frontière d'un champ
+    // additif de fin de variant (pronoms, puis couleur d'accent, puis
+    // couleur de bannière) : ces coupes précises sont indiscernables d'un
+    // message légitime dans lequel les champs suivants seraient absents
+    // (émetteur antérieur à leur introduction, ou une annonce n'en portant
+    // qu'une partie) et doivent donc décoder avec succès — c'est la
+    // rétrocompatibilité filaire voulue (voir `Reader::opt_tail`).
     let m = ChannelMsg::Core(CoreMsg::Profile {
         display_name: "Anna".into(),
         bio: "bio".into(),
         avatar: Some([1; 32]),
         banner: Some([2; 32]),
+        pronouns: Some("il/lui".into()),
+        accent_color: Some(0x00_FF_AA),
+        banner_color: Some(0x11_22_33),
     });
     let bytes = m.to_bytes();
+    // Chaque frontière est calculée en encodant un message au préfixe
+    // identique (mêmes champs avant elle), puis en retirant les octets de
+    // tag `None` que notre encodeur écrit toujours pour les champs additifs
+    // restants (`Writer::put_opt` écrit 1 octet même pour `None` — voir
+    // `profile_decodes_old_format_without_additive_fields_to_none`) :
+    // l'encodage étant strictement préfixe, le résultat coïncide
+    // octet-à-octet avec le début de `bytes` jusqu'à cette frontière.
+    let after_banner = ChannelMsg::Core(old_profile("Anna", "bio", Some([1; 32]), Some([2; 32])))
+        .to_bytes()
+        .len()
+        - 3; // 3 champs additifs encore à `None` (pronouns, accent, banner).
+    let after_pronouns = ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: "bio".into(),
+        avatar: Some([1; 32]),
+        banner: Some([2; 32]),
+        pronouns: Some("il/lui".into()),
+        accent_color: None,
+        banner_color: None,
+    })
+    .to_bytes()
+    .len()
+        - 2; // 2 champs additifs encore à `None` (accent, banner).
+    let after_accent_color = ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: "bio".into(),
+        avatar: Some([1; 32]),
+        banner: Some([2; 32]),
+        pronouns: Some("il/lui".into()),
+        accent_color: Some(0x00_FF_AA),
+        banner_color: None,
+    })
+    .to_bytes()
+    .len()
+        - 1; // 1 champ additif encore à `None` (banner_color).
+    let valid_prefixes = [after_banner, after_pronouns, after_accent_color];
     for cut in 0..bytes.len() {
+        if valid_prefixes.contains(&cut) {
+            assert!(ChannelMsg::from_bytes(&bytes[..cut]).is_ok());
+            continue;
+        }
         assert!(ChannelMsg::from_bytes(&bytes[..cut]).is_err());
     }
 }

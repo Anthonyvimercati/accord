@@ -46,17 +46,21 @@ fn sorted_keys(v: &Value) -> Vec<String> {
 async fn identity_self_returns_profile() {
     let s = service();
     let v = s.call("identity.self", json!({})).await.unwrap();
-    // Forme exacte du contrat gelé : `name`, `bio`, `avatar`, `banner`
-    // présents (null si non définis).
+    // Forme exacte du contrat gelé : `name`, `bio`, `avatar`, `banner`,
+    // `pronouns`, `accent_color`, `banner_color` présents (null si non
+    // définis).
     assert_eq!(
         sorted_keys(&v),
         [
+            "accent_color",
             "avatar",
             "banner",
+            "banner_color",
             "bio",
             "friend_code",
             "name",
             "node_id",
+            "pronouns",
             "pubkey"
         ]
     );
@@ -67,13 +71,36 @@ async fn identity_self_returns_profile() {
 
 // ---- Frontière JSON : contrat gelé du profil (D-027) ----
 
+/// Forme exacte d'un `profile.get` (contrat gelé) : les six champs textuels
+/// (name, bio, avatar, banner, pronouns) et de couleur (accent_color,
+/// banner_color) sont toujours présents, `null` si non définis.
+fn profile_shape(
+    name: Option<&str>,
+    bio: Option<&str>,
+    avatar: Option<&str>,
+    banner: Option<&str>,
+    pronouns: Option<&str>,
+    accent_color: Option<u32>,
+    banner_color: Option<u32>,
+) -> Value {
+    json!({
+        "name": name,
+        "bio": bio,
+        "avatar": avatar,
+        "banner": banner,
+        "pronouns": pronouns,
+        "accent_color": accent_color,
+        "banner_color": banner_color,
+    })
+}
+
 #[tokio::test]
 async fn profile_get_set_exact_shapes() {
     let s = service();
     // Jamais défini : tout null.
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        json!({ "name": null, "bio": null, "avatar": null, "banner": null })
+        profile_shape(None, None, None, None, None, None, None)
     );
     // Définition : résultat vide exact, pseudo trimé.
     assert_eq!(
@@ -84,7 +111,7 @@ async fn profile_get_set_exact_shapes() {
     );
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        json!({ "name": "Anna", "bio": null, "avatar": null, "banner": null })
+        profile_shape(Some("Anna"), None, None, None, None, None, None)
     );
     // Bio seule : le pseudo reste ; bio vide = effacer.
     s.call("profile.set", json!({ "bio": "  ma bio  " }))
@@ -92,12 +119,42 @@ async fn profile_get_set_exact_shapes() {
         .unwrap();
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        json!({ "name": "Anna", "bio": "ma bio", "avatar": null, "banner": null })
+        profile_shape(Some("Anna"), Some("ma bio"), None, None, None, None, None)
     );
     s.call("profile.set", json!({ "bio": "" })).await.unwrap();
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        json!({ "name": "Anna", "bio": null, "avatar": null, "banner": null })
+        profile_shape(Some("Anna"), None, None, None, None, None, None)
+    );
+    // Pronoms et couleurs : mêmes conventions (vide efface les pronoms,
+    // `null` efface une couleur).
+    s.call(
+        "profile.set",
+        json!({ "pronouns": "  il/lui  ", "accent_color": 0x00_FF_AA, "banner_color": 0x11_22_33 }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        s.call("profile.get", json!({})).await.unwrap(),
+        profile_shape(
+            Some("Anna"),
+            None,
+            None,
+            None,
+            Some("il/lui"),
+            Some(0x00_FF_AA),
+            Some(0x11_22_33)
+        )
+    );
+    s.call(
+        "profile.set",
+        json!({ "pronouns": "", "accent_color": null }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        s.call("profile.get", json!({})).await.unwrap(),
+        profile_shape(Some("Anna"), None, None, None, None, None, Some(0x11_22_33))
     );
     // Répercuté dans identity.self.
     s.call("profile.set", json!({ "bio": "présentation" }))
@@ -108,6 +165,42 @@ async fn profile_get_set_exact_shapes() {
     assert_eq!(me["bio"], json!("présentation"));
     assert_eq!(me["avatar"], json!(null));
     assert_eq!(me["banner"], json!(null));
+    assert_eq!(me["banner_color"], json!(0x11_22_33));
+}
+
+#[tokio::test]
+async fn profile_set_rejects_invalid_pronouns_and_colors_explicitly() {
+    let s = service();
+    // Pronoms trop longs : refus explicite.
+    let err = s
+        .call("profile.set", json!({ "pronouns": "x".repeat(41) }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    assert!(err.message.contains("40"), "message : {}", err.message);
+    // Couleur hors bornes : refus explicite, à la fois pour l'accent et la
+    // bannière.
+    let err = s
+        .call("profile.set", json!({ "accent_color": 0x0100_0000 }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    let err = s
+        .call("profile.set", json!({ "banner_color": 0x0100_0000 }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // Type inattendu pour une couleur : refus à la frontière.
+    let err = s
+        .call("profile.set", json!({ "accent_color": "rouge" }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // Rien n'a été enregistré.
+    assert_eq!(
+        s.call("profile.get", json!({})).await.unwrap(),
+        profile_shape(None, None, None, None, None, None, None)
+    );
 }
 
 #[tokio::test]
@@ -140,7 +233,7 @@ async fn profile_set_rejects_invalid_names_explicitly() {
     // Rien n'a été enregistré.
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        json!({ "name": null, "bio": null, "avatar": null, "banner": null })
+        profile_shape(None, None, None, None, None, None, None)
     );
 }
 
@@ -209,7 +302,7 @@ async fn profile_set_avatar_validates_at_the_boundary() {
     );
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        json!({ "name": null, "bio": null, "avatar": null, "banner": null })
+        profile_shape(None, None, None, None, None, None, None)
     );
 }
 
@@ -278,7 +371,7 @@ async fn profile_set_banner_validates_at_the_boundary() {
     );
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        json!({ "name": null, "bio": null, "avatar": null, "banner": null })
+        profile_shape(None, None, None, None, None, None, None)
     );
 }
 
@@ -293,17 +386,25 @@ async fn profile_of_friend_updates_friends_list() {
             bio: "sa bio".into(),
             avatar: Some([5u8; 32]),
             banner: Some([6u8; 32]),
+            pronouns: Some("il/lui".into()),
+            accent_color: Some(0x00_FF_AA),
+            banner_color: Some(0x11_22_33),
         },
     )
     .unwrap();
     let v = s.call("friends.list", json!({})).await.unwrap();
     let contact = &v["contacts"][0];
     assert_eq!(contact["display_name"], json!("Pair Renommé"));
-    // Profil public annoncé exposé dans friends.list : bio, avatar, bannière.
+    // Profil public annoncé exposé dans friends.list : bio, avatar,
+    // bannière, pronoms, couleurs.
     assert_eq!(contact["bio"], json!("sa bio"));
     assert_eq!(contact["avatar"], json!("05".repeat(32)));
     assert_eq!(contact["banner"], json!("06".repeat(32)));
-    // Nouvelle annonce sans bannière : le champ s'efface (null).
+    assert_eq!(contact["pronouns"], json!("il/lui"));
+    assert_eq!(contact["accent_color"], json!(0x00_FF_AA));
+    assert_eq!(contact["banner_color"], json!(0x11_22_33));
+    // Nouvelle annonce sans bannière ni couleurs : les champs s'effacent
+    // (null).
     node.ingest_core(
         &peer.public_key(),
         CoreMsg::Profile {
@@ -311,11 +412,17 @@ async fn profile_of_friend_updates_friends_list() {
             bio: String::new(),
             avatar: None,
             banner: None,
+            pronouns: None,
+            accent_color: None,
+            banner_color: None,
         },
     )
     .unwrap();
     let v = s.call("friends.list", json!({})).await.unwrap();
     assert_eq!(v["contacts"][0]["banner"], json!(null));
+    assert_eq!(v["contacts"][0]["pronouns"], json!(null));
+    assert_eq!(v["contacts"][0]["accent_color"], json!(null));
+    assert_eq!(v["contacts"][0]["banner_color"], json!(null));
 }
 
 #[tokio::test]

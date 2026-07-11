@@ -14,6 +14,7 @@ use accord_crypto::node_id_of;
 
 use crate::db::{ContactState, Db};
 use crate::error::CoreError;
+use crate::group::state::{is_spoofing_char, is_valid_display_label, strip_spoofing_chars};
 
 /// Clé de métadonnée du pseudo local dans la table `meta`.
 const META_NAME_KEY: &str = "profile.name";
@@ -23,8 +24,16 @@ const META_BIO_KEY: &str = "profile.bio";
 const META_AVATAR_KEY: &str = "profile.avatar";
 /// Clé de métadonnée du hash de bannière local dans la table `meta`.
 const META_BANNER_KEY: &str = "profile.banner";
+/// Clé de métadonnée des pronoms locaux dans la table `meta`.
+const META_PRONOUNS_KEY: &str = "profile.pronouns";
+/// Clé de métadonnée de la couleur d'accent locale dans la table `meta`.
+const META_ACCENT_COLOR_KEY: &str = "profile.accent_color";
+/// Clé de métadonnée de la couleur de bannière locale dans la table `meta`.
+const META_BANNER_COLOR_KEY: &str = "profile.banner_color";
 /// Préfixe des métadonnées de profil des contacts (`profile.peer.<hex>.bio`,
-/// `profile.peer.<hex>.avatar` et `profile.peer.<hex>.banner`).
+/// `profile.peer.<hex>.avatar`, `profile.peer.<hex>.banner`,
+/// `profile.peer.<hex>.pronouns`, `profile.peer.<hex>.accent_color` et
+/// `profile.peer.<hex>.banner_color`).
 const PEER_META_PREFIX: &str = "profile.peer.";
 
 /// Longueur minimale d'un pseudo (caractères, après trim).
@@ -36,6 +45,14 @@ pub const BIO_MAX_CHARS: usize = 2048;
 /// Borne filaire d'une bio (octets UTF-8, alignée sur la limite de décodage
 /// du message `Profile` côté protocole).
 pub const BIO_MAX_BYTES: usize = 2048;
+/// Longueur maximale de pronoms (caractères, après trim).
+pub const PRONOUNS_MAX_CHARS: usize = 40;
+/// Borne filaire de pronoms (octets UTF-8, alignée sur la limite de décodage
+/// `profile.pronouns` côté protocole).
+pub const PRONOUNS_MAX_BYTES: usize = 40;
+/// Borne d'une couleur `0xRRGGBB` (accent ou bannière), alignée sur la limite
+/// de décodage côté protocole.
+pub const COLOR_MAX: u32 = 0xFF_FF_FF;
 
 /// Profil d'un contact appliqué à l'ingestion d'un message `Profile`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,10 +65,21 @@ pub struct PeerProfile {
     pub avatar: Option<[u8; 32]>,
     /// Hash de bannière persisté (`None` si retiré).
     pub banner: Option<[u8; 32]>,
+    /// Pronoms persistés, meilleur effort (`None` si absents, vides ou
+    /// entièrement composés de caractères indésirables une fois nettoyés).
+    pub pronouns: Option<String>,
+    /// Couleur d'accent persistée (`None` si absente ou hors bornes,
+    /// silencieusement ignorée dans ce dernier cas).
+    pub accent_color: Option<u32>,
+    /// Couleur de bannière persistée (`None` si absente ou hors bornes,
+    /// silencieusement ignorée dans ce dernier cas).
+    pub banner_color: Option<u32>,
 }
 
 /// Valide un pseudo : 2 à 32 caractères après trim, sans caractère de
-/// contrôle. Rend la forme canonique (trimée).
+/// contrôle ni de format Unicode trompeur (bidi, largeur nulle — même garde
+/// que les pseudos de serveur, [`is_spoofing_char`]). Rend la forme
+/// canonique (trimée).
 pub fn validate_name(name: &str) -> Result<&str, CoreError> {
     let trimmed = name.trim();
     let chars = trimmed.chars().count();
@@ -60,12 +88,67 @@ pub fn validate_name(name: &str) -> Result<&str, CoreError> {
             "pseudo : 2 à 32 caractères requis (espaces de bord ignorés)",
         ));
     }
-    if trimmed.chars().any(char::is_control) {
+    if trimmed
+        .chars()
+        .any(|c| c.is_control() || is_spoofing_char(c))
+    {
         return Err(CoreError::Invalid(
-            "pseudo : caractères de contrôle interdits",
+            "pseudo : caractères de contrôle ou de format trompeur interdits",
         ));
     }
     Ok(trimmed)
+}
+
+/// Valide des pronoms : au plus 40 caractères après trim (et 40 octets
+/// UTF-8, borne filaire), sans caractère de contrôle ni de format trompeur
+/// (réutilise [`is_valid_display_label`]). Des pronoms vides sont valides et
+/// signifient « effacer », comme pour la bio. Rend la forme canonique
+/// (trimée).
+pub fn validate_pronouns(pronouns: &str) -> Result<&str, CoreError> {
+    let trimmed = pronouns.trim();
+    if trimmed.is_empty() {
+        return Ok(trimmed);
+    }
+    if trimmed.len() > PRONOUNS_MAX_BYTES {
+        return Err(CoreError::Invalid(
+            "pronoms : 40 octets UTF-8 maximum une fois encodés",
+        ));
+    }
+    if !is_valid_display_label(trimmed, PRONOUNS_MAX_CHARS) {
+        return Err(CoreError::Invalid(
+            "pronoms : 40 caractères maximum, sans caractère de contrôle ni de format trompeur",
+        ));
+    }
+    Ok(trimmed)
+}
+
+/// Valide une couleur `0xRRGGBB` (accent ou bannière) : au plus 24 bits.
+pub fn validate_color(color: u32) -> Result<u32, CoreError> {
+    if color > COLOR_MAX {
+        return Err(CoreError::Invalid(
+            "couleur : 0xRRGGBB attendu (≤ 0xFFFFFF)",
+        ));
+    }
+    Ok(color)
+}
+
+/// Sanitize des pronoms annoncés par un **pair** : meilleur effort plutôt
+/// que rejet total (miroir de [`crate::presence::sanitize_peer_custom`]) —
+/// caractères de contrôle et de format trompeur retirés, résultat trimé et
+/// borné à [`PRONOUNS_MAX_CHARS`] caractères. Rend `None` si rien de
+/// signifiant ne subsiste.
+pub fn sanitize_peer_pronouns(text: &str) -> Option<String> {
+    let cleaned: String = text
+        .chars()
+        .filter(|c| !c.is_control() && !is_spoofing_char(*c))
+        .take(PRONOUNS_MAX_CHARS)
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 /// Valide une bio : au plus 2048 caractères après trim (et 2048 octets UTF-8,
@@ -148,6 +231,48 @@ pub fn local_banner(db: &Db) -> Result<Option<[u8; 32]>, CoreError> {
     read_banner(db, META_BANNER_KEY)
 }
 
+/// Enregistre des pronoms locaux après validation ; des pronoms vides
+/// (après trim) les effacent. Rend la forme canonique stockée (`None` si
+/// effacés).
+pub fn set_local_pronouns(db: &Db, pronouns: &str) -> Result<Option<String>, CoreError> {
+    let canon = validate_pronouns(pronouns)?;
+    db.set_meta(META_PRONOUNS_KEY, canon.as_bytes())?;
+    if canon.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(canon.to_string()))
+    }
+}
+
+/// Pronoms locaux, s'ils sont définis et non vides.
+pub fn local_pronouns(db: &Db) -> Result<Option<String>, CoreError> {
+    read_string(db, META_PRONOUNS_KEY, "pronoms stockés corrompus")
+}
+
+/// Enregistre (ou efface, avec `None`) la couleur d'accent locale après
+/// validation.
+pub fn set_local_accent_color(db: &Db, color: Option<u32>) -> Result<(), CoreError> {
+    let validated = color.map(validate_color).transpose()?;
+    write_color_meta(db, META_ACCENT_COLOR_KEY, validated)
+}
+
+/// Couleur d'accent locale, si elle est définie.
+pub fn local_accent_color(db: &Db) -> Result<Option<u32>, CoreError> {
+    read_color(db, META_ACCENT_COLOR_KEY)
+}
+
+/// Enregistre (ou efface, avec `None`) la couleur de bannière locale après
+/// validation.
+pub fn set_local_banner_color(db: &Db, color: Option<u32>) -> Result<(), CoreError> {
+    let validated = color.map(validate_color).transpose()?;
+    write_color_meta(db, META_BANNER_COLOR_KEY, validated)
+}
+
+/// Couleur de bannière locale, si elle est définie.
+pub fn local_banner_color(db: &Db) -> Result<Option<u32>, CoreError> {
+    read_color(db, META_BANNER_COLOR_KEY)
+}
+
 /// Bio persistée d'un contact (annoncée par lui), si non vide.
 pub fn peer_bio(db: &Db, node_id: &[u8; 32]) -> Result<Option<String>, CoreError> {
     read_bio(db, &peer_meta_key(node_id, "bio"))
@@ -163,16 +288,49 @@ pub fn peer_banner(db: &Db, node_id: &[u8; 32]) -> Result<Option<[u8; 32]>, Core
     read_banner(db, &peer_meta_key(node_id, "banner"))
 }
 
+/// Pronoms persistés d'un contact (annoncés par lui), si non vides.
+pub fn peer_pronouns(db: &Db, node_id: &[u8; 32]) -> Result<Option<String>, CoreError> {
+    read_string(
+        db,
+        &peer_meta_key(node_id, "pronouns"),
+        "pronoms de pair corrompus",
+    )
+}
+
+/// Couleur d'accent persistée d'un contact (annoncée par lui), si définie.
+pub fn peer_accent_color(db: &Db, node_id: &[u8; 32]) -> Result<Option<u32>, CoreError> {
+    read_color(db, &peer_meta_key(node_id, "accent_color"))
+}
+
+/// Couleur de bannière persistée d'un contact (annoncée par lui), si
+/// définie.
+pub fn peer_banner_color(db: &Db, node_id: &[u8; 32]) -> Result<Option<u32>, CoreError> {
+    read_color(db, &peer_meta_key(node_id, "banner_color"))
+}
+
 /// Ingère le profil annoncé par un pair (message `Profile`, authentifié par
 /// la session chiffrée : `peer_pubkey` est la clé de session, pas un champ).
 ///
 /// Anti-abus : seuls les **amis** sont pris en compte ; toute autre relation
 /// (inconnu, demande en attente, bloqué) est ignorée silencieusement
-/// (`Ok(None)`). Un pseudo ou une bio invalide venant d'un ami rejette le
-/// message en erreur, sans effet. Rend le profil canonique appliqué au
-/// contact : pseudo dans `contacts.display_name`, bio et hashes d'avatar et de
-/// bannière dans `meta` (une bio vide, un avatar ou une bannière absents
-/// **effacent** la valeur connue).
+/// (`Ok(None)`). Rend le profil canonique appliqué au contact : pseudo dans
+/// `contacts.display_name`, bio, hashes d'avatar et de bannière, pronoms et
+/// couleurs dans `meta` (une bio, des pronoms, un avatar ou une bannière
+/// absents **effacent** la valeur connue).
+///
+/// Validation à deux vitesses, cohérente avec l'anti-usurpation des pseudos
+/// de serveur :
+/// - **pseudo et bio** restent stricts (tout ou rien : un pseudo ou une bio
+///   invalide rejette le message entier, sans effet) — le pseudo se voit
+///   d'abord retirer ses caractères de format Unicode trompeurs
+///   ([`strip_spoofing_chars`]) en meilleur effort (miroir de
+///   [`crate::presence::sanitize_peer_custom`]), pour qu'un seul caractère
+///   indésirable ne fasse pas échouer tout le profil ; la validation stricte
+///   (longueur, contrôle) s'applique ensuite normalement ;
+/// - **pronoms et couleurs** sont des champs annexes, toujours en meilleur
+///   effort ([`sanitize_peer_pronouns`], bornes de couleur ignorées si
+///   dépassées) : ils ne peuvent jamais faire échouer l'ingestion.
+#[allow(clippy::too_many_arguments)]
 pub fn ingest_peer_profile(
     db: &Db,
     peer_pubkey: &[u8; 32],
@@ -180,14 +338,24 @@ pub fn ingest_peer_profile(
     bio: &str,
     avatar: Option<[u8; 32]>,
     banner: Option<[u8; 32]>,
+    pronouns: Option<&str>,
+    accent_color: Option<u32>,
+    banner_color: Option<u32>,
     now_ms: u64,
 ) -> Result<Option<PeerProfile>, CoreError> {
     let node_id = node_id_of(peer_pubkey).0;
     match db.contact(&node_id)?.map(|c| c.state) {
         Some(ContactState::Friend) => {
-            // Tout valider avant la première écriture (tout ou rien).
-            let canon_name = validate_name(name)?;
+            // Tout valider avant la première écriture (tout ou rien) pour le
+            // pseudo et la bio.
+            let sanitized_name = strip_spoofing_chars(name);
+            let canon_name = validate_name(&sanitized_name)?;
             let canon_bio = validate_bio(bio)?;
+            // Champs annexes : meilleur effort, jamais de rejet du profil.
+            let canon_pronouns = pronouns.and_then(sanitize_peer_pronouns);
+            let canon_accent = accent_color.filter(|c| *c <= COLOR_MAX);
+            let canon_banner_color = banner_color.filter(|c| *c <= COLOR_MAX);
+
             db.set_contact_name(&node_id, canon_name, now_ms)?;
             db.set_meta(&peer_meta_key(&node_id, "bio"), canon_bio.as_bytes())?;
             db.set_meta(
@@ -198,11 +366,24 @@ pub fn ingest_peer_profile(
                 &peer_meta_key(&node_id, "banner"),
                 banner.as_ref().map_or(&[][..], |h| &h[..]),
             )?;
+            db.set_meta(
+                &peer_meta_key(&node_id, "pronouns"),
+                canon_pronouns.as_deref().unwrap_or("").as_bytes(),
+            )?;
+            write_color_meta(db, &peer_meta_key(&node_id, "accent_color"), canon_accent)?;
+            write_color_meta(
+                db,
+                &peer_meta_key(&node_id, "banner_color"),
+                canon_banner_color,
+            )?;
             Ok(Some(PeerProfile {
                 name: canon_name.to_string(),
                 bio: (!canon_bio.is_empty()).then(|| canon_bio.to_string()),
                 avatar,
                 banner,
+                pronouns: canon_pronouns,
+                accent_color: canon_accent,
+                banner_color: canon_banner_color,
             }))
         }
         _ => Ok(None),
@@ -223,17 +404,21 @@ fn peer_meta_key(node_id: &[u8; 32], field: &str) -> String {
     key
 }
 
-/// Lit une bio stockée sous `key` (`None` si absente ou vide).
-fn read_bio(db: &Db, key: &str) -> Result<Option<String>, CoreError> {
+/// Lit une chaîne UTF-8 stockée sous `key` (`None` si absente ou vide).
+/// `what` qualifie l'erreur si le contenu stocké n'est pas de l'UTF-8 valide.
+fn read_string(db: &Db, key: &str, what: &'static str) -> Result<Option<String>, CoreError> {
     match db.meta(key)? {
         None => Ok(None),
         Some(bytes) if bytes.is_empty() => Ok(None),
-        Some(bytes) => {
-            Ok(Some(String::from_utf8(bytes).map_err(|_| {
-                CoreError::Invalid("bio stockée corrompue")
-            })?))
-        }
+        Some(bytes) => Ok(Some(
+            String::from_utf8(bytes).map_err(|_| CoreError::Invalid(what))?,
+        )),
     }
+}
+
+/// Lit une bio stockée sous `key` (`None` si absente ou vide).
+fn read_bio(db: &Db, key: &str) -> Result<Option<String>, CoreError> {
+    read_string(db, key, "bio stockée corrompue")
 }
 
 /// Lit un hash d'avatar stocké sous `key` (`None` si absent ou effacé).
@@ -259,6 +444,29 @@ fn read_banner(db: &Db, key: &str) -> Result<Option<[u8; 32]>, CoreError> {
                 CoreError::Invalid("hash de bannière stocké corrompu")
             })?))
         }
+    }
+}
+
+/// Lit une couleur `0xRRGGBB` stockée sous `key` (`None` si absente ou
+/// effacée).
+fn read_color(db: &Db, key: &str) -> Result<Option<u32>, CoreError> {
+    match db.meta(key)? {
+        None => Ok(None),
+        Some(bytes) if bytes.is_empty() => Ok(None),
+        Some(bytes) => {
+            let arr: [u8; 4] = bytes
+                .try_into()
+                .map_err(|_| CoreError::Invalid("couleur stockée corrompue"))?;
+            Ok(Some(u32::from_be_bytes(arr)))
+        }
+    }
+}
+
+/// Enregistre (ou efface, avec `None`) une couleur `0xRRGGBB` sous `key`.
+fn write_color_meta(db: &Db, key: &str, color: Option<u32>) -> Result<(), CoreError> {
+    match color {
+        Some(c) => db.set_meta(key, &c.to_be_bytes()),
+        None => db.set_meta(key, &[]),
     }
 }
 
@@ -298,6 +506,16 @@ mod tests {
     }
 
     #[test]
+    fn validate_name_rejects_spoofing_chars() {
+        // U+202E RIGHT-TO-LEFT OVERRIDE (RLO) : usurpation visuelle, refusée
+        // comme pour les pseudos de serveur (D-045 / anti-spoofing).
+        assert!(validate_name("An\u{202E}na").is_err());
+        // Zero-width space, BOM : mêmes garde-fous.
+        assert!(validate_name("\u{200B}Anna").is_err());
+        assert!(validate_name("Anna\u{FEFF}").is_err());
+    }
+
+    #[test]
     fn bio_validation_bounds_and_control_chars() {
         assert_eq!(validate_bio("").unwrap(), "");
         assert_eq!(validate_bio("   ").unwrap(), "");
@@ -314,6 +532,45 @@ mod tests {
         // Borne filaire en octets : 1500 caractères « é » = 3000 octets.
         assert!(validate_bio(&"é".repeat(1500)).is_err());
         assert!(validate_bio(&"é".repeat(1024)).is_ok());
+    }
+
+    #[test]
+    fn validate_pronouns_bounds_control_and_spoofing_chars() {
+        assert_eq!(validate_pronouns("  il/lui  ").unwrap(), "il/lui");
+        // Vide (ou seulement des espaces) = effacer, valide.
+        assert_eq!(validate_pronouns("").unwrap(), "");
+        assert_eq!(validate_pronouns("   ").unwrap(), "");
+        // Borne en caractères.
+        assert!(validate_pronouns(&"x".repeat(40)).is_ok());
+        assert!(validate_pronouns(&"x".repeat(41)).is_err());
+        // Caractère de contrôle et caractère de format trompeur refusés.
+        assert!(validate_pronouns("il\u{0007}lui").is_err());
+        assert!(validate_pronouns("il\u{202E}lui").is_err());
+    }
+
+    #[test]
+    fn validate_color_rejects_beyond_24_bits() {
+        assert_eq!(validate_color(0).unwrap(), 0);
+        assert_eq!(validate_color(0xFF_FF_FF).unwrap(), 0xFF_FF_FF);
+        assert!(validate_color(0x0100_0000).is_err());
+    }
+
+    #[test]
+    fn sanitize_peer_pronouns_strips_bad_chars_without_rejecting() {
+        assert_eq!(sanitize_peer_pronouns("  il/lui  "), Some("il/lui".into()));
+        // Caractère de contrôle et de format trompeur retirés, le reste
+        // conservé.
+        assert_eq!(
+            sanitize_peer_pronouns("il\u{202E}/\u{0007}lui"),
+            Some("il/lui".into())
+        );
+        // Rien de signifiant : `None`.
+        assert_eq!(sanitize_peer_pronouns("\u{200B}\u{FEFF}"), None);
+        assert_eq!(sanitize_peer_pronouns(""), None);
+        // Bornée aux 40 caractères.
+        let long = "x".repeat(60);
+        let cleaned = sanitize_peer_pronouns(&long).unwrap();
+        assert!(cleaned.chars().count() <= PRONOUNS_MAX_CHARS);
     }
 
     #[test]
@@ -374,6 +631,42 @@ mod tests {
     }
 
     #[test]
+    fn local_pronouns_roundtrips_and_empty_clears() {
+        let db = db();
+        assert_eq!(local_pronouns(&db).unwrap(), None);
+        assert_eq!(
+            set_local_pronouns(&db, "  il/lui  ").unwrap(),
+            Some("il/lui".into())
+        );
+        assert_eq!(local_pronouns(&db).unwrap(), Some("il/lui".into()));
+        // Vide = effacer.
+        assert_eq!(set_local_pronouns(&db, "").unwrap(), None);
+        assert_eq!(local_pronouns(&db).unwrap(), None);
+        // Invalide : refusés, sans effet.
+        set_local_pronouns(&db, "elle/iel").unwrap();
+        assert!(set_local_pronouns(&db, &"x".repeat(41)).is_err());
+        assert_eq!(local_pronouns(&db).unwrap(), Some("elle/iel".into()));
+    }
+
+    #[test]
+    fn local_colors_roundtrip_and_none_clears() {
+        let db = db();
+        assert_eq!(local_accent_color(&db).unwrap(), None);
+        assert_eq!(local_banner_color(&db).unwrap(), None);
+        set_local_accent_color(&db, Some(0x00_FF_AA)).unwrap();
+        set_local_banner_color(&db, Some(0x11_22_33)).unwrap();
+        assert_eq!(local_accent_color(&db).unwrap(), Some(0x00_FF_AA));
+        assert_eq!(local_banner_color(&db).unwrap(), Some(0x11_22_33));
+        // Retrait.
+        set_local_accent_color(&db, None).unwrap();
+        assert_eq!(local_accent_color(&db).unwrap(), None);
+        assert_eq!(local_banner_color(&db).unwrap(), Some(0x11_22_33));
+        // Hors bornes : refusé, sans effet.
+        assert!(set_local_banner_color(&db, Some(0x0100_0000)).is_err());
+        assert_eq!(local_banner_color(&db).unwrap(), Some(0x11_22_33));
+    }
+
+    #[test]
     fn peer_profile_updates_friend_contact_only() {
         let db = db();
         let peer = [7u8; 32];
@@ -385,6 +678,9 @@ mod tests {
             " sa bio ",
             Some([4u8; 32]),
             Some([6u8; 32]),
+            Some(" il/lui "),
+            Some(0x00_FF_AA),
+            Some(0x11_22_33),
             9,
         )
         .unwrap()
@@ -396,6 +692,9 @@ mod tests {
                 bio: Some("sa bio".into()),
                 avatar: Some([4u8; 32]),
                 banner: Some([6u8; 32]),
+                pronouns: Some("il/lui".into()),
+                accent_color: Some(0x00_FF_AA),
+                banner_color: Some(0x11_22_33),
             }
         );
         let node_id = node_id_of(&peer).0;
@@ -405,6 +704,9 @@ mod tests {
         assert_eq!(peer_bio(&db, &node_id).unwrap(), Some("sa bio".into()));
         assert_eq!(peer_avatar(&db, &node_id).unwrap(), Some([4u8; 32]));
         assert_eq!(peer_banner(&db, &node_id).unwrap(), Some([6u8; 32]));
+        assert_eq!(peer_pronouns(&db, &node_id).unwrap(), Some("il/lui".into()));
+        assert_eq!(peer_accent_color(&db, &node_id).unwrap(), Some(0x00_FF_AA));
+        assert_eq!(peer_banner_color(&db, &node_id).unwrap(), Some(0x11_22_33));
     }
 
     #[test]
@@ -419,21 +721,30 @@ mod tests {
             "bio",
             Some([4u8; 32]),
             Some([6u8; 32]),
+            Some("il/lui"),
+            Some(0x00_FF_AA),
+            Some(0x11_22_33),
             1,
         )
         .unwrap();
-        // Nouvelle annonce sans bio, avatar ni bannière : les valeurs connues
-        // s'effacent.
-        let applied = ingest_peer_profile(&db, &peer, "Anna", "", None, None, 2)
+        // Nouvelle annonce sans bio, avatar, bannière, pronoms ni couleurs :
+        // les valeurs connues s'effacent.
+        let applied = ingest_peer_profile(&db, &peer, "Anna", "", None, None, None, None, None, 2)
             .unwrap()
             .unwrap();
         assert_eq!(applied.bio, None);
         assert_eq!(applied.avatar, None);
         assert_eq!(applied.banner, None);
+        assert_eq!(applied.pronouns, None);
+        assert_eq!(applied.accent_color, None);
+        assert_eq!(applied.banner_color, None);
         let node_id = node_id_of(&peer).0;
         assert_eq!(peer_bio(&db, &node_id).unwrap(), None);
         assert_eq!(peer_avatar(&db, &node_id).unwrap(), None);
         assert_eq!(peer_banner(&db, &node_id).unwrap(), None);
+        assert_eq!(peer_pronouns(&db, &node_id).unwrap(), None);
+        assert_eq!(peer_accent_color(&db, &node_id).unwrap(), None);
+        assert_eq!(peer_banner_color(&db, &node_id).unwrap(), None);
     }
 
     #[test]
@@ -441,7 +752,8 @@ mod tests {
         let db = db();
         let unknown = [8u8; 32];
         assert_eq!(
-            ingest_peer_profile(&db, &unknown, "Anna", "", None, None, 1).unwrap(),
+            ingest_peer_profile(&db, &unknown, "Anna", "", None, None, None, None, None, 1)
+                .unwrap(),
             None
         );
         for state in [
@@ -459,6 +771,9 @@ mod tests {
                     "bio",
                     Some([1u8; 32]),
                     Some([2u8; 32]),
+                    Some("il/lui"),
+                    Some(0x00_FF_AA),
+                    Some(0x11_22_33),
                     1
                 )
                 .unwrap(),
@@ -470,6 +785,9 @@ mod tests {
             assert_eq!(peer_bio(&db, &node_id).unwrap(), None);
             assert_eq!(peer_avatar(&db, &node_id).unwrap(), None);
             assert_eq!(peer_banner(&db, &node_id).unwrap(), None);
+            assert_eq!(peer_pronouns(&db, &node_id).unwrap(), None);
+            assert_eq!(peer_accent_color(&db, &node_id).unwrap(), None);
+            assert_eq!(peer_banner_color(&db, &node_id).unwrap(), None);
         }
     }
 
@@ -479,13 +797,96 @@ mod tests {
         let peer = [7u8; 32];
         friend(&db, &peer, ContactState::Friend);
         // Pseudo invalide.
-        assert!(ingest_peer_profile(&db, &peer, &"x".repeat(33), "", None, None, 1).is_err());
+        assert!(ingest_peer_profile(
+            &db,
+            &peer,
+            &"x".repeat(33),
+            "",
+            None,
+            None,
+            None,
+            None,
+            None,
+            1
+        )
+        .is_err());
         // Bio invalide : rien n'est écrit, pas même le pseudo pourtant valide.
-        assert!(ingest_peer_profile(&db, &peer, "Anna", &"x".repeat(2049), None, None, 1).is_err());
+        assert!(ingest_peer_profile(
+            &db,
+            &peer,
+            "Anna",
+            &"x".repeat(2049),
+            None,
+            None,
+            None,
+            None,
+            None,
+            1
+        )
+        .is_err());
         let node_id = node_id_of(&peer).0;
         let contact = db.contact(&node_id).unwrap().unwrap();
         assert_eq!(contact.display_name, "étiquette-locale");
         assert_eq!(peer_bio(&db, &node_id).unwrap(), None);
+    }
+
+    #[test]
+    fn peer_profile_strips_spoofing_chars_from_display_name_without_rejecting() {
+        // Un pseudo de pair truffé de caractères de format trompeurs
+        // (RLO, U+202E) n'est jamais rejeté en bloc pour ce seul motif :
+        // les caractères indésirables sont retirés, puis la validation
+        // normale (longueur, contrôle) s'applique au résultat nettoyé.
+        let db = db();
+        let peer = [7u8; 32];
+        friend(&db, &peer, ContactState::Friend);
+        let applied = ingest_peer_profile(
+            &db,
+            &peer,
+            "An\u{202E}na",
+            "",
+            None,
+            None,
+            None,
+            None,
+            None,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(applied.name, "Anna");
+        let node_id = node_id_of(&peer).0;
+        assert_eq!(db.contact(&node_id).unwrap().unwrap().display_name, "Anna");
+    }
+
+    #[test]
+    fn peer_profile_sanitizes_pronouns_and_ignores_out_of_range_colors() {
+        // Pronoms avec un caractère indésirable : nettoyés, jamais de rejet
+        // total du profil pour ce champ annexe. Couleurs hors bornes :
+        // ignorées (`None`), le reste du profil s'applique normalement.
+        let db = db();
+        let peer = [7u8; 32];
+        friend(&db, &peer, ContactState::Friend);
+        let applied = ingest_peer_profile(
+            &db,
+            &peer,
+            "Anna",
+            "",
+            None,
+            None,
+            Some("il\u{202E}/lui"),
+            Some(0x0100_0000), // hors bornes (> 0xFFFFFF)
+            Some(0x00_11_22),  // dans les bornes
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(applied.pronouns, Some("il/lui".into()));
+        assert_eq!(applied.accent_color, None);
+        assert_eq!(applied.banner_color, Some(0x00_11_22));
+        let node_id = node_id_of(&peer).0;
+        assert_eq!(peer_pronouns(&db, &node_id).unwrap(), Some("il/lui".into()));
+        assert_eq!(peer_accent_color(&db, &node_id).unwrap(), None);
+        assert_eq!(peer_banner_color(&db, &node_id).unwrap(), Some(0x00_11_22));
     }
 
     #[test]

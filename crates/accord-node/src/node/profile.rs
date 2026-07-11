@@ -1,11 +1,13 @@
-//! Profil public local (pseudo, bio, avatar, bannière — D-027, D-032) et
-//! annonce aux amis (bloc `impl Node` des domaines `profile.*` et
-//! `identity.self`).
+//! Profil public local (pseudo, bio, avatar, bannière, pronoms, couleurs —
+//! D-027, D-032) et annonce aux amis (bloc `impl Node` des domaines
+//! `profile.*` et `identity.self`).
 //!
 //! Les octets de l'avatar et de la bannière transitent par le sous-système
 //! fichiers : le profil ne porte que le **hash** (racine Merkle) ; la
 //! publication passe par [`Node::files_publish_bytes`] et la récupération côté
-//! pair par [`Node::files_fetch`].
+//! pair par [`Node::files_fetch`]. Pronoms et couleurs (accent, bannière)
+//! sont des champs additifs légers transportés directement dans le message
+//! `Profile`.
 
 use accord_core::profile;
 use accord_crypto::{node_id_of, FriendCode};
@@ -17,13 +19,22 @@ use crate::outbound::Outbound;
 
 use super::Node;
 
-/// Profil public d'un pair annoncé (bio, hash d'avatar, hash de bannière),
-/// tel que persisté localement à partir de ses messages `Profile`.
-pub(crate) type PeerPublicProfile = (Option<String>, Option<[u8; 32]>, Option<[u8; 32]>);
+/// Profil public d'un pair annoncé (bio, hash d'avatar, hash de bannière,
+/// pronoms, couleurs), tel que persisté localement à partir de ses messages
+/// `Profile`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PeerPublicProfile {
+    pub(crate) bio: Option<String>,
+    pub(crate) avatar: Option<[u8; 32]>,
+    pub(crate) banner: Option<[u8; 32]>,
+    pub(crate) pronouns: Option<String>,
+    pub(crate) accent_color: Option<u32>,
+    pub(crate) banner_color: Option<u32>,
+}
 
 impl Node {
     /// Profil public local : node_id, clé, code ami, pseudo, bio, avatar,
-    /// bannière.
+    /// bannière, pronoms, couleurs.
     pub fn self_profile(&self) -> Result<SelfProfile, NodeError> {
         let pubkey = self.identity.public_key();
         Ok(SelfProfile {
@@ -34,6 +45,9 @@ impl Node {
             bio: self.profile_bio()?,
             avatar: self.profile_avatar()?.map(|h| hex::encode(&h)),
             banner: self.profile_banner()?.map(|h| hex::encode(&h)),
+            pronouns: self.profile_pronouns()?,
+            accent_color: self.profile_accent_color()?,
+            banner_color: self.profile_banner_color()?,
         })
     }
 
@@ -57,19 +71,52 @@ impl Node {
         self.with_db(|db| Ok(profile::local_banner(db)?))
     }
 
+    /// Pronoms locaux, s'ils sont définis et non vides (`profile.get`).
+    pub fn profile_pronouns(&self) -> Result<Option<String>, NodeError> {
+        self.with_db(|db| Ok(profile::local_pronouns(db)?))
+    }
+
+    /// Couleur d'accent locale, si elle est définie (`profile.get`).
+    pub fn profile_accent_color(&self) -> Result<Option<u32>, NodeError> {
+        self.with_db(|db| Ok(profile::local_accent_color(db)?))
+    }
+
+    /// Couleur de bannière locale, si elle est définie (`profile.get`).
+    pub fn profile_banner_color(&self) -> Result<Option<u32>, NodeError> {
+        self.with_db(|db| Ok(profile::local_banner_color(db)?))
+    }
+
     /// Définit le pseudo local (2 à 32 caractères après trim) puis l'annonce
     /// à tous les amis confirmés.
     pub fn profile_set_name(&self, name: &str) -> Result<(), NodeError> {
-        self.profile_update(Some(name), None)
+        self.profile_update(Some(name), None, None, None, None)
     }
 
-    /// Met à jour le pseudo et/ou la bio (au moins un des deux, `profile.set`)
-    /// puis annonce le profil complet à tous les amis confirmés. Une bio vide
-    /// (après trim) est effacée. Tout ou rien : les deux champs sont validés
-    /// avant la première écriture.
-    pub fn profile_update(&self, name: Option<&str>, bio: Option<&str>) -> Result<(), NodeError> {
-        if name.is_none() && bio.is_none() {
-            return Err(NodeError::Invalid("profil : name ou bio requis"));
+    /// Met à jour un ou plusieurs champs du profil (`profile.set`) puis
+    /// annonce le profil complet à tous les amis confirmés. Au moins un
+    /// champ est requis. Une bio ou des pronoms vides (après trim) sont
+    /// effacés ; `accent_color`/`banner_color` suivent la convention
+    /// « absent = inchangé, `Some(None)` = effacé, `Some(Some(c))` = défini »
+    /// (même forme que `voice.set_devices`). Tout ou rien : tous les champs
+    /// fournis sont validés avant la première écriture.
+    #[allow(clippy::too_many_arguments)]
+    pub fn profile_update(
+        &self,
+        name: Option<&str>,
+        bio: Option<&str>,
+        pronouns: Option<&str>,
+        accent_color: Option<Option<u32>>,
+        banner_color: Option<Option<u32>>,
+    ) -> Result<(), NodeError> {
+        if name.is_none()
+            && bio.is_none()
+            && pronouns.is_none()
+            && accent_color.is_none()
+            && banner_color.is_none()
+        {
+            return Err(NodeError::Invalid(
+                "profil : au moins un champ requis (name, bio, pronouns, accent_color, banner_color)",
+            ));
         }
         self.with_db(|db| {
             if let Some(n) = name {
@@ -78,11 +125,29 @@ impl Node {
             if let Some(b) = bio {
                 profile::validate_bio(b)?;
             }
+            if let Some(p) = pronouns {
+                profile::validate_pronouns(p)?;
+            }
+            if let Some(Some(c)) = accent_color {
+                profile::validate_color(c)?;
+            }
+            if let Some(Some(c)) = banner_color {
+                profile::validate_color(c)?;
+            }
             if let Some(n) = name {
                 profile::set_local_name(db, n)?;
             }
             if let Some(b) = bio {
                 profile::set_local_bio(db, b)?;
+            }
+            if let Some(p) = pronouns {
+                profile::set_local_pronouns(db, p)?;
+            }
+            if let Some(c) = accent_color {
+                profile::set_local_accent_color(db, c)?;
+            }
+            if let Some(c) = banner_color {
+                profile::set_local_banner_color(db, c)?;
             }
             Ok(())
         })?;
@@ -128,39 +193,50 @@ impl Node {
         Ok(hash)
     }
 
-    /// Profil public connu d'un pair (bio, hash d'avatar et hash de bannière),
-    /// tel que reçu par ses annonces `Profile` — pour enrichir la liste d'amis.
+    /// Profil public connu d'un pair (bio, hash d'avatar, hash de bannière,
+    /// pronoms, couleurs), tel que reçu par ses annonces `Profile` — pour
+    /// enrichir la liste d'amis.
     pub(crate) fn peer_public_profile(
         &self,
         node_id: &[u8; 32],
     ) -> Result<PeerPublicProfile, NodeError> {
         self.with_db(|db| {
-            Ok((
-                profile::peer_bio(db, node_id)?,
-                profile::peer_avatar(db, node_id)?,
-                profile::peer_banner(db, node_id)?,
-            ))
+            Ok(PeerPublicProfile {
+                bio: profile::peer_bio(db, node_id)?,
+                avatar: profile::peer_avatar(db, node_id)?,
+                banner: profile::peer_banner(db, node_id)?,
+                pronouns: profile::peer_pronouns(db, node_id)?,
+                accent_color: profile::peer_accent_color(db, node_id)?,
+                banner_color: profile::peer_banner_color(db, node_id)?,
+            })
         })
     }
 
     /// Notre annonce de profil (pseudo + bio + hash d'avatar + hash de
-    /// bannière), si un pseudo est défini — le message `Profile` exige un
-    /// pseudo valide : sans lui, rien n'est annoncé. Accessible à la boucle de
-    /// maintenance pour la ré-annonce périodique.
+    /// bannière + pronoms + couleurs), si un pseudo est défini — le message
+    /// `Profile` exige un pseudo valide : sans lui, rien n'est annoncé.
+    /// Accessible à la boucle de maintenance pour la ré-annonce périodique.
     pub(crate) fn own_profile_msg(&self) -> Result<Option<CoreMsg>, NodeError> {
-        let (name, bio, avatar, banner) = self.with_db(|db| {
-            Ok((
-                profile::local_name(db)?,
-                profile::local_bio(db)?,
-                profile::local_avatar(db)?,
-                profile::local_banner(db)?,
-            ))
-        })?;
+        let (name, bio, avatar, banner, pronouns, accent_color, banner_color) =
+            self.with_db(|db| {
+                Ok((
+                    profile::local_name(db)?,
+                    profile::local_bio(db)?,
+                    profile::local_avatar(db)?,
+                    profile::local_banner(db)?,
+                    profile::local_pronouns(db)?,
+                    profile::local_accent_color(db)?,
+                    profile::local_banner_color(db)?,
+                ))
+            })?;
         Ok(name.map(|display_name| CoreMsg::Profile {
             display_name,
             bio: bio.unwrap_or_default(),
             avatar,
             banner,
+            pronouns,
+            accent_color,
+            banner_color,
         }))
     }
 
@@ -209,6 +285,13 @@ pub struct SelfProfile {
     pub avatar: Option<String>,
     /// Hash de bannière (hex 64) ou `null` si aucune bannière.
     pub banner: Option<String>,
+    /// Pronoms locaux (`null` si jamais définis ou effacés).
+    pub pronouns: Option<String>,
+    /// Couleur d'accent `0xRRGGBB` (`null` si jamais définie).
+    pub accent_color: Option<u32>,
+    /// Couleur de bannière `0xRRGGBB` (`null` si jamais définie). L'image de
+    /// bannière prime sur cette couleur à l'affichage — règle côté client.
+    pub banner_color: Option<u32>,
 }
 
 #[cfg(test)]
@@ -258,27 +341,55 @@ mod tests {
     #[test]
     fn profile_update_requires_at_least_one_field() {
         let n = node();
-        assert!(n.profile_update(None, None).is_err());
+        assert!(n.profile_update(None, None, None, None, None).is_err());
         assert_eq!(n.profile_name().unwrap(), None);
     }
 
     #[test]
     fn profile_update_is_all_or_nothing() {
         let n = node();
-        n.profile_update(Some("Anna"), Some("bio initiale"))
+        n.profile_update(Some("Anna"), Some("bio initiale"), None, None, None)
             .unwrap();
         // Bio invalide : le pseudo pourtant valide n'est pas écrit non plus.
         assert!(n
-            .profile_update(Some("Bertrand"), Some(&"x".repeat(2049)))
+            .profile_update(Some("Bertrand"), Some(&"x".repeat(2049)), None, None, None)
             .is_err());
         assert_eq!(n.profile_name().unwrap(), Some("Anna".into()));
         assert_eq!(n.profile_bio().unwrap(), Some("bio initiale".into()));
     }
 
     #[test]
+    fn profile_update_pronouns_and_colors_are_all_or_nothing() {
+        let n = node();
+        n.profile_update(
+            Some("Anna"),
+            None,
+            Some("il/lui"),
+            Some(Some(0x00_FF_AA)),
+            Some(Some(0x11_22_33)),
+        )
+        .unwrap();
+        assert_eq!(n.profile_pronouns().unwrap(), Some("il/lui".into()));
+        assert_eq!(n.profile_accent_color().unwrap(), Some(0x00_FF_AA));
+        assert_eq!(n.profile_banner_color().unwrap(), Some(0x11_22_33));
+        // Couleur hors bornes : rien n'est écrit, pas même les pronoms
+        // pourtant valides.
+        assert!(n
+            .profile_update(None, None, Some("elle/iel"), Some(Some(0x0100_0000)), None)
+            .is_err());
+        assert_eq!(n.profile_pronouns().unwrap(), Some("il/lui".into()));
+        // `Some(None)` efface une couleur ; absence (`None`) la laisse
+        // inchangée.
+        n.profile_update(None, None, None, Some(None), None)
+            .unwrap();
+        assert_eq!(n.profile_accent_color().unwrap(), None);
+        assert_eq!(n.profile_banner_color().unwrap(), Some(0x11_22_33));
+    }
+
+    #[test]
     fn bio_set_clear_and_self_profile_shape() {
         let n = node();
-        n.profile_update(Some("  Anna  "), Some("  ma bio  "))
+        n.profile_update(Some("  Anna  "), Some("  ma bio  "), None, None, None)
             .unwrap();
         assert_eq!(n.profile_name().unwrap(), Some("Anna".into()));
         assert_eq!(n.profile_bio().unwrap(), Some("ma bio".into()));
@@ -287,8 +398,11 @@ mod tests {
         assert_eq!(p.bio, Some("ma bio".into()));
         assert_eq!(p.avatar, None);
         assert_eq!(p.banner, None);
+        assert_eq!(p.pronouns, None);
+        assert_eq!(p.accent_color, None);
+        assert_eq!(p.banner_color, None);
         // Bio vide = effacée.
-        n.profile_update(None, Some("")).unwrap();
+        n.profile_update(None, Some(""), None, None, None).unwrap();
         assert_eq!(n.profile_bio().unwrap(), None);
     }
 
@@ -296,20 +410,28 @@ mod tests {
     fn own_profile_msg_requires_a_name() {
         let n = node();
         // Bio seule : rien à annoncer tant que le pseudo n'est pas défini.
-        n.profile_update(None, Some("bio sans pseudo")).unwrap();
+        n.profile_update(None, Some("bio sans pseudo"), None, None, None)
+            .unwrap();
         assert!(n.own_profile_msg().unwrap().is_none());
-        n.profile_update(Some("Anna"), None).unwrap();
+        n.profile_update(Some("Anna"), None, Some("il/lui"), None, None)
+            .unwrap();
         match n.own_profile_msg().unwrap() {
             Some(CoreMsg::Profile {
                 display_name,
                 bio,
                 avatar,
                 banner,
+                pronouns,
+                accent_color,
+                banner_color,
             }) => {
                 assert_eq!(display_name, "Anna");
                 assert_eq!(bio, "bio sans pseudo");
                 assert_eq!(avatar, None);
                 assert_eq!(banner, None);
+                assert_eq!(pronouns, Some("il/lui".into()));
+                assert_eq!(accent_color, None);
+                assert_eq!(banner_color, None);
             }
             other => panic!("annonce inattendue : {other:?}"),
         }
@@ -318,7 +440,8 @@ mod tests {
     #[test]
     fn profile_change_announces_full_profile_to_friends() {
         let (n, peer, mut rx) = node_with_friend_and_channel();
-        n.profile_update(Some("Anna"), Some("ma bio")).unwrap();
+        n.profile_update(Some("Anna"), Some("ma bio"), None, None, None)
+            .unwrap();
         let (to, msg) = next_profile(&mut rx).expect("annonce attendue");
         assert_eq!(to, peer);
         match msg {
@@ -414,23 +537,22 @@ mod tests {
                 bio: "bio du pair".into(),
                 avatar: Some([5u8; 32]),
                 banner: Some([6u8; 32]),
+                pronouns: Some("il/lui".into()),
+                accent_color: Some(0x00_FF_AA),
+                banner_color: Some(0x11_22_33),
             },
         )
         .unwrap();
         let node_id = node_id_of(&peer).0;
-        let (bio, avatar, banner) = n
-            .with_db(|db| {
-                Ok((
-                    profile::peer_bio(db, &node_id)?,
-                    profile::peer_avatar(db, &node_id)?,
-                    profile::peer_banner(db, &node_id)?,
-                ))
-            })
-            .unwrap();
-        assert_eq!(bio, Some("bio du pair".into()));
-        assert_eq!(avatar, Some([5u8; 32]));
-        assert_eq!(banner, Some([6u8; 32]));
-        // Nouvelle annonce sans bio, avatar ni bannière : effacement.
+        let profile = n.peer_public_profile(&node_id).unwrap();
+        assert_eq!(profile.bio, Some("bio du pair".into()));
+        assert_eq!(profile.avatar, Some([5u8; 32]));
+        assert_eq!(profile.banner, Some([6u8; 32]));
+        assert_eq!(profile.pronouns, Some("il/lui".into()));
+        assert_eq!(profile.accent_color, Some(0x00_FF_AA));
+        assert_eq!(profile.banner_color, Some(0x11_22_33));
+        // Nouvelle annonce sans bio, avatar, bannière, pronoms ni couleurs :
+        // effacement.
         n.ingest_core(
             &peer,
             CoreMsg::Profile {
@@ -438,20 +560,13 @@ mod tests {
                 bio: String::new(),
                 avatar: None,
                 banner: None,
+                pronouns: None,
+                accent_color: None,
+                banner_color: None,
             },
         )
         .unwrap();
-        let (bio, avatar, banner) = n
-            .with_db(|db| {
-                Ok((
-                    profile::peer_bio(db, &node_id)?,
-                    profile::peer_avatar(db, &node_id)?,
-                    profile::peer_banner(db, &node_id)?,
-                ))
-            })
-            .unwrap();
-        assert_eq!(bio, None);
-        assert_eq!(avatar, None);
-        assert_eq!(banner, None);
+        let profile = n.peer_public_profile(&node_id).unwrap();
+        assert_eq!(profile, PeerPublicProfile::default());
     }
 }

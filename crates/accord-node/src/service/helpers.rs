@@ -79,6 +79,23 @@ pub(super) fn param_opt_u32(params: &Value, key: &str) -> Result<Option<u32>, No
     }
 }
 
+/// Couleur `0xRRGGBB` optionnelle à trois états (même forme que
+/// [`param_device`]) : absente → inchangée (`None`), `null` → effacée
+/// (`Some(None)`), entier → définie (`Some(Some(c))`, revalidée côté cœur).
+pub(super) fn param_opt_color(params: &Value, key: &str) -> Result<Option<Option<u32>>, NodeError> {
+    match params.get(key) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(v) => v
+            .as_u64()
+            .and_then(|v| u32::try_from(v).ok())
+            .map(|c| Some(Some(c)))
+            .ok_or(NodeError::Invalid(
+                "couleur : entier 0xRRGGBB ou null requis",
+            )),
+    }
+}
+
 /// Entier `u16` optionnel (positions de salons et de rôles).
 pub(super) fn param_opt_u16(params: &Value, key: &str) -> Result<Option<u16>, NodeError> {
     match param_opt_u32(params, key)? {

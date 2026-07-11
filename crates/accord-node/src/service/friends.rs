@@ -38,11 +38,14 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 .map(|c| {
                     let mut v = contact_json(c);
                     // Profil public annoncé par le pair (D-027, D-032) :
-                    // bio + avatar + bannière.
-                    let (bio, avatar, banner) = node.peer_public_profile(&c.node_id)?;
-                    v["bio"] = json!(bio);
-                    v["avatar"] = json!(avatar.map(|h| hex::encode(&h)));
-                    v["banner"] = json!(banner.map(|h| hex::encode(&h)));
+                    // bio + avatar + bannière + pronoms + couleurs.
+                    let profile = node.peer_public_profile(&c.node_id)?;
+                    v["bio"] = json!(profile.bio);
+                    v["avatar"] = json!(profile.avatar.map(|h| hex::encode(&h)));
+                    v["banner"] = json!(profile.banner.map(|h| hex::encode(&h)));
+                    v["pronouns"] = json!(profile.pronouns);
+                    v["accent_color"] = json!(profile.accent_color);
+                    v["banner_color"] = json!(profile.banner_color);
                     // Presence (best-effort, rich): `online` kept for
                     // backward compatibility, `status` + `status_text` carry
                     // the announced rich presence. Unread counter follows.

@@ -10,7 +10,7 @@ use crate::error::NodeError;
 use crate::hex;
 use crate::node::Node;
 
-use super::helpers::{b64_decode, param_opt_str, param_str};
+use super::helpers::{b64_decode, param_opt_color, param_opt_str, param_str};
 
 /// Taille maximale d'un avatar une fois décodé (512 Kio).
 const AVATAR_MAX_BYTES: usize = 512 * 1024;
@@ -37,11 +37,17 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             "bio": node.profile_bio()?,
             "avatar": node.profile_avatar()?.map(|h| hex::encode(&h)),
             "banner": node.profile_banner()?.map(|h| hex::encode(&h)),
+            "pronouns": node.profile_pronouns()?,
+            "accent_color": node.profile_accent_color()?,
+            "banner_color": node.profile_banner_color()?,
         })),
         "profile.set" => {
             let name = param_opt_str(params, "name")?;
             let bio = param_opt_str(params, "bio")?;
-            node.profile_update(name, bio)?;
+            let pronouns = param_opt_str(params, "pronouns")?;
+            let accent_color = param_opt_color(params, "accent_color")?;
+            let banner_color = param_opt_color(params, "banner_color")?;
+            node.profile_update(name, bio, pronouns, accent_color, banner_color)?;
             Ok(json!({}))
         }
         "profile.set_avatar" => {

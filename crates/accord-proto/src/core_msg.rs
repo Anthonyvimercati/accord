@@ -9,6 +9,13 @@ const MAX_NAME: usize = 256;
 /// l'ingestion, côté cœur).
 const MAX_PROFILE_NAME: usize = 128;
 const MAX_BIO: usize = 2048;
+/// Borne filaire des pronoms d'un message `Profile` (champ additif) : 40
+/// octets UTF-8 au plus (validation sémantique côté cœur à l'ingestion).
+const MAX_PRONOUNS: usize = 40;
+/// Borne d'une couleur `0xRRGGBB` (`accent_color`/`banner_color`, champs
+/// additifs de `Profile`) : tout ce qui dépasse 24 bits est rejeté au
+/// décodage.
+const MAX_COLOR: u32 = 0xFF_FF_FF;
 const MAX_BODY: usize = 64 * 1024;
 const MAX_ATTACHMENTS: usize = 10;
 const MAX_EMOJI: usize = 64;
@@ -902,6 +909,11 @@ pub enum CoreMsg {
     /// 0x09 — Profil public (D-027 : seul le pseudo est exploité aujourd'hui,
     /// annoncé aux amis à chaque changement et à l'établissement d'une
     /// amitié ; bio/avatar/bannière réservés, versionnables).
+    ///
+    /// `pronouns`/`accent_color`/`banner_color` sont des champs **additifs**
+    /// ajoutés en fin de variant : un émetteur plus ancien ne les écrit pas
+    /// du tout, et le décodage les rend à `None` dans ce cas
+    /// ([`Reader::opt_tail`]) — rétrocompatibilité filaire garantie.
     Profile {
         /// Pseudo affiché (≤ 128 octets UTF-8 au décodage ; 2 à 32
         /// caractères après trim exigés à l'ingestion).
@@ -912,6 +924,18 @@ pub enum CoreMsg {
         avatar: Option<[u8; 32]>,
         /// Bannière (racine Merkle) le cas échéant.
         banner: Option<[u8; 32]>,
+        /// Pronoms affichés (≤ 40 octets UTF-8 au décodage), champ additif ;
+        /// absent chez un émetteur plus ancien (décodé à `None`).
+        pronouns: Option<String>,
+        /// Couleur d'accent `0xRRGGBB`, champ additif ; absent chez un
+        /// émetteur plus ancien (décodé à `None`), rejetée au décodage
+        /// au-delà de 24 bits.
+        accent_color: Option<u32>,
+        /// Couleur de bannière `0xRRGGBB` (l'image de bannière prime sur
+        /// cette couleur à l'affichage, règle côté client), champ additif ;
+        /// absent chez un émetteur plus ancien (décodé à `None`), rejetée au
+        /// décodage au-delà de 24 bits.
+        banner_color: Option<u32>,
     },
     /// 0x0A — Signalisation de salon vocal.
     VoiceSignal {
@@ -1092,12 +1116,18 @@ impl WireEncode for CoreMsg {
                 bio,
                 avatar,
                 banner,
+                pronouns,
+                accent_color,
+                banner_color,
             } => {
                 w.put_u8(0x09);
                 w.put_str(display_name);
                 w.put_str(bio);
                 w.put_opt(avatar.as_ref(), |w, h| w.put_arr(h));
                 w.put_opt(banner.as_ref(), |w, h| w.put_arr(h));
+                w.put_opt(pronouns.as_ref(), |w, p| w.put_str(p));
+                w.put_opt(accent_color.as_ref(), |w, c| w.put_u32(*c));
+                w.put_opt(banner_color.as_ref(), |w, c| w.put_u32(*c));
             }
             CoreMsg::VoiceSignal {
                 group_id,
@@ -1176,6 +1206,16 @@ impl WireEncode for CoreMsg {
     }
 }
 
+/// Décode une couleur `0xRRGGBB` (`profile.accent_color`/`profile.banner_color`) :
+/// rejette strictement tout ce qui dépasse 24 bits.
+fn decode_profile_color(r: &mut Reader<'_>, what: &'static str) -> Result<u32, DecodeError> {
+    let v = r.u32()?;
+    if v > MAX_COLOR {
+        return Err(DecodeError::InvalidValue(what));
+    }
+    Ok(v)
+}
+
 impl WireDecode for CoreMsg {
     fn decode(r: &mut Reader<'_>) -> Result<Self, DecodeError> {
         match r.u8()? {
@@ -1231,6 +1271,11 @@ impl WireDecode for CoreMsg {
                 bio: r.str(MAX_BIO, "profile.bio")?,
                 avatar: r.opt(|r| r.arr())?,
                 banner: r.opt(|r| r.arr())?,
+                // Champs additifs de fin de variant : absents chez un
+                // émetteur plus ancien → `None` (rétrocompatibilité).
+                pronouns: r.opt_tail(|r| r.str(MAX_PRONOUNS, "profile.pronouns"))?,
+                accent_color: r.opt_tail(|r| decode_profile_color(r, "profile.accent_color"))?,
+                banner_color: r.opt_tail(|r| decode_profile_color(r, "profile.banner_color"))?,
             }),
             0x0A => Ok(CoreMsg::VoiceSignal {
                 group_id: r.arr()?,

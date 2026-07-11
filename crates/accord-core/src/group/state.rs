@@ -39,13 +39,24 @@ pub const MAX_TIMEOUT_UNTIL_MS: u64 = 1 << 43;
 /// (catégorie Cc) ne les couvre pas ; on les rejette explicitement dans les
 /// pseudos de serveur pour éviter qu'un membre affiche un nom trompeur (texte
 /// inversé, caractères cachés) dans la liste des membres ou les messages.
-fn is_spoofing_char(c: char) -> bool {
+pub(crate) fn is_spoofing_char(c: char) -> bool {
     matches!(c,
         '\u{200B}'..='\u{200F}'   // ZWSP, ZWNJ, ZWJ, LRM, RLM
         | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
         | '\u{2066}'..='\u{2069}' // LRI, RLI, FSI, PDI
         | '\u{FEFF}',             // BOM / ZWNBSP
     )
+}
+
+/// Retire les caractères de format Unicode trompeurs ([`is_spoofing_char`])
+/// d'un texte annoncé par un **pair** (miroir de
+/// [`crate::presence::sanitize_peer_custom`]) : meilleur effort plutôt que
+/// rejet total — un seul caractère indésirable ne doit pas faire échouer
+/// l'ingestion de tout un profil ou libellé. La validation stricte locale
+/// (rejet complet) reste [`is_valid_display_label`] / la validation dédiée de
+/// chaque champ.
+pub(crate) fn strip_spoofing_chars(text: &str) -> String {
+    text.chars().filter(|c| !is_spoofing_char(*c)).collect()
 }
 
 /// Vrai si `name` est un libellé affiché valide : `1..=max_chars` caractères,

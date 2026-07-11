@@ -97,6 +97,9 @@ fn profile_from_friend_updates_contact_name() {
                 bio: String::new(),
                 avatar: None,
                 banner: None,
+                pronouns: None,
+                accent_color: None,
+                banner_color: None,
             },
         )
         .unwrap();
@@ -121,6 +124,9 @@ fn profile_from_non_friend_is_ignored() {
                 bio: String::new(),
                 avatar: None,
                 banner: None,
+                pronouns: None,
+                accent_color: None,
+                banner_color: None,
             },
         )
         .unwrap();
@@ -139,6 +145,9 @@ fn invalid_profile_from_friend_is_rejected_without_effect() {
                 bio: String::new(),
                 avatar: None,
                 banner: None,
+                pronouns: None,
+                accent_color: None,
+                banner_color: None,
             },
         )
         .is_err());
@@ -166,6 +175,9 @@ fn friendship_acceptance_replies_announce_profile() {
             bio: String::new(),
             avatar: None,
             banner: None,
+            pronouns: None,
+            accent_color: None,
+            banner_color: None,
         }]
     );
 

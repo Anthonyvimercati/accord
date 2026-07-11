@@ -889,6 +889,9 @@ mod tests {
             bio: String::new(),
             avatar: None,
             banner: None,
+            pronouns: None,
+            accent_color: None,
+            banner_color: None,
         }));
         assert!(!is_queueable_offline(&CoreMsg::Presence {
             status: 0,
