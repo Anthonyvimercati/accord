@@ -10,7 +10,11 @@ use std::collections::{BTreeMap, BTreeSet};
 /// peuvent les retirer (deny > allow).
 pub const DEFAULT_MEMBER_PERMS: u32 = perms::VIEW | perms::SEND;
 
-/// Toutes les permissions connues (fondateur / ADMIN).
+/// Toutes les permissions connues (fondateur / ADMIN). `PRIORITY_SPEAKER`
+/// n'en fait volontairement PAS partie : l'atténuation des autres pendant
+/// qu'on parle est une attribution explicite de rôle, pas un privilège
+/// administratif implicite (sinon tout fondateur atténuerait son salon en
+/// permanence) — voir [`GroupState::is_priority_speaker`].
 pub const ALL_PERMS: u32 = perms::VIEW
     | perms::SEND
     | perms::MANAGE_MESSAGES
@@ -149,6 +153,17 @@ pub struct PermOverride {
     pub deny: u32,
 }
 
+/// Modération vocale serveur d'un membre (op 0x1F) : sourdine et/ou surdité
+/// forcées dans tous les salons vocaux du groupe. Une entrée entièrement
+/// fausse n'est jamais stockée (elle vaut absence).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VoiceModeration {
+    /// Micro coupé par un modérateur.
+    pub mute: bool,
+    /// Sortie coupée par un modérateur (implique la sourdine à l'application).
+    pub deafen: bool,
+}
+
 /// État matérialisé d'un groupe après repli de l'op-log.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GroupState {
@@ -185,6 +200,9 @@ pub struct GroupState {
     /// Pseudos par serveur `membre → pseudo` (remplace le pseudo du profil
     /// global dans ce groupe uniquement).
     pub nicknames: BTreeMap<[u8; 32], String>,
+    /// Modérations vocales actives `membre → sourdine/surdité forcées`
+    /// (op 0x1F ; une entrée entièrement fausse est retirée).
+    pub voice_moderation: BTreeMap<[u8; 32], VoiceModeration>,
     /// Nombre d'ops appliquées (dont ignorées : non).
     pub applied_ops: u64,
 }
@@ -286,6 +304,24 @@ impl GroupState {
     /// expirées — échéance ≤ `when` — sont ignorées).
     pub fn is_timed_out(&self, who: &[u8; 32], when: u64) -> bool {
         self.timeouts.get(who).is_some_and(|&until| until > when)
+    }
+
+    /// Modération vocale active de `who` (les deux drapeaux faux si aucune).
+    pub fn voice_moderation_of(&self, who: &[u8; 32]) -> VoiceModeration {
+        self.voice_moderation.get(who).copied().unwrap_or_default()
+    }
+
+    /// Vrai si `who` tient EXPLICITEMENT la permission d'orateur prioritaire
+    /// par l'un de ses rôles. Jamais impliquée par ADMIN ni par le statut de
+    /// fondateur : atténuer les autres participants est un choix
+    /// d'attribution, pas un privilège administratif.
+    pub fn is_priority_speaker(&self, who: &[u8; 32]) -> bool {
+        self.members.get(who).is_some_and(|m| {
+            m.roles
+                .iter()
+                .filter_map(|r| self.roles.get(r))
+                .any(|r| r.permissions & perms::PRIORITY_SPEAKER != 0)
+        })
     }
 
     /// Vrai si `who` peut publier un message dans `channel_id` à l'instant
@@ -542,6 +578,7 @@ impl GroupState {
                 // A departed member keeps no per-group moderation state.
                 self.timeouts.remove(&member);
                 self.nicknames.remove(&member);
+                self.voice_moderation.remove(&member);
                 if op.kind == 0x09 {
                     self.banned.insert(member);
                 }
@@ -736,6 +773,7 @@ impl GroupState {
                 self.members.remove(&author);
                 self.timeouts.remove(&author);
                 self.nicknames.remove(&author);
+                self.voice_moderation.remove(&author);
             }
             GroupOpBody::AddEmoji { name, file } => {
                 if !has(perms::MANAGE_EMOJIS) {
@@ -786,6 +824,35 @@ impl GroupState {
                     // KICK/BAN, donc plafonner n'ôte aucun pouvoir.
                     self.timeouts
                         .insert(member, until_ms.min(MAX_TIMEOUT_UNTIL_MS));
+                }
+            }
+            GroupOpBody::VoiceModerate {
+                member,
+                mute,
+                deafen,
+            } => {
+                // Same gate as TimeoutMember (0x1D): KICK with the kick
+                // hierarchy — no moderating the founder, nor a member of
+                // higher/equal role (D-015).
+                if !has(perms::KICK) {
+                    return self.ignore("VOICE_MODERATE refusé");
+                }
+                if self.founder.as_ref() == Some(&member) {
+                    return self.ignore("le fondateur est intouchable");
+                }
+                if self.top_position(&author) <= self.top_position(&member)
+                    && self.founder.as_ref() != Some(&author)
+                {
+                    return self.ignore("hiérarchie insuffisante");
+                }
+                if !self.members.contains_key(&member) {
+                    return self.ignore("cible non membre");
+                }
+                if !mute && !deafen {
+                    self.voice_moderation.remove(&member);
+                } else {
+                    self.voice_moderation
+                        .insert(member, VoiceModeration { mute, deafen });
                 }
             }
             GroupOpBody::SetNickname { member, name } => {
@@ -1531,6 +1598,163 @@ mod tests {
             9,
         ));
         assert!(!GroupState::fold(&cleared).timeouts.contains_key(&BOB));
+    }
+
+    #[test]
+    fn voice_moderate_requires_kick_and_respects_hierarchy() {
+        let mut ops = base_ops();
+        // Alice (plain member) cannot voice-moderate Bob.
+        ops.push(signed(
+            GroupOpBody::VoiceModerate {
+                member: BOB,
+                mute: true,
+                deafen: false,
+            },
+            ALICE,
+            4,
+        ));
+        assert_eq!(
+            GroupState::fold(&ops).voice_moderation_of(&BOB),
+            VoiceModeration::default(),
+            "plain member cannot voice-moderate"
+        );
+
+        // Give Alice a Modo role with KICK.
+        ops.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [2; 16],
+                name: "Modo".into(),
+                color: 0,
+                position: 10,
+                permissions: perms::KICK,
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [2; 16],
+            },
+            FOUNDER,
+            6,
+        ));
+        // Alice mutes+deafens Bob (below her) but not the founder.
+        ops.push(signed(
+            GroupOpBody::VoiceModerate {
+                member: BOB,
+                mute: true,
+                deafen: true,
+            },
+            ALICE,
+            7,
+        ));
+        ops.push(signed(
+            GroupOpBody::VoiceModerate {
+                member: FOUNDER,
+                mute: true,
+                deafen: true,
+            },
+            ALICE,
+            8,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(
+            st.voice_moderation_of(&BOB),
+            VoiceModeration {
+                mute: true,
+                deafen: true,
+            },
+        );
+        assert_eq!(
+            st.voice_moderation_of(&FOUNDER),
+            VoiceModeration::default(),
+            "founder untouchable"
+        );
+
+        // Clearing both flags removes the entry entirely.
+        let mut cleared = ops.clone();
+        cleared.push(signed(
+            GroupOpBody::VoiceModerate {
+                member: BOB,
+                mute: false,
+                deafen: false,
+            },
+            FOUNDER,
+            9,
+        ));
+        assert!(GroupState::fold(&cleared).voice_moderation.is_empty());
+
+        // A non-member target is ignored.
+        let mut stranger = ops.clone();
+        stranger.push(signed(
+            GroupOpBody::VoiceModerate {
+                member: [0xEE; 32],
+                mute: true,
+                deafen: false,
+            },
+            FOUNDER,
+            9,
+        ));
+        assert!(!GroupState::fold(&stranger)
+            .voice_moderation
+            .contains_key(&[0xEE; 32]));
+    }
+
+    #[test]
+    fn priority_speaker_is_explicit_never_implied_by_admin() {
+        let mut ops = base_ops();
+        let st = GroupState::fold(&ops);
+        // Le fondateur a ALL_PERMS mais n'est PAS orateur prioritaire.
+        assert!(!st.is_priority_speaker(&FOUNDER));
+        assert!(!st.is_priority_speaker(&ALICE));
+
+        // Un rôle accordant explicitement la permission la confère.
+        ops.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [4; 16],
+                name: "Orateur".into(),
+                color: 0,
+                position: 1,
+                permissions: perms::PRIORITY_SPEAKER,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [4; 16],
+            },
+            FOUNDER,
+            5,
+        ));
+        let st = GroupState::fold(&ops);
+        assert!(st.is_priority_speaker(&ALICE));
+        assert!(!st.is_priority_speaker(&FOUNDER));
+        // Un non-membre n'est jamais prioritaire.
+        assert!(!st.is_priority_speaker(&[0xEE; 32]));
+    }
+
+    #[test]
+    fn voice_moderation_cleared_when_member_removed() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::VoiceModerate {
+                member: BOB,
+                mute: true,
+                deafen: false,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(GroupOpBody::Kick { member: BOB }, FOUNDER, 5));
+        let st = GroupState::fold(&ops);
+        assert!(!st.is_member(&BOB));
+        assert!(
+            st.voice_moderation.is_empty(),
+            "a kick clears the member's voice moderation"
+        );
     }
 
     #[test]
