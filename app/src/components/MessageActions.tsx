@@ -139,16 +139,21 @@ export function MessageActions({
               setPickerOpen(false);
               setMoreOpen(true);
             }}
-            className="rounded-full p-1 text-muted transition-colors hover:bg-chat-hover hover:text-norm focus-visible:outline-none"
+            className="rounded-full p-1 text-muted transition-colors hover:bg-chat-hover hover:text-norm focus-visible:bg-chat-hover focus-visible:text-norm focus-visible:outline-none"
           >
             <svg
               width="20"
               height="20"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M11 5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5Z" />
+              <path d="M5 12h14" />
+              <path d="M12 5v14" />
             </svg>
           </button>
         </div>
@@ -177,14 +182,14 @@ export function MessageActions({
               setConfirming(false);
               onDelete();
             }}
-            className="rounded bg-red px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red/80"
+            className="rounded-sm bg-red px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
           >
             {t.dm.delete}
           </button>
           <button
             type="button"
             onClick={() => setConfirming(false)}
-            className="px-1 py-1 text-xs font-medium text-norm hover:underline"
+            className="rounded-sm px-1 py-1 text-xs font-medium text-norm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
           >
             {t.app.cancel}
           </button>
@@ -198,8 +203,21 @@ export function MessageActions({
             setPickerOpen((open) => !open);
           }}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Zm-3.5-8.5A1.5 1.5 0 1 0 8.5 8.5a1.5 1.5 0 0 0 0 3Zm7 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm-3.5 6c2.3 0 4.3-1.4 5.1-3.5H6.9c.8 2.1 2.8 3.5 5.1 3.5Z" />
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+            <line x1="9" x2="9.01" y1="9" y2="9" />
+            <line x1="15" x2="15.01" y1="9" y2="9" />
           </svg>
         </ActionButton>
         {onReply !== undefined && (
@@ -214,10 +232,15 @@ export function MessageActions({
               width="18"
               height="18"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M10 8.3V4.9c0-.8-1-1.3-1.6-.7L1.7 10.3a1 1 0 0 0 0 1.5l6.7 6.1c.6.6 1.6.1 1.6-.7v-3.4c4.9 0 8.5 1.2 11 4.6-.1-6.1-3.3-9.6-11-10.1Z" />
+              <polyline points="9 17 4 12 9 7" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
             </svg>
           </ActionButton>
         )}
@@ -233,10 +256,15 @@ export function MessageActions({
               width="18"
               height="18"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M14 8.3V4.9c0-.8 1-1.3 1.6-.7l6.7 6.1a1 1 0 0 1 0 1.5l-6.7 6.1c-.6.6-1.6.1-1.6-.7v-3.4c-4.9 0-8.5 1.2-11 4.6.1-6.1 3.3-9.6 11-10.1Z" />
+              <polyline points="15 17 20 12 15 7" />
+              <path d="M4 18v-2a4 4 0 0 1 4-4h12" />
             </svg>
           </ActionButton>
         )}
@@ -252,10 +280,16 @@ export function MessageActions({
               width="18"
               height="18"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M10.6 13.4a1 1 0 0 0 1.4 0l4.2-4.2a2 2 0 0 1 2.8 2.8l-4.2 4.2a1 1 0 0 0 1.4 1.4l4.2-4.2a4 4 0 0 0-5.6-5.6l-4.2 4.2a1 1 0 0 0 0 1.4Zm2.8-2.8a1 1 0 0 0-1.4 0l-4.2 4.2a2 2 0 1 1-2.8-2.8l4.2-4.2A1 1 0 0 0 7.8 6.4l-4.2 4.2a4 4 0 0 0 5.6 5.6l4.2-4.2a1 1 0 0 0 0-1.4Z" />
+              <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+              <path d="M15 7h2a5 5 0 1 1 0 10h-2" />
+              <line x1="8" x2="16" y1="12" y2="12" />
             </svg>
           </ActionButton>
         )}
@@ -271,10 +305,15 @@ export function MessageActions({
               width="18"
               height="18"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M14.6 2.6a1 1 0 0 1 1.4 0l5.4 5.4a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1 .3l-.7-.2-3.7 3.7.4 2.7a1 1 0 0 1-.3.9l-.9.9a1 1 0 0 1-1.4 0l-3.2-3.2-4.7 4.7a1 1 0 0 1-1.5-1.5l4.8-4.7-3.3-3.2a1 1 0 0 1 0-1.4l1-.9a1 1 0 0 1 .8-.3l2.7.4 3.7-3.7-.2-.7a1 1 0 0 1 .3-1l1.6-.8Z" />
+              <line x1="12" x2="12" y1="17" y2="22" />
+              <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
             </svg>
           </ActionButton>
         )}
@@ -290,10 +329,15 @@ export function MessageActions({
               width="18"
               height="18"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M16.9 3.1a2.3 2.3 0 0 1 3.2 0l.8.8a2.3 2.3 0 0 1 0 3.2L9.6 18.4l-4.9 1.2a.6.6 0 0 1-.7-.7l1.2-4.9L16.9 3.1Zm1.4 1.4L6.6 16.2l-.7 2.7 2.7-.7L20.3 6.5a.3.3 0 0 0 0-.4l-.8-.8a.3.3 0 0 0-.4 0l-.8.2Z" />
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+              <path d="m15 5 4 4" />
             </svg>
           </ActionButton>
         )}
@@ -310,10 +354,18 @@ export function MessageActions({
               width="18"
               height="18"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M9 3h6a1 1 0 0 1 1 1v1h4a1 1 0 1 1 0 2h-1v12a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V7H4a1 1 0 0 1 0-2h4V4a1 1 0 0 1 1-1Zm-2 4v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7H7Zm3 3a1 1 0 0 1 2 0v7a1 1 0 1 1-2 0v-7Zm4-1a1 1 0 0 0-1 1v7a1 1 0 1 0 2 0v-7a1 1 0 0 0-1-1Z" />
+              <path d="M3 6h18" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <line x1="10" x2="10" y1="11" y2="17" />
+              <line x1="14" x2="14" y1="11" y2="17" />
             </svg>
           </ActionButton>
         )}

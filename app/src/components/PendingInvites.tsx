@@ -13,6 +13,7 @@ import { avatarOf, displayNameOf, useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useT, useUi } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { EnvelopeMenuIcon } from './ContextMenu';
 
 function InviteRow({ invite }: { invite: PendingInvite }) {
   const t = useT();
@@ -70,9 +71,7 @@ export function PendingInvites() {
     return (
       <div className="flex flex-col items-center gap-3 py-12 text-center text-muted">
         <span aria-hidden className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v9a2.5 2.5 0 0 1-2.5 2.5H9.4l-4 3a.9.9 0 0 1-1.4-.7V5.5Z" />
-          </svg>
+          <EnvelopeMenuIcon size={20} />
         </span>
         <p>{t.invitations.empty}</p>
       </div>

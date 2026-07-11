@@ -313,7 +313,7 @@ export function AvatarCropper({
           <button
             type="button"
             onClick={onAnnuler}
-            className="px-4 py-2 text-sm font-medium text-norm hover:underline"
+            className="rounded-lg px-4 py-2 text-sm font-medium text-norm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
           >
             {t.recadreur.annuler}
           </button>
@@ -321,7 +321,7 @@ export function AvatarCropper({
             type="button"
             disabled={!pret || busy}
             onClick={() => void valider()}
-            className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+            className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50"
           >
             {t.recadreur.valider}
           </button>

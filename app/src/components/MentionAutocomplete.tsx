@@ -96,7 +96,7 @@ export function MentionAutocomplete({
               onSelect(candidate);
             }}
             onMouseEnter={() => onHover(i)}
-            className={`flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-fast ${
+            className={`flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-fast focus-visible:bg-chat-hover focus-visible:outline-none ${
               selected ? 'bg-blurple/15 text-header' : 'text-muted'
             }`}
           >

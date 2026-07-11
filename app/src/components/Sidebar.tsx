@@ -60,8 +60,19 @@ function InboxButton({ onOpen }: { onOpen: () => void }) {
   const t = useT();
   return (
     <HeaderIconButton label={t.mentions.open} onClick={onOpen}>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-        <path d="M12 2a10 10 0 0 0 0 20 9.9 9.9 0 0 0 5-1.3 1 1 0 1 0-1-1.7A7.9 7.9 0 0 1 12 20a8 8 0 1 1 8-8v1a1.5 1.5 0 0 1-3 0V8a1 1 0 1 0-2 0v.5A4 4 0 1 0 16 14a3.5 3.5 0 0 0 6-2v-.9A10 10 0 0 0 12 2Zm0 12a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z" />
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <circle cx="12" cy="12" r="4" />
+        <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94" />
       </svg>
     </HeaderIconButton>
   );
@@ -108,8 +119,21 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
           }`}
         >
           <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-7 1.7-7 4v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2c0-2.3-3.7-4-7-4Zm7.5-2.2a3.6 3.6 0 0 0 0-6.6 5.5 5.5 0 0 1 0 6.6ZM19 13.3c1.8.8 3 2 3 3.7v2a1 1 0 0 1-1 1h-3.3c.2-.3.3-.6.3-1v-2c0-1.5-.6-2.7-1.6-3.7.9 0 1.8 0 2.6.1Z" />
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
           </span>
           {t.friends.title}
@@ -171,16 +195,38 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
 export function ChannelIcon({ kind }: { kind: GroupChannel['kind'] }) {
   if (kind === 'voice') {
     return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-        <path d="M11.4 4.1 7 8H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h3l4.4 3.9a1 1 0 0 0 1.6-.8V4.9a1 1 0 0 0-1.6-.8Z" />
-        <path d="M15.5 8.5a1 1 0 0 1 1.4 0 5 5 0 0 1 0 7 1 1 0 1 1-1.4-1.4 3 3 0 0 0 0-4.2 1 1 0 0 1 0-1.4Z" />
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
       </svg>
     );
   }
   if (kind === 'announcement') {
     return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-        <path d="M19 4a1 1 0 0 1 1.5.9v14.2a1 1 0 0 1-1.5.9L13 17H7a4 4 0 0 1 0-8h6l6-5Zm-9 15a2 2 0 0 1-2-2v-1h4v1a2 2 0 0 1-2 2Z" />
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="m3 11 18-5v12L3 14v-3z" />
+        <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
       </svg>
     );
   }
@@ -352,8 +398,21 @@ function GroupSidebar({
             label={t.groups.invite}
             onClick={() => openModal({ kind: 'invite', groupId })}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M15 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-4 6c-3.3 0-7 1.7-7 4v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1c0-2.3-3.7-4-7-4Zm9-8a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2h-2a1 1 0 1 1 0-2h2V7a1 1 0 0 1 1-1Z" />
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <line x1="19" x2="19" y1="8" y2="14" />
+              <line x1="22" x2="16" y1="11" y2="11" />
             </svg>
           </HeaderIconButton>
         )}
@@ -361,8 +420,19 @@ function GroupSidebar({
           label={t.serveur.settingsTitle}
           onClick={() => openModal({ kind: 'serverSettings', groupId })}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.6 1a2 2 0 0 0 2.2.9l1.1-.3a2 2 0 0 1 2.4 2.4l-.3 1.1a2 2 0 0 0 .9 2.2l1 .6a2 2 0 0 1 0 3.4l-1 .6a2 2 0 0 0-.9 2.2l.3 1.1a2 2 0 0 1-2.4 2.4l-1.1-.3a2 2 0 0 0-2.2.9l-.6 1a2 2 0 0 1-3.4 0l-.6-1a2 2 0 0 0-2.2-.9l-1.1.3a2 2 0 0 1-2.4-2.4l.3-1.1a2 2 0 0 0-.9-2.2l-1-.6a2 2 0 0 1 0-3.4l1-.6a2 2 0 0 0 .9-2.2l-.3-1.1a2 2 0 0 1 2.4-2.4l1.1.3a2 2 0 0 0 2.2-.9l.6-1ZM12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.4.7a2 2 0 0 0 2.2.9l.8-.2a2 2 0 0 1 2.4 2.4l-.2.8a2 2 0 0 0 .9 2.2l.7.4a2 2 0 0 1 0 3.4l-.7.4a2 2 0 0 0-.9 2.2l.2.8a2 2 0 0 1-2.4 2.4l-.8-.2a2 2 0 0 0-2.2.9l-.4.7a2 2 0 0 1-3.4 0l-.4-.7a2 2 0 0 0-2.2-.9l-.8.2a2 2 0 0 1-2.4-2.4l.2-.8a2 2 0 0 0-.9-2.2l-.7-.4a2 2 0 0 1 0-3.4l.7-.4a2 2 0 0 0 .9-2.2l-.2-.8a2 2 0 0 1 2.4-2.4l.8.2a2 2 0 0 0 2.2-.9l.4-.7Z" />
+            <circle cx="12" cy="12" r="3" />
           </svg>
         </HeaderIconButton>
       </div>
@@ -383,10 +453,15 @@ function GroupSidebar({
                 width="16"
                 height="16"
                 viewBox="0 0 24 24"
-                fill="currentColor"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
                 aria-hidden
               >
-                <path d="M11 5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5Z" />
+                <path d="M5 12h14" />
+                <path d="M12 5v14" />
               </svg>
             </button>
           )}

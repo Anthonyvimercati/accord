@@ -22,14 +22,19 @@ import { ownDotStatus, UserMenu } from './UserMenu';
 /** Icône casque, barrée en rouge quand la sortie est coupée (deafen). */
 function HeadphonesIcon({ deafened }: { deafened: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M12 3a9 9 0 0 0-9 9v6a2 2 0 0 0 2 2h2a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H5v-1a7 7 0 0 1 14 0v1h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2a2 2 0 0 0 2-2v-6a9 9 0 0 0-9-9Z" />
-      {deafened && (
-        <path
-          className="text-red"
-          d="M3.3 2.3a1 1 0 0 1 1.4 0l16 16a1 1 0 0 1-1.4 1.4l-16-16a1 1 0 0 1 0-1.4Z"
-        />
-      )}
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H4a1 1 0 0 1-1-1v-4a9 9 0 0 1 18 0v4a1 1 0 0 1-1 1h-2a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
+      {deafened && <line className="text-red" x1="3" y1="3" x2="21" y2="21" />}
     </svg>
   );
 }
@@ -37,15 +42,22 @@ function HeadphonesIcon({ deafened }: { deafened: boolean }) {
 /** Icône micro, barrée en rouge quand le micro est coupé. */
 function MicIcon({ muted }: { muted: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 1 0 6 0V5a3 3 0 0 0-3-3Z" />
-      <path d="M6 10a1 1 0 1 0-2 0 8 8 0 0 0 7 7.9V20H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-2.1a8 8 0 0 0 7-7.9 1 1 0 1 0-2 0 6 6 0 0 1-12 0Z" />
-      {muted && (
-        <path
-          className="text-red"
-          d="M3.3 2.3a1 1 0 0 1 1.4 0l16 16a1 1 0 0 1-1.4 1.4l-16-16a1 1 0 0 1 0-1.4Z"
-        />
-      )}
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+      <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+      <line x1="12" x2="12" y1="18" y2="22" />
+      <line x1="8" x2="16" y1="22" y2="22" />
+      {muted && <line className="text-red" x1="3" y1="3" x2="21" y2="21" />}
     </svg>
   );
 }
@@ -108,8 +120,21 @@ function VoiceBanner() {
           onClick={() => leave().catch(onActionError)}
           className={`${iconButton} text-red`}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M12 9c-3.9 0-7.5 1.5-10 3.9a2 2 0 0 0-.2 2.7l1.5 1.9a2 2 0 0 0 2.4.6l2.7-1.3a2 2 0 0 0 1.1-1.8v-1.3a10.3 10.3 0 0 1 5 0V15a2 2 0 0 0 1.1 1.8l2.7 1.3a2 2 0 0 0 2.4-.6l1.5-1.9a2 2 0 0 0-.2-2.7A14.6 14.6 0 0 0 12 9Z" />
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v2.28a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-2.68" />
+            <path d="M4.51 4.51A2 2 0 0 0 4 6v.28a19.86 19.86 0 0 0 2.28 8.63" />
+            <path d="M8.51 8.51a19.87 19.87 0 0 0 3.32 4.56" />
+            <line x1="2" x2="22" y1="2" y2="22" />
           </svg>
         </button>
       </div>
@@ -181,8 +206,19 @@ export function UserPanel() {
           onClick={() => openModal({ kind: 'settings' })}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.6 1a2 2 0 0 0 2.2.9l1.1-.3a2 2 0 0 1 2.4 2.4l-.3 1.1a2 2 0 0 0 .9 2.2l1 .6a2 2 0 0 1 0 3.4l-1 .6a2 2 0 0 0-.9 2.2l.3 1.1a2 2 0 0 1-2.4 2.4l-1.1-.3a2 2 0 0 0-2.2.9l-.6 1a2 2 0 0 1-3.4 0l-.6-1a2 2 0 0 0-2.2-.9l-1.1.3a2 2 0 0 1-2.4-2.4l.3-1.1a2 2 0 0 0-.9-2.2l-1-.6a2 2 0 0 1 0-3.4l1-.6a2 2 0 0 0 .9-2.2l-.3-1.1a2 2 0 0 1 2.4-2.4l1.1.3a2 2 0 0 0 2.2-.9l.6-1ZM12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.4.7a2 2 0 0 0 2.2.9l.8-.2a2 2 0 0 1 2.4 2.4l-.2.8a2 2 0 0 0 .9 2.2l.7.4a2 2 0 0 1 0 3.4l-.7.4a2 2 0 0 0-.9 2.2l.2.8a2 2 0 0 1-2.4 2.4l-.8-.2a2 2 0 0 0-2.2.9l-.4.7a2 2 0 0 1-3.4 0l-.4-.7a2 2 0 0 0-2.2-.9l-.8.2a2 2 0 0 1-2.4-2.4l.2-.8a2 2 0 0 0-.9-2.2l-.7-.4a2 2 0 0 1 0-3.4l.7-.4a2 2 0 0 0 .9-2.2l-.2-.8a2 2 0 0 1 2.4-2.4l.8.2a2 2 0 0 0 2.2-.9l.4-.7Z" />
+            <circle cx="12" cy="12" r="3" />
           </svg>
         </button>
       </div>

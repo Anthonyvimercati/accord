@@ -18,10 +18,20 @@ import { Avatar } from './Avatar';
 /** Icône haut-parleur (entrée du salon vocal). */
 function SpeakerIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M11.4 4.1 7 8H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h3l4.4 3.9a1 1 0 0 0 1.6-.8V4.9a1 1 0 0 0-1.6-.8Z" />
-      <path d="M15.5 8.5a1 1 0 0 1 1.4 0 5 5 0 0 1 0 7 1 1 0 1 1-1.4-1.4 3 3 0 0 0 0-4.2 1 1 0 0 1 0-1.4Z" />
-      <path d="M18.3 5.7a1 1 0 0 1 1.4 0 9 9 0 0 1 0 12.7 1 1 0 1 1-1.4-1.4 7 7 0 0 0 0-9.9 1 1 0 0 1 0-1.4Z" />
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
     </svg>
   );
 }
@@ -29,10 +39,23 @@ function SpeakerIcon() {
 /** Icône micro barré (participant muet), 14 px, à la Discord. */
 function MicOffIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M15 10.6V5a3 3 0 0 0-5.9-.8L15 10.1v.5ZM9 9.9V11a3 3 0 0 0 4.6 2.5l1.5 1.5A5 5 0 0 1 7 11v-1l2-.1Z" />
-      <path d="M18 11a6 6 0 0 1-.7 2.8l1.5 1.5A8 8 0 0 0 20 11h-2ZM6 11c0 3.1 2.4 5.7 5.5 6v2H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2.5v-2c1-.1 2-.5 2.8-1l-1.5-1.5A6 6 0 0 1 6 11H4a8 8 0 0 0 .2 1.8L6 11Z" />
-      <path d="M3.7 2.3a1 1 0 0 0-1.4 1.4l18 18a1 1 0 0 0 1.4-1.4l-18-18Z" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <line x1="2" x2="22" y1="2" y2="22" />
+      <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
+      <path d="M5 10v2a7 7 0 0 0 12 5" />
+      <path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" />
+      <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+      <line x1="12" x2="12" y1="19" y2="22" />
     </svg>
   );
 }
@@ -40,10 +63,19 @@ function MicOffIcon() {
 /** Icône casque barré (participant sourd), 14 px, à la Discord. */
 function HeadphonesOffIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M12 4a7 7 0 0 0-6.6 4.7L3.9 7.2A9 9 0 0 1 21 12v5a2 2 0 0 1-.4 1.2L19 16.6V12a7 7 0 0 0-7-8Z" />
-      <path d="M3 12c0-.6.1-1.2.2-1.8L5 12v1h-.9a1 1 0 0 0-1 1H3v-2Zm2 3.4V19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2h-.6L5 15.4ZM16 14.4l5 5V19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3c0-.2 0-.4.1-.6h-.1Z" />
-      <path d="M3.7 2.3a1 1 0 0 0-1.4 1.4l18 18a1 1 0 0 0 1.4-1.4l-18-18Z" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H4a1 1 0 0 1-1-1v-4a9 9 0 0 1 18 0v4a1 1 0 0 1-1 1h-2a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
+      <line x1="2" x2="22" y1="2" y2="22" />
     </svg>
   );
 }
@@ -74,7 +106,7 @@ function ParticipantRow({
   };
 
   return (
-    <li className="group rounded px-2 py-1 text-muted">
+    <li className="group rounded-md px-2 py-1 text-muted">
       <div className="flex items-center gap-2">
         <div
           className={`shrink-0 rounded-full ${state.speaking ? 'ring-2 ring-green' : ''}`}
@@ -103,7 +135,7 @@ function ParticipantRow({
             aria-expanded={showVolume}
             aria-label={interpolate(t.voice.adjustVolumeOf, { name })}
             onClick={() => setShowVolume((v) => !v)}
-            className={`shrink-0 rounded px-1 text-xs text-faint transition-opacity duration-150 hover:text-norm focus-visible:opacity-100 group-hover:opacity-100 ${
+            className={`shrink-0 rounded-xs px-1 text-xs text-faint transition-opacity duration-150 hover:text-norm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar group-hover:opacity-100 ${
               showVolume ? 'opacity-100 text-norm' : 'opacity-0'
             }`}
           >
@@ -195,7 +227,7 @@ export function VoiceSection({ groupId }: { groupId: string }) {
       <button
         type="button"
         onClick={onJoin}
-        className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 font-medium ${
+        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
           isConnectedHere
             ? 'bg-chat-hover text-header'
             : 'text-muted hover:bg-chat-hover hover:text-norm'

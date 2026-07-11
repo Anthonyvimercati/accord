@@ -194,7 +194,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
               applyStatus(ownStatus, '');
               onClose();
             }}
-            className="rounded-md p-1.5 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm"
+            className="rounded-md p-1.5 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
           >
             <CloseIcon size={14} />
           </button>

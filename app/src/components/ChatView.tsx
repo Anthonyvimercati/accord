@@ -22,7 +22,13 @@ import { selfDisplayName, useSession } from '../stores/session';
 import { dmTypingKey, groupTypingKey } from '../stores/typing';
 import { useUi, useT, type JumpRequest } from '../stores/ui';
 import { Avatar } from './Avatar';
-import { CopyMenuIcon, EnvelopeMenuIcon, MentionMenuIcon, ProfileMenuIcon } from './ContextMenu';
+import {
+  CloseIcon,
+  CopyMenuIcon,
+  EnvelopeMenuIcon,
+  MentionMenuIcon,
+  ProfileMenuIcon,
+} from './ContextMenu';
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
 import { PresenceDot } from './PresenceDot';
@@ -132,7 +138,7 @@ function ReplyBanner({ name, onCancel }: { name: string; onCancel: () => void })
   // Le nom est mis en gras quelle que soit sa position dans le libellé.
   const [before, after] = t.dm.replyingTo.split('{name}');
   return (
-    <div className="mx-4 -mb-1 flex items-center justify-between rounded-t-lg bg-sidebar px-4 pb-2.5 pt-1.5 text-sm">
+    <div className="relative z-[1] mx-4 -mb-1 flex items-center justify-between gap-2 rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-4 py-2 text-sm">
       <span className="min-w-0 truncate text-muted">
         {before}
         <span className="font-semibold text-header">{name}</span>
@@ -143,11 +149,9 @@ function ReplyBanner({ name, onCancel }: { name: string; onCancel: () => void })
         aria-label={t.dm.cancelReply}
         title={t.dm.cancelReply}
         onClick={onCancel}
-        className="ml-2 shrink-0 rounded-full text-faint transition-colors duration-fast hover:text-norm focus-visible:text-norm focus-visible:outline-none active:scale-90"
+        className="flex shrink-0 items-center justify-center rounded-full p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm3.6 12.2-1.4 1.4L12 13.4l-2.2 2.2-1.4-1.4 2.2-2.2-2.2-2.2 1.4-1.4 2.2 2.2 2.2-2.2 1.4 1.4-2.2 2.2 2.2 2.2Z" />
-        </svg>
+        <CloseIcon size={14} />
       </button>
     </div>
   );
@@ -269,8 +273,19 @@ export function DmView({ peer }: { peer: string }) {
             ariaExpanded={pinsOpen}
             onClick={() => setPinsOpen((open) => !open)}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M14.6 2.6a1 1 0 0 1 1.4 0l5.4 5.4a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1 .3l-.7-.2-3.7 3.7.4 2.7a1 1 0 0 1-.3.9l-.9.9a1 1 0 0 1-1.4 0l-3.2-3.2-4.7 4.7a1 1 0 0 1-1.5-1.5l4.8-4.7-3.3-3.2a1 1 0 0 1 0-1.4l1-.9a1 1 0 0 1 .8-.3l2.7.4 3.7-3.7-.2-.7a1 1 0 0 1 .3-1l1.6-.8Z" />
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <line x1="12" x2="12" y1="17" y2="22" />
+              <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
             </svg>
           </HeaderIconButton>
         </div>
@@ -567,7 +582,7 @@ function PinnedPanel({
     <div
       role="dialog"
       aria-label={t.serveur.pinnedTitle}
-      className="absolute right-4 top-14 z-20 max-h-96 w-96 max-w-[85vw] overflow-y-auto rounded-lg border border-rail bg-modal p-3 shadow-elevation"
+      className="absolute right-4 top-14 z-20 max-h-96 w-96 max-w-[85vw] overflow-y-auto rounded-lg border border-rail bg-modal p-3 shadow-3"
     >
       <div className="flex items-center justify-between pb-2">
         <span className="text-sm font-semibold text-header">{t.serveur.pinnedTitle}</span>
@@ -575,22 +590,20 @@ function PinnedPanel({
           type="button"
           aria-label={t.app.close}
           onClick={onClose}
-          className="rounded p-1 text-faint transition-colors duration-fast hover:text-norm active:scale-95"
+          className="rounded-full p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M6.3 5 12 10.6 17.7 5 19 6.3 13.4 12l5.6 5.7-1.3 1.3-5.7-5.6L6.3 19 5 17.7l5.6-5.7L5 6.3 6.3 5Z" />
-          </svg>
+          <CloseIcon size={16} />
         </button>
       </div>
       {resolved.length === 0 && unresolved === 0 && (
         <p className="py-3 text-center text-sm text-muted">{t.serveur.noPins}</p>
       )}
       {resolved.map((m) => (
-        <div key={m.msg_id} className="group/pin mb-1 rounded bg-sidebar px-3 py-2">
+        <div key={m.msg_id} className="group/pin mb-1 rounded-md bg-sidebar px-3 py-2">
           <button
             type="button"
             onClick={() => onJump(m.msg_id)}
-            className="block w-full text-left"
+            className="block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
             <div className="flex items-baseline justify-between gap-2">
               <span className="truncate text-sm font-medium text-header">
@@ -608,7 +621,7 @@ function PinnedPanel({
             <button
               type="button"
               onClick={() => onUnpin(m.msg_id)}
-              className="mt-1 text-xs font-medium text-muted transition-colors duration-fast hover:text-red"
+              className="mt-1 rounded-sm text-xs font-medium text-muted transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             >
               {t.serveur.unpin}
             </button>
@@ -764,10 +777,15 @@ export function GroupView({
                 width="18"
                 height="18"
                 viewBox="0 0 24 24"
-                fill="currentColor"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
                 aria-hidden
               >
-                <path d="M14.6 2.6a1 1 0 0 1 1.4 0l5.4 5.4a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1 .3l-.7-.2-3.7 3.7.4 2.7a1 1 0 0 1-.3.9l-.9.9a1 1 0 0 1-1.4 0l-3.2-3.2-4.7 4.7a1 1 0 0 1-1.5-1.5l4.8-4.7-3.3-3.2a1 1 0 0 1 0-1.4l1-.9a1 1 0 0 1 .8-.3l2.7.4 3.7-3.7-.2-.7a1 1 0 0 1 .3-1l1.6-.8Z" />
+                <line x1="12" x2="12" y1="17" y2="22" />
+                <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
               </svg>
             </HeaderIconButton>
           </div>

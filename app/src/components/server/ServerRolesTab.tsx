@@ -141,8 +141,19 @@ function RoleEditor({
               className="flex h-7 w-7 items-center justify-center rounded-md bg-rail text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
             >
               <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 5.8 4.9 13l1.4 1.4 4.7-4.7V19h2v-9.3l4.7 4.7 1.4-1.4L12 5.8Z" />
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="m5 12 7-7 7 7" />
+                  <path d="M12 19V5" />
                 </svg>
               </span>
             </button>
@@ -154,8 +165,19 @@ function RoleEditor({
               className="flex h-7 w-7 items-center justify-center rounded-md bg-rail text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
             >
               <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="m12 18.2 7.1-7.2-1.4-1.4-4.7 4.7V5h-2v9.3L6.3 9.6 4.9 11l7.1 7.2Z" />
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M12 5v14" />
+                  <path d="m19 12-7 7-7-7" />
                 </svg>
               </span>
             </button>

@@ -165,7 +165,7 @@ export function SearchBar() {
             aria-label={t.search.clear}
             title={t.search.clear}
             onClick={clear}
-            className="flex h-4 w-4 shrink-0 items-center justify-center text-faint transition-colors duration-fast hover:text-norm active:scale-90"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90"
           >
             <CloseIcon size={14} />
           </button>

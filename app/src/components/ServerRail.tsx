@@ -318,8 +318,19 @@ export function ServerRail() {
         accent
         onClick={() => openModal({ kind: 'createGroup' })}
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-          <path d="M11 5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5Z" />
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M5 12h14" />
+          <path d="M12 5v14" />
         </svg>
       </RailButton>
     </nav>

@@ -12,6 +12,7 @@ import { estImage, MAX_TAILLE_PIECE } from '../lib/attachments';
 import { lireFichier, observerProgression, statutFichier } from '../lib/files';
 import { tailleLisible } from '../lib/format';
 import { useUi, useT } from '../stores/ui';
+import { CloseIcon } from './ContextMenu';
 
 /** Plein écran très simple : clic n'importe où ou Échap pour fermer. */
 function Lightbox({
@@ -43,18 +44,16 @@ function Lightbox({
       <img
         src={url}
         alt={name}
-        className="max-h-full max-w-full rounded object-contain"
+        className="max-h-full max-w-full rounded-lg object-contain"
       />
       <button
         type="button"
         aria-label={t.fichiers.fermerApercu}
         title={t.fichiers.fermerApercu}
         onClick={onClose}
-        className="absolute right-4 top-4 rounded-full p-2 text-white/80 hover:text-white"
+        className="absolute right-4 top-4 rounded-full p-2 text-white/80 transition-colors duration-fast hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-          <path d="M6.3 5 12 10.6 17.7 5 19 6.3 13.4 12l5.6 5.7-1.3 1.3-5.7-5.6L6.3 19 5 17.7l5.6-5.7L5 6.3 6.3 5Z" />
-        </svg>
+        <CloseIcon size={22} />
       </button>
     </div>
   );
@@ -202,11 +201,16 @@ function CarteFichier({
         width="28"
         height="28"
         viewBox="0 0 24 24"
-        fill="currentColor"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
         aria-hidden
         className="shrink-0 text-faint"
       >
-        <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8.8a2 2 0 0 0-.6-1.4l-4.8-4.8A2 2 0 0 0 13.2 2H6Zm7 1.5L18.5 9H14a1 1 0 0 1-1-1V3.5Z" />
+        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+        <path d="M14 2v4a2 2 0 0 0 2 2h4" />
       </svg>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-header" title={piece.name}>
@@ -230,10 +234,22 @@ function CarteFichier({
         }
         disabled={tropGros || occupe}
         onClick={() => void telecharger()}
-        className="rounded p-1.5 text-muted transition-colors enabled:hover:bg-chat-hover enabled:hover:text-norm disabled:opacity-40"
+        className="rounded-md p-1.5 text-muted transition-colors enabled:hover:bg-chat-hover enabled:hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-          <path d="M12 3a1 1 0 0 1 1 1v9.6l3.3-3.3a1 1 0 0 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.4L11 13.6V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z" />
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" x2="12" y1="15" y2="3" />
         </svg>
       </button>
     </div>

@@ -464,15 +464,19 @@ function ColorSwatchPicker({
   onPick: (color: number | null) => void;
 }) {
   const t = useT();
+  // Repli sur le blurple de la palette (même valeur que le token design
+  // system --color-blurple) quand aucune couleur personnalisée n'est encore
+  // choisie — l'input natif `type=color` exige un littéral hexadécimal.
+  const defaultCustomColor = profileColorCss(PRESET_PROFILE_COLORS[0]) ?? '#5865f2';
   const [customDraft, setCustomDraft] = useState<string>(
-    () => profileColorCss(value) ?? '#5865f2',
+    () => profileColorCss(value) ?? defaultCustomColor,
   );
 
   // Resynchronise l'aperçu du sélecteur personnalisé quand la couleur
   // enregistrée change ailleurs (préréglage cliqué, effacement, etc.).
   useEffect(() => {
-    setCustomDraft(profileColorCss(value) ?? '#5865f2');
-  }, [value]);
+    setCustomDraft(profileColorCss(value) ?? defaultCustomColor);
+  }, [value, defaultCustomColor]);
 
   const commitCustom = (): void => {
     const parsed = Number.parseInt(customDraft.slice(1), 16);
