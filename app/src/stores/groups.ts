@@ -7,10 +7,12 @@
 import { create } from 'zustand';
 import { api, rpc } from '../lib/client';
 import type {
+  Contact,
   FileAttachment,
   GroupCategory,
   GroupChannel,
   GroupChannelKind,
+  GroupEvent,
   GroupMember,
   GroupMessage,
   GroupRole,
@@ -25,7 +27,7 @@ import {
   mergeRecentPage,
   sortAscending,
 } from '../lib/history';
-import { useFriends } from './friends';
+import { avatarOf, useFriends } from './friends';
 
 /** Clé d'index des historiques de salon (aussi comprise par lib/search). */
 export function channelKey(groupId: string, channelId: string): string {
@@ -122,6 +124,24 @@ export function nicknameOf(
 ): string | null {
   const nickname = state?.members.find((m) => m.pubkey === pubkey)?.nickname;
   return nickname != null && nickname.trim() !== '' ? nickname : null;
+}
+
+/**
+ * Avatar de serveur affichable d'un membre : l'override self-service
+ * (`state.members[].avatar`) s'il est présent, sinon l'avatar global du
+ * contact ami connu (`avatarOf`). Ne connaît pas l'identité locale : pour
+ * soi-même, l'appelant complète avec son propre repli (`self.avatar`) via
+ * `serverAvatarOf(state, contacts, pubkey) ?? self.avatar` — même convention
+ * que `nicknameOf`, qui ne sait pas non plus distinguer soi-même.
+ */
+export function serverAvatarOf(
+  state: Pick<GroupStateJson, 'members'> | undefined,
+  contacts: readonly Contact[],
+  pubkey: string,
+): string | null {
+  const override = state?.members.find((m) => m.pubkey === pubkey)?.avatar;
+  if (override != null) return override;
+  return avatarOf(contacts, pubkey);
 }
 
 /**
@@ -354,7 +374,28 @@ export function aggregateEmojiMap(
   ids: readonly string[],
   states: Readonly<Record<string, GroupStateJson>>,
 ): Map<string, string> {
-  return new Map(aggregateEmojis(ids, states).map((e) => [e.name, e.merkle_root] as const));
+  return new Map(
+    aggregateEmojis(ids, states).map((e) => [e.name, e.merkle_root] as const),
+  );
+}
+
+/** Événements triés par échéance croissante (départage stable par id). */
+export function sortEvents(events: readonly GroupEvent[]): GroupEvent[] {
+  return [...events].sort(
+    (a, b) => a.start_ms - b.start_ms || a.event_id.localeCompare(b.event_id),
+  );
+}
+
+/**
+ * Événements planifiés dont l'échéance n'est pas encore passée, triés par
+ * date croissante — alimente le badge de compte de la barre latérale et la
+ * mise en avant du panneau d'événements.
+ */
+export function upcomingEvents(
+  state: Pick<GroupStateJson, 'events'> | undefined,
+  now: number = Date.now(),
+): GroupEvent[] {
+  return sortEvents((state?.events ?? []).filter((e) => e.start_ms > now));
 }
 
 /* ------------------------------------------------------------------ */
@@ -555,6 +596,55 @@ interface GroupsState {
   ) => Promise<void>;
   /** Supprime un émoji de serveur par son nom puis recharge l'état. */
   delEmoji: (groupId: string, name: string) => Promise<void>;
+  /** Crée un événement planifié (MANAGE_CHANNELS) puis recharge l'état. */
+  createEvent: (
+    groupId: string,
+    fields: {
+      title: string;
+      description: string;
+      startMs: number;
+      channelId: string | null;
+    },
+  ) => Promise<string>;
+  /** Réécrit intégralement un événement (MANAGE_CHANNELS ou auteur) puis recharge l'état. */
+  editEvent: (
+    groupId: string,
+    eventId: string,
+    fields: {
+      title: string;
+      description: string;
+      startMs: number;
+      channelId: string | null;
+    },
+  ) => Promise<void>;
+  /** Supprime un événement (MANAGE_CHANNELS ou auteur) puis recharge l'état. */
+  deleteEvent: (groupId: string, eventId: string) => Promise<void>;
+  /**
+   * Bascule son propre RSVP (optimiste : `rsvped`/`rsvp_count` mis à jour
+   * localement avant la réponse du nœud, restaurés en cas d'échec).
+   */
+  rsvpEvent: (groupId: string, eventId: string, interested: boolean) => Promise<void>;
+  /** Ajoute (ou remplace) un sticker de serveur puis recharge l'état. */
+  addSticker: (
+    groupId: string,
+    name: string,
+    dataB64: string,
+    mime: string,
+  ) => Promise<void>;
+  /** Supprime un sticker de serveur par son nom puis recharge l'état. */
+  removeSticker: (groupId: string, name: string) => Promise<void>;
+  /**
+   * Publie (ou efface, `image` omis) son avatar de serveur self-service puis
+   * recharge l'état.
+   */
+  setMemberAvatar: (
+    groupId: string,
+    image?: { dataB64: string; mime: string },
+  ) => Promise<void>;
+  /** Fixe (ou efface avec `null`) la couleur de bannière de serveur puis recharge l'état. */
+  setBannerColor: (groupId: string, color: number | null) => Promise<void>;
+  /** Envoie un sticker de serveur (message dédié) puis rafraîchit l'historique. */
+  sendSticker: (groupId: string, channelId: string, name: string) => Promise<void>;
 }
 
 export const useGroups = create<GroupsState>((set, get) => ({
@@ -951,6 +1041,67 @@ export const useGroups = create<GroupsState>((set, get) => ({
   delEmoji: async (groupId, name) => {
     await api.groupsEmojiDel(groupId, name);
     await get().loadState(groupId);
+  },
+
+  createEvent: async (groupId, fields) => {
+    const { event_id } = await api.groupsEventsCreate(groupId, fields);
+    await get().loadState(groupId);
+    return event_id;
+  },
+
+  editEvent: async (groupId, eventId, fields) => {
+    await api.groupsEventsEdit(groupId, eventId, fields);
+    await get().loadState(groupId);
+  },
+
+  deleteEvent: async (groupId, eventId) => {
+    await api.groupsEventsDelete(groupId, eventId);
+    await get().loadState(groupId);
+  },
+
+  rsvpEvent: async (groupId, eventId, interested) => {
+    const state = get().states[groupId];
+    if (state === undefined) {
+      await api.groupsEventsRsvp(groupId, eventId, interested);
+      return;
+    }
+    const events = (state.events ?? []).map((e) =>
+      e.event_id === eventId && e.rsvped !== interested
+        ? { ...e, rsvped: interested, rsvp_count: e.rsvp_count + (interested ? 1 : -1) }
+        : e,
+    );
+    set((s) => ({ states: { ...s.states, [groupId]: { ...state, events } } }));
+    try {
+      await api.groupsEventsRsvp(groupId, eventId, interested);
+    } catch (err) {
+      set((s) => ({ states: { ...s.states, [groupId]: state } }));
+      throw err;
+    }
+  },
+
+  addSticker: async (groupId, name, dataB64, mime) => {
+    await api.groupsStickersAdd(groupId, name, dataB64, mime);
+    await get().loadState(groupId);
+  },
+
+  removeSticker: async (groupId, name) => {
+    await api.groupsStickersRemove(groupId, name);
+    await get().loadState(groupId);
+  },
+
+  setMemberAvatar: async (groupId, image) => {
+    await api.groupsSetMemberAvatar(groupId, image);
+    await get().loadState(groupId);
+  },
+
+  setBannerColor: async (groupId, color) => {
+    await api.groupsSetBannerColor(groupId, color);
+    await get().loadState(groupId);
+  },
+
+  sendSticker: async (groupId, channelId, name) => {
+    await api.groupsSendSticker(groupId, channelId, name);
+    await get().refreshHistory(groupId, channelId);
   },
 }));
 

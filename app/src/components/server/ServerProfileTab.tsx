@@ -5,17 +5,57 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { profileCardGradient } from '../../lib/color';
 import { lireFichier } from '../../lib/files';
 import { initials } from '../../lib/format';
 import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useUi, useT } from '../../stores/ui';
 import { AvatarCropper } from '../AvatarCropper';
-import { SettingsSection } from '../settings/controls';
+import { ColorSwatchPicker, SettingsSection } from '../settings/controls';
 import { messageOf } from './controls';
 
 /** Bornes du nom de serveur (contrat groups.rename). */
 const NAME_MIN = 1;
 const NAME_MAX = 100;
+
+/** Section couleur de bannière de serveur : réutilise le préréglage de couleurs de profil. */
+function BannerColorSection({ groupId }: { groupId: string }) {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+  const state = useGroups((s) => s.states[groupId]);
+  const setBannerColor = useGroups((s) => s.setBannerColor);
+  const [busy, setBusy] = useState(false);
+
+  if (!state) return null;
+  const canManage = hasPerm(state.my_permissions, PERMISSIONS.MANAGE_CHANNELS);
+  const current = state.banner_color ?? null;
+
+  const pick = async (color: number | null): Promise<void> => {
+    if (!canManage || busy || color === current) return;
+    setBusy(true);
+    try {
+      await setBannerColor(groupId, color);
+      toast('info', t.serveur.bannerColorSaved);
+    } catch (e) {
+      toast('error', messageOf(e, t.errors.actionFailed));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsSection title={t.serveur.bannerColorTitle} hint={t.serveur.bannerColorHint}>
+      <div className="rounded-lg bg-sidebar p-4">
+        <ColorSwatchPicker
+          label={t.serveur.bannerColorTitle}
+          value={current}
+          busy={busy || !canManage}
+          onPick={(c) => void pick(c)}
+        />
+      </div>
+    </SettingsSection>
+  );
+}
 
 export function ServerProfileTab({ groupId }: { groupId: string }) {
   const t = useT();
@@ -54,6 +94,9 @@ export function ServerProfileTab({ groupId }: { groupId: string }) {
   const trimmed = draft.trim();
   const valid = trimmed.length >= NAME_MIN && trimmed.length <= NAME_MAX;
   const dirty = trimmed !== state.name;
+  // Aperçu du profil (icône) légèrement teinté par la couleur de bannière du
+  // serveur — même formule que la carte de profil (`profileCardGradient`).
+  const bannerGradient = profileCardGradient(state.banner_color ?? null);
 
   const save = async (): Promise<void> => {
     if (!canManage || !valid || !dirty || busy) return;
@@ -115,7 +158,12 @@ export function ServerProfileTab({ groupId }: { groupId: string }) {
       </SettingsSection>
 
       <SettingsSection title={t.serveur.icon} hint={t.serveur.iconHint}>
-        <div className="flex items-center gap-4 rounded-lg bg-sidebar p-4">
+        <div
+          className="flex items-center gap-4 rounded-lg bg-sidebar/90 p-4"
+          style={
+            bannerGradient !== null ? { backgroundImage: bannerGradient } : undefined
+          }
+        >
           <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-server bg-rail text-2xl font-semibold text-norm">
             {preview !== null ? (
               <img
@@ -164,6 +212,8 @@ export function ServerProfileTab({ groupId }: { groupId: string }) {
           onValider={(r) => onCrop(r.dataB64, r.mime, r.dataUrl)}
         />
       )}
+
+      <BannerColorSection groupId={groupId} />
     </div>
   );
 }

@@ -28,12 +28,7 @@ import { api } from '../lib/client';
 import { formatTimestamp, tailleLisible } from '../lib/format';
 import { useTypingEmitter, type TypingTarget } from '../hooks/useTypingEmitter';
 import { useFriends, displayNameOf } from '../stores/friends';
-import {
-  isChannelReadOnly,
-  sortRoles,
-  timeoutUntil,
-  useGroups,
-} from '../stores/groups';
+import { isChannelReadOnly, sortRoles, timeoutUntil, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { CloseIcon } from './ContextMenu';
@@ -91,13 +86,16 @@ export function MessageInput({
       self !== null && pubkey === self.pubkey
         ? selfDisplayName(self)
         : displayNameOf(contacts, pubkey);
-    return groupMentionCandidates(groupState.members, sortRoles(groupState.roles), nameOf);
+    return groupMentionCandidates(
+      groupState.members,
+      sortRoles(groupState.roles),
+      nameOf,
+    );
   }, [groupState, contacts, self]);
 
   const [mention, setMention] = useState<ActiveMention | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const suggestions =
-    mention !== null ? filterMentions(candidates, mention.query) : [];
+  const suggestions = mention !== null ? filterMentions(candidates, mention.query) : [];
   const mentionOpen = suggestions.length > 0;
   const activeIndex = Math.min(mentionIndex, suggestions.length - 1);
 
@@ -234,6 +232,20 @@ export function MessageInput({
   // Composeur en lecture seule : sourdine active de l'utilisateur local, ou
   // salon d'annonces sans MANAGE_CHANNELS effectif. Le fil reste consultable.
   const channelId = typingTarget?.kind === 'group' ? typingTarget.channelId : null;
+
+  /**
+   * Envoie un sticker choisi dans le sélecteur : message dédié, immédiat —
+   * jamais inséré dans le composeur (contrat `groups.send` étendu : un appel
+   * ne peut pas mélanger texte et sticker).
+   */
+  const envoyerSticker = (name: string): void => {
+    if (groupId === null || channelId === null) return;
+    useGroups
+      .getState()
+      .sendSticker(groupId, channelId, name)
+      .catch(() => setErreur(t.errors.sendFailed));
+  };
+
   const selfMember =
     self !== null && groupState !== undefined
       ? groupState.members.find((m) => m.pubkey === self.pubkey)
@@ -507,6 +519,14 @@ export function MessageInput({
                 insererEmoji(pick);
               }}
               onClose={() => setEmojiOpen(false)}
+              {...(groupId !== null && channelId !== null
+                ? {
+                    onPickSticker: (name: string) => {
+                      setEmojiOpen(false);
+                      envoyerSticker(name);
+                    },
+                  }
+                : {})}
             />
           )}
         </div>

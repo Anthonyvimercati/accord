@@ -13,6 +13,7 @@ import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { ChannelIcon } from './Sidebar';
 import { CloseIcon } from './ContextMenu';
+import { EventsModal } from './EventsModal';
 import { ServerSettingsModal } from './server/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
 
@@ -357,5 +358,7 @@ export function Modals() {
           {...(modal.initialTab !== undefined ? { initialTab: modal.initialTab } : {})}
         />
       );
+    case 'events':
+      return <EventsModal groupId={modal.groupId} />;
   }
 }

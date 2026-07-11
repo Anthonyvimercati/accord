@@ -17,10 +17,14 @@ import { interpolate } from '../i18n';
 import type { DeliveryState, FileAttachment, MsgBody, Reaction } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatDay, formatTimestamp, formatTimestampCompact } from '../lib/format';
-import { isEditableTarget, useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
+import {
+  isEditableTarget,
+  useContextMenu,
+  type ContextMenuItem,
+} from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
-import { useGroups } from '../stores/groups';
+import { serverAvatarOf, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover, type View } from '../stores/ui';
 import { AttachmentRow } from './Attachments';
@@ -40,6 +44,7 @@ import { ForwardPicker } from './ForwardPicker';
 import { MarkdownText } from './MarkdownText';
 import { MessageActions } from './MessageActions';
 import { ReactionRow } from './Reactions';
+import { StickerImage } from './StickerImage';
 
 export interface DisplayMessage {
   msg_id: string;
@@ -290,7 +295,9 @@ export function MessageList({
   const self = useSession((s) => s.self);
   const t = useT();
   // Rôles du groupe (nom minuscule → couleur) pour les pastilles `@rôle`.
-  const groupRoles = useGroups((s) => (groupId !== null ? s.states[groupId]?.roles : undefined));
+  const groupRoles = useGroups((s) =>
+    groupId !== null ? s.states[groupId]?.roles : undefined,
+  );
   const roleColors = useMemo(() => {
     const map = new Map<string, number>();
     for (const role of groupRoles ?? []) map.set(role.name.toLowerCase(), role.color);
@@ -367,10 +374,14 @@ export function MessageList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTarget?.nonce]);
 
-  // Les messages de pur contenu (texte / supprimés) sont affichés ;
+  // Les messages de pur contenu (texte / sticker / supprimés) sont affichés ;
   // éditions, réactions et méta sont des mutations déjà appliquées.
   const visible = messages.filter(
-    (m) => m.deleted || m.body.type === 'text' || m.body.type === 'unknown',
+    (m) =>
+      m.deleted ||
+      m.body.type === 'text' ||
+      m.body.type === 'sticker' ||
+      m.body.type === 'unknown',
   );
 
   /** Index msg_id → message, pour retrouver les messages cités. */
@@ -453,10 +464,16 @@ export function MessageList({
     return nick ?? displayNameOf(contacts, author);
   };
 
-  /** Hash d'avatar d'un auteur : soi-même, sinon le contact ami connu. */
+  /**
+   * Hash d'avatar d'un auteur : avatar de serveur self-service s'il est
+   * défini pour ce groupe (`serverAvatarOf`), sinon l'avatar global (soi-même,
+   * ou le contact ami connu).
+   */
   const avatarHashOf = (author: string): string | null => {
-    if (self && author === self.pubkey) return self.avatar;
-    return avatarOf(contacts, author);
+    const globalAvatar =
+      self && author === self.pubkey ? self.avatar : avatarOf(contacts, author);
+    if (groupMembers === undefined) return globalAvatar;
+    return serverAvatarOf({ members: groupMembers }, contacts, author) ?? globalAvatar;
   };
 
   /** Ouvre la carte de profil, ancrée sur l'élément cliqué. */
@@ -515,9 +532,16 @@ export function MessageList({
    * action déjà câblée par `actions` (ou omis si l'action n'existe pas ou
    * n'est pas permise), à l'image de la barre d'actions au survol.
    */
-  const buildMessageItems = (message: DisplayMessage, isOwn: boolean, pinned: boolean): ContextMenuItem[] => {
+  const buildMessageItems = (
+    message: DisplayMessage,
+    isOwn: boolean,
+    pinned: boolean,
+  ): ContextMenuItem[] => {
     const text = !message.deleted ? displayText(message) : null;
-    const canEdit = actions !== undefined && !message.deleted && isOwn;
+    // Un sticker n'a pas de texte à éditer (contrat : pas de fusion
+    // texte/sticker) — seule la suppression reste permise.
+    const canEdit =
+      actions !== undefined && !message.deleted && isOwn && message.body.type === 'text';
     const canDelete =
       actions !== undefined &&
       !message.deleted &&
@@ -565,7 +589,9 @@ export function MessageList({
         onClick: () => actions.onTogglePin?.(message, pinned),
       });
     }
-    flow.forEach((item, i) => items.push(i === 0 ? { ...item, separatorBefore: true } : item));
+    flow.forEach((item, i) =>
+      items.push(i === 0 ? { ...item, separatorBefore: true } : item),
+    );
 
     const management: ContextMenuItem[] = [];
     if (canEdit) {
@@ -592,250 +618,273 @@ export function MessageList({
 
   return (
     <>
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      className="view-enter flex-1 overflow-y-auto pb-4"
-      role="log"
-      aria-live="polite"
-    >
-      {visible.map((m, i) => {
-        const prev = visible[i - 1];
-        const newDay = !prev || !sameDay(prev.sent_ms, m.sent_ms);
-        const isReply = m.body.type === 'text' && m.body.reply_to !== null;
-        // Une réponse ré-affiche l'en-tête pour accueillir la citation.
-        const grouped =
-          !newDay &&
-          !isReply &&
-          prev !== undefined &&
-          prev.author === m.author &&
-          m.sent_ms - prev.sent_ms < GROUP_WINDOW_MS;
-        const name = nameOf(m.author);
-        const nameColor = colorOf?.(m.author) ?? null;
-        const isEditing = editingId === m.msg_id;
-        const actionable =
-          actions !== undefined && !isEditing && !m.deleted && m.body.type === 'text';
-        // Message sans texte (pièces jointes seules) : pas de corps vide.
-        const hasAttachments = !m.deleted && (m.attachments?.length ?? 0) > 0;
-        const corpsVide = !m.deleted && hasAttachments && displayText(m) === '';
-        const isOwn = self !== null && m.author === self.pubkey;
-        const pinned = pinnedIds?.has(m.msg_id) ?? false;
-        const delivery = deliveryOf(m);
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="view-enter flex-1 overflow-y-auto pb-4"
+        role="log"
+        aria-live="polite"
+      >
+        {visible.map((m, i) => {
+          const prev = visible[i - 1];
+          const newDay = !prev || !sameDay(prev.sent_ms, m.sent_ms);
+          const isReply = m.body.type === 'text' && m.body.reply_to !== null;
+          // Une réponse ré-affiche l'en-tête pour accueillir la citation.
+          const grouped =
+            !newDay &&
+            !isReply &&
+            prev !== undefined &&
+            prev.author === m.author &&
+            m.sent_ms - prev.sent_ms < GROUP_WINDOW_MS;
+          const name = nameOf(m.author);
+          const nameColor = colorOf?.(m.author) ?? null;
+          const isEditing = editingId === m.msg_id;
+          const actionable =
+            actions !== undefined &&
+            !isEditing &&
+            !m.deleted &&
+            (m.body.type === 'text' || m.body.type === 'sticker');
+          // Message sans texte (pièces jointes seules) : pas de corps vide.
+          const hasAttachments = !m.deleted && (m.attachments?.length ?? 0) > 0;
+          const corpsVide = !m.deleted && hasAttachments && displayText(m) === '';
+          const isOwn = self !== null && m.author === self.pubkey;
+          const pinned = pinnedIds?.has(m.msg_id) ?? false;
+          const delivery = deliveryOf(m);
 
-        return (
-          <div key={m.msg_id}>
-            {newDay && (
-              <div className="mx-4 mb-1 mt-4 flex items-center gap-3" role="separator">
-                <div className="h-px flex-1 bg-input" />
-                <span className="rounded-full bg-chat-hover px-2.5 py-1 text-[11px] font-medium text-faint">
-                  {formatDay(m.sent_ms, lang)}
-                </span>
-                <div className="h-px flex-1 bg-input" />
-              </div>
-            )}
-            {/* Espacement piloté par la densité (variables CSS, global.css). */}
-            <div
-              ref={(el) => {
-                if (el === null) rowRefs.current.delete(m.msg_id);
-                else rowRefs.current.set(m.msg_id, el);
-              }}
-              data-msg-id={m.msg_id}
-              className={`group relative mx-2 flex gap-4 rounded-md px-2 transition-colors duration-fast hover:bg-chat-hover ${
-                grouped
-                  ? 'py-[var(--message-pad-y-grouped)]'
-                  : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
-              } ${highlightId === m.msg_id ? 'msg-flash' : ''} ${
-                appendedId === m.msg_id ? 'msg-append' : ''
-              }`}
-              onContextMenu={(e) => {
-                // Édition en place (textarea) : laisse le clic droit natif
-                // (copier/coller) plutôt que d'ouvrir le menu du message.
-                if (isEditableTarget(e.target)) return;
-                e.preventDefault();
-                useContextMenu
-                  .getState()
-                  .openMenu(e.clientX, e.clientY, buildMessageItems(m, isOwn, pinned));
-              }}
-            >
-              {actionable && (
-                <MessageActions
-                  canEdit={isOwn}
-                  canDelete={isOwn || actions.canModerate === true}
-                  onReact={(emoji) => actions.onReact(m, emoji)}
-                  onReply={
-                    actions.onReply === undefined ? undefined : () => actions.onReply?.(m)
-                  }
-                  onEdit={() => setEditingId(m.msg_id)}
-                  onDelete={() => actions.onDelete(m)}
-                  onForward={() => setForwarding(m)}
-                  onCopyLink={() => copyLink(m)}
-                  onTogglePin={
-                    actions.onTogglePin === undefined
-                      ? undefined
-                      : () => actions.onTogglePin?.(m, pinned)
-                  }
-                  pinned={pinned}
-                  groupId={groupId}
-                />
-              )}
-              {grouped ? (
-                <div className="w-10 shrink-0 overflow-hidden whitespace-nowrap pt-1 text-right text-[10px] leading-5 tracking-tight text-faint opacity-0 group-hover:opacity-100">
-                  {formatTimestampCompact(m.sent_ms, lang, undefined, timeFormat)}
+          return (
+            <div key={m.msg_id}>
+              {newDay && (
+                <div className="mx-4 mb-1 mt-4 flex items-center gap-3" role="separator">
+                  <div className="h-px flex-1 bg-input" />
+                  <span className="rounded-full bg-chat-hover px-2.5 py-1 text-[11px] font-medium text-faint">
+                    {formatDay(m.sent_ms, lang)}
+                  </span>
+                  <div className="h-px flex-1 bg-input" />
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  aria-label={interpolate(t.profil.openProfile, { name })}
-                  onClick={(e) => ouvrirProfil(m.author, e.currentTarget)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    useContextMenu
-                      .getState()
-                      .openMenu(e.clientX, e.clientY, buildUserItems(m.author, e.currentTarget));
-                  }}
-                  className="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
-                >
-                  <Avatar
-                    id={m.author}
-                    name={name}
-                    size={40}
-                    avatarHash={avatarHashOf(m.author)}
-                    hint={m.author}
-                  />
-                </button>
               )}
-              <div className="min-w-0 flex-1">
-                {!grouped && (
-                  <>
-                    {isReply && m.body.type === 'text' && m.body.reply_to !== null && (
-                      <MessageQuote
-                        quoted={byId.get(m.body.reply_to)}
-                        nameOf={nameOf}
-                        onJump={() => {
-                          if (m.body.type === 'text' && m.body.reply_to !== null) {
-                            requestJump(view, m.body.reply_to);
-                          }
-                        }}
+              {/* Espacement piloté par la densité (variables CSS, global.css). */}
+              <div
+                ref={(el) => {
+                  if (el === null) rowRefs.current.delete(m.msg_id);
+                  else rowRefs.current.set(m.msg_id, el);
+                }}
+                data-msg-id={m.msg_id}
+                className={`group relative mx-2 flex gap-4 rounded-md px-2 transition-colors duration-fast hover:bg-chat-hover ${
+                  grouped
+                    ? 'py-[var(--message-pad-y-grouped)]'
+                    : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
+                } ${highlightId === m.msg_id ? 'msg-flash' : ''} ${
+                  appendedId === m.msg_id ? 'msg-append' : ''
+                }`}
+                onContextMenu={(e) => {
+                  // Édition en place (textarea) : laisse le clic droit natif
+                  // (copier/coller) plutôt que d'ouvrir le menu du message.
+                  if (isEditableTarget(e.target)) return;
+                  e.preventDefault();
+                  useContextMenu
+                    .getState()
+                    .openMenu(e.clientX, e.clientY, buildMessageItems(m, isOwn, pinned));
+                }}
+              >
+                {actionable && (
+                  <MessageActions
+                    canEdit={isOwn && m.body.type === 'text'}
+                    canDelete={isOwn || actions.canModerate === true}
+                    onReact={(emoji) => actions.onReact(m, emoji)}
+                    onReply={
+                      actions.onReply === undefined
+                        ? undefined
+                        : () => actions.onReply?.(m)
+                    }
+                    onEdit={() => setEditingId(m.msg_id)}
+                    onDelete={() => actions.onDelete(m)}
+                    onForward={() => setForwarding(m)}
+                    onCopyLink={() => copyLink(m)}
+                    onTogglePin={
+                      actions.onTogglePin === undefined
+                        ? undefined
+                        : () => actions.onTogglePin?.(m, pinned)
+                    }
+                    pinned={pinned}
+                    groupId={groupId}
+                  />
+                )}
+                {grouped ? (
+                  <div className="w-10 shrink-0 overflow-hidden whitespace-nowrap pt-1 text-right text-[10px] leading-5 tracking-tight text-faint opacity-0 group-hover:opacity-100">
+                    {formatTimestampCompact(m.sent_ms, lang, undefined, timeFormat)}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    aria-label={interpolate(t.profil.openProfile, { name })}
+                    onClick={(e) => ouvrirProfil(m.author, e.currentTarget)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      useContextMenu
+                        .getState()
+                        .openMenu(
+                          e.clientX,
+                          e.clientY,
+                          buildUserItems(m.author, e.currentTarget),
+                        );
+                    }}
+                    className="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+                  >
+                    <Avatar
+                      id={m.author}
+                      name={name}
+                      size={40}
+                      avatarHash={avatarHashOf(m.author)}
+                      hint={m.author}
+                    />
+                  </button>
+                )}
+                <div className="min-w-0 flex-1">
+                  {!grouped && (
+                    <>
+                      {isReply && m.body.type === 'text' && m.body.reply_to !== null && (
+                        <MessageQuote
+                          quoted={byId.get(m.body.reply_to)}
+                          nameOf={nameOf}
+                          onJump={() => {
+                            if (m.body.type === 'text' && m.body.reply_to !== null) {
+                              requestJump(view, m.body.reply_to);
+                            }
+                          }}
+                        />
+                      )}
+                      <div className="flex items-baseline gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => ouvrirProfil(m.author, e.currentTarget)}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            useContextMenu
+                              .getState()
+                              .openMenu(
+                                e.clientX,
+                                e.clientY,
+                                buildUserItems(m.author, e.currentTarget),
+                              );
+                          }}
+                          className="font-semibold text-header hover:underline focus-visible:underline focus-visible:outline-none"
+                          style={nameColor !== null ? { color: nameColor } : undefined}
+                        >
+                          {name}
+                        </button>
+                        <span className="text-xs text-faint">
+                          {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
+                        </span>
+                        {pinned && (
+                          <svg
+                            aria-hidden
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="shrink-0 text-yellow/80"
+                          >
+                            <line x1="12" x2="12" y1="17" y2="22" />
+                            <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+                          </svg>
+                        )}
+                        {isOwn && delivery === 'pending' && (
+                          <span className="text-xs italic text-faint">
+                            {t.dm.pending}
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {isEditing ? (
+                    <MessageEditor
+                      initial={displayText(m) ?? ''}
+                      onSave={(text) => {
+                        setEditingId(null);
+                        if (text !== displayText(m)) actions?.onEdit(m, text);
+                      }}
+                      onCancel={() => setEditingId(null)}
+                    />
+                  ) : !m.deleted && m.body.type === 'sticker' ? (
+                    <div className="leading-6">
+                      <StickerImage
+                        name={m.body.name}
+                        merkleRoot={m.body.merkle_root}
+                        hint={m.author}
                       />
-                    )}
-                    <div className="flex items-baseline gap-2">
+                    </div>
+                  ) : (
+                    !corpsVide && (
+                      <div className="leading-6 text-norm">
+                        <BodyText
+                          message={m}
+                          emojiMap={emojiMap}
+                          knownMentions={knownMentions}
+                          roleColors={roleColors}
+                        />
+                      </div>
+                    )
+                  )}
+                  {hasAttachments && (
+                    <AttachmentRow pieces={m.attachments ?? []} hint={m.author} />
+                  )}
+                  {!m.deleted && (
+                    <ReactionRow
+                      reactions={m.reactions ?? []}
+                      selfPubkey={self?.pubkey ?? null}
+                      onToggle={
+                        actions === undefined
+                          ? undefined
+                          : (emoji) => actions.onReact(m, emoji)
+                      }
+                      emojis={emojiMap}
+                      hint={m.author}
+                    />
+                  )}
+                  {m.msg_id === seenMsgId && (
+                    <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
+                      {t.dm.seen}
+                    </div>
+                  )}
+                  {isOwn && delivery === 'failed' && actions?.onRetry !== undefined && (
+                    <div className="mt-0.5 flex items-center gap-1.5 text-xs text-red">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" x2="12" y1="8" y2="12" />
+                        <line x1="12" x2="12.01" y1="16" y2="16" />
+                      </svg>
+                      <span>{t.dm.sendFailed}</span>
                       <button
                         type="button"
-                        onClick={(e) => ouvrirProfil(m.author, e.currentTarget)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          useContextMenu
-                            .getState()
-                            .openMenu(e.clientX, e.clientY, buildUserItems(m.author, e.currentTarget));
-                        }}
-                        className="font-semibold text-header hover:underline focus-visible:underline focus-visible:outline-none"
-                        style={nameColor !== null ? { color: nameColor } : undefined}
+                        onClick={() => actions.onRetry?.(m)}
+                        className="font-medium underline-offset-2 hover:underline"
                       >
-                        {name}
+                        {t.dm.retry}
                       </button>
-                      <span className="text-xs text-faint">
-                        {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
-                      </span>
-                      {pinned && (
-                        <svg
-                          aria-hidden
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="shrink-0 text-yellow/80"
-                        >
-                          <line x1="12" x2="12" y1="17" y2="22" />
-                          <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
-                        </svg>
-                      )}
-                      {isOwn && delivery === 'pending' && (
-                        <span className="text-xs italic text-faint">{t.dm.pending}</span>
-                      )}
                     </div>
-                  </>
-                )}
-                {isEditing ? (
-                  <MessageEditor
-                    initial={displayText(m) ?? ''}
-                    onSave={(text) => {
-                      setEditingId(null);
-                      if (text !== displayText(m)) actions?.onEdit(m, text);
-                    }}
-                    onCancel={() => setEditingId(null)}
-                  />
-                ) : (
-                  !corpsVide && (
-                    <div className="leading-6 text-norm">
-                      <BodyText
-                        message={m}
-                        emojiMap={emojiMap}
-                        knownMentions={knownMentions}
-                        roleColors={roleColors}
-                      />
-                    </div>
-                  )
-                )}
-                {hasAttachments && (
-                  <AttachmentRow pieces={m.attachments ?? []} hint={m.author} />
-                )}
-                {!m.deleted && (
-                  <ReactionRow
-                    reactions={m.reactions ?? []}
-                    selfPubkey={self?.pubkey ?? null}
-                    onToggle={
-                      actions === undefined
-                        ? undefined
-                        : (emoji) => actions.onReact(m, emoji)
-                    }
-                    emojis={emojiMap}
-                    hint={m.author}
-                  />
-                )}
-                {m.msg_id === seenMsgId && (
-                  <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
-                    {t.dm.seen}
-                  </div>
-                )}
-                {isOwn && delivery === 'failed' && actions?.onRetry !== undefined && (
-                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-red">
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="12" x2="12" y1="8" y2="12" />
-                      <line x1="12" x2="12.01" y1="16" y2="16" />
-                    </svg>
-                    <span>{t.dm.sendFailed}</span>
-                    <button
-                      type="button"
-                      onClick={() => actions.onRetry?.(m)}
-                      className="font-medium underline-offset-2 hover:underline"
-                    >
-                      {t.dm.retry}
-                    </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
       {forwarding !== null && (
         <ForwardPicker
           text={displayText(forwarding) ?? ''}

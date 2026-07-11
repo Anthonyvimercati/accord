@@ -5,6 +5,7 @@ import { dictionaries, interpolate } from '../i18n';
 import type { AccordEvent, CallEndedReason } from '../lib/api';
 import { callEndedToast } from '../lib/callToast';
 import { rpc } from '../lib/client';
+import { eventStartedToast } from '../lib/eventToast';
 import {
   isNotificationEligible,
   isSoundEligible,
@@ -119,6 +120,21 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
 function maybePlayInviteSound(): void {
   if (useFriends.getState().ownStatus === 'dnd') return;
   playNotificationSound('message');
+}
+
+/**
+ * Alerte discrète pour un événement de serveur qui démarre
+ * (`event.group_event_started`) : toast + notification native (mêmes
+ * réglages que les messages/invitations, jamais en Ne pas déranger), jamais
+ * de son de mention (ce n'est pas une mention personnelle).
+ */
+function notifyEventStarted(title: string): void {
+  const ui = useUi.getState();
+  const dict = dictionaries[ui.lang];
+  const toast = eventStartedToast(dict, title);
+  ui.toast(toast.kind, toast.text);
+  if (useFriends.getState().ownStatus !== 'dnd') playNotificationSound('message');
+  void sendNativeNotification(dict.app.name, toast.text);
 }
 
 /**
@@ -345,6 +361,9 @@ function useNodeEvents() {
           void useGroups.getState().loadList();
           break;
         }
+        case 'event.group_event_started':
+          notifyEventStarted(event.params.title);
+          break;
       }
     });
     return off;

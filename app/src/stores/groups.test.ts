@@ -39,11 +39,27 @@ vi.mock('../lib/client', () => ({
     groupsInvitesList: vi.fn(),
     groupsInviteAccept: vi.fn(),
     groupsInviteDecline: vi.fn(),
+    groupsEventsCreate: vi.fn(),
+    groupsEventsEdit: vi.fn(),
+    groupsEventsDelete: vi.fn(),
+    groupsEventsRsvp: vi.fn(),
+    groupsStickersAdd: vi.fn(),
+    groupsStickersRemove: vi.fn(),
+    groupsSendSticker: vi.fn(),
+    groupsSetMemberAvatar: vi.fn(),
+    groupsSetBannerColor: vi.fn(),
   },
 }));
 
 import { api, rpc } from '../lib/client';
-import type { GroupMessage, GroupRole, GroupStateJson, PendingInvite } from '../lib/api';
+import type {
+  Contact,
+  GroupEvent,
+  GroupMessage,
+  GroupRole,
+  GroupStateJson,
+  PendingInvite,
+} from '../lib/api';
 import {
   useGroups,
   canModerateVoice,
@@ -61,10 +77,13 @@ import {
   overrideOf,
   planRoleMove,
   roleColorCss,
+  serverAvatarOf,
   sortCategories,
   sortChannels,
+  sortEvents,
   sortRoles,
   timeoutUntil,
+  upcomingEvents,
   PERMISSIONS,
 } from './groups';
 
@@ -97,6 +116,15 @@ const inviteCreateMock = api.groupsInviteCreate as unknown as Mock;
 const invitesListMock = api.groupsInvitesList as unknown as Mock;
 const inviteAcceptMock = api.groupsInviteAccept as unknown as Mock;
 const inviteDeclineMock = api.groupsInviteDecline as unknown as Mock;
+const eventsCreateMock = api.groupsEventsCreate as unknown as Mock;
+const eventsEditMock = api.groupsEventsEdit as unknown as Mock;
+const eventsDeleteMock = api.groupsEventsDelete as unknown as Mock;
+const eventsRsvpMock = api.groupsEventsRsvp as unknown as Mock;
+const stickersAddMock = api.groupsStickersAdd as unknown as Mock;
+const stickersRemoveMock = api.groupsStickersRemove as unknown as Mock;
+const sendStickerMock = api.groupsSendSticker as unknown as Mock;
+const setMemberAvatarMock = api.groupsSetMemberAvatar as unknown as Mock;
+const setBannerColorMock = api.groupsSetBannerColor as unknown as Mock;
 const callMock = rpc.call as unknown as Mock;
 
 function role(id: string, position: number, color = 0): GroupRole {
@@ -175,6 +203,15 @@ beforeEach(() => {
     invitesListMock,
     inviteAcceptMock,
     inviteDeclineMock,
+    eventsCreateMock,
+    eventsEditMock,
+    eventsDeleteMock,
+    eventsRsvpMock,
+    stickersAddMock,
+    stickersRemoveMock,
+    sendStickerMock,
+    setMemberAvatarMock,
+    setBannerColorMock,
     callMock,
   ]) {
     mock.mockReset();
@@ -589,6 +626,214 @@ describe('useGroups — émojis de serveur', () => {
   });
 });
 
+function groupEvent(over: Partial<GroupEvent> = {}): GroupEvent {
+  return {
+    event_id: 'e1',
+    title: 'Soirée jeux',
+    description: '',
+    start_ms: 1_700_000_000_000,
+    channel_id: null,
+    author: 'moi',
+    rsvp_count: 0,
+    rsvped: false,
+    ...over,
+  };
+}
+
+describe('useGroups — événements planifiés', () => {
+  it('createEvent publie l’événement puis recharge l’état, et rend son id', async () => {
+    eventsCreateMock.mockResolvedValueOnce({ event_id: 'e1' });
+    stateMock.mockResolvedValueOnce(groupState());
+    const fields = {
+      title: 'Soirée jeux',
+      description: 'Amenez vos manettes.',
+      startMs: 1_700_000_000_000,
+      channelId: null,
+    };
+
+    const eventId = await useGroups.getState().createEvent('g1', fields);
+
+    expect(eventsCreateMock).toHaveBeenCalledWith('g1', fields);
+    expect(stateMock).toHaveBeenCalledWith('g1');
+    expect(eventId).toBe('e1');
+  });
+
+  it('editEvent réécrit l’événement puis recharge l’état', async () => {
+    eventsEditMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+    const fields = {
+      title: 'Nouveau titre',
+      description: '',
+      startMs: 1_700_000_500_000,
+      channelId: 'c1',
+    };
+
+    await useGroups.getState().editEvent('g1', 'e1', fields);
+
+    expect(eventsEditMock).toHaveBeenCalledWith('g1', 'e1', fields);
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('deleteEvent supprime puis recharge l’état', async () => {
+    eventsDeleteMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().deleteEvent('g1', 'e1');
+
+    expect(eventsDeleteMock).toHaveBeenCalledWith('g1', 'e1');
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('rsvpEvent appelle groups.events.rsvp et met à jour l’état localement (optimiste)', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: groupState({ events: [groupEvent({ rsvped: false, rsvp_count: 2 })] }),
+      },
+    });
+    eventsRsvpMock.mockResolvedValueOnce({ ok: true });
+
+    await useGroups.getState().rsvpEvent('g1', 'e1', true);
+
+    expect(eventsRsvpMock).toHaveBeenCalledWith('g1', 'e1', true);
+    expect(useGroups.getState().states.g1?.events).toEqual([
+      groupEvent({ rsvped: true, rsvp_count: 3 }),
+    ]);
+  });
+
+  it('rsvpEvent restaure l’état et propage l’erreur si le nœud refuse', async () => {
+    const initial = groupState({
+      events: [groupEvent({ rsvped: false, rsvp_count: 2 })],
+    });
+    useGroups.setState({ ids: ['g1'], states: { g1: initial } });
+    eventsRsvpMock.mockRejectedValueOnce(new Error('refusé'));
+
+    await expect(useGroups.getState().rsvpEvent('g1', 'e1', true)).rejects.toThrow(
+      'refusé',
+    );
+
+    expect(useGroups.getState().states.g1).toEqual(initial);
+  });
+
+  it('upcomingEvents ne garde que les événements à venir, triés par date', () => {
+    const state = groupState({
+      events: [
+        groupEvent({ event_id: 'past', start_ms: 100 }),
+        groupEvent({ event_id: 'later', start_ms: 300 }),
+        groupEvent({ event_id: 'soon', start_ms: 200 }),
+      ],
+    });
+    expect(upcomingEvents(state, 150).map((e) => e.event_id)).toEqual(['soon', 'later']);
+  });
+
+  it('sortEvents trie par échéance croissante', () => {
+    const events = [
+      groupEvent({ event_id: 'b', start_ms: 200 }),
+      groupEvent({ event_id: 'a', start_ms: 100 }),
+    ];
+    expect(sortEvents(events).map((e) => e.event_id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('useGroups — stickers de serveur', () => {
+  it('addSticker publie le sticker puis recharge l’état', async () => {
+    stickersAddMock.mockResolvedValueOnce({ merkle_root: 'ab'.repeat(32) });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().addSticker('g1', 'wave', 'QUJD', 'image/webp');
+
+    expect(stickersAddMock).toHaveBeenCalledWith('g1', 'wave', 'QUJD', 'image/webp');
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('removeSticker supprime puis recharge l’état', async () => {
+    stickersRemoveMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().removeSticker('g1', 'wave');
+
+    expect(stickersRemoveMock).toHaveBeenCalledWith('g1', 'wave');
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('sendSticker envoie le sticker puis rafraîchit l’historique du salon', async () => {
+    sendStickerMock.mockResolvedValueOnce({ msg_id: 'm1' });
+    callMock.mockResolvedValueOnce({ messages: [] });
+
+    await useGroups.getState().sendSticker('g1', 'c1', 'wave');
+
+    expect(sendStickerMock).toHaveBeenCalledWith('g1', 'c1', 'wave');
+  });
+});
+
+describe('useGroups — avatar de serveur et couleur de bannière', () => {
+  it('setMemberAvatar publie l’image (self-service) puis recharge l’état', async () => {
+    setMemberAvatarMock.mockResolvedValueOnce({ avatar: 'ab'.repeat(32) });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups
+      .getState()
+      .setMemberAvatar('g1', { dataB64: 'QUJD', mime: 'image/png' });
+
+    expect(setMemberAvatarMock).toHaveBeenCalledWith('g1', {
+      dataB64: 'QUJD',
+      mime: 'image/png',
+    });
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('setMemberAvatar sans image efface l’avatar puis recharge l’état', async () => {
+    setMemberAvatarMock.mockResolvedValueOnce({ avatar: null });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().setMemberAvatar('g1');
+
+    expect(setMemberAvatarMock).toHaveBeenCalledWith('g1', undefined);
+  });
+
+  it('setBannerColor fixe la couleur puis recharge l’état', async () => {
+    setBannerColorMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().setBannerColor('g1', 0x5865f2);
+
+    expect(setBannerColorMock).toHaveBeenCalledWith('g1', 0x5865f2);
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+});
+
+describe('serverAvatarOf', () => {
+  const contacts: Contact[] = [
+    {
+      node_id: 'n',
+      pubkey: 'ami',
+      friend_code: 'accord-ami',
+      display_name: 'Ami',
+      bio: null,
+      avatar: 'global-hash',
+      banner: null,
+      state: 'friend',
+      last_seen_ms: 0,
+    },
+  ];
+
+  it('privilégie l’override de serveur quand présent', () => {
+    const state = groupState({
+      members: [{ pubkey: 'ami', roles: [], avatar: 'server-hash' }],
+    });
+    expect(serverAvatarOf(state, contacts, 'ami')).toBe('server-hash');
+  });
+
+  it('replie sur l’avatar global du contact sans override', () => {
+    const state = groupState({ members: [{ pubkey: 'ami', roles: [], avatar: null }] });
+    expect(serverAvatarOf(state, contacts, 'ami')).toBe('global-hash');
+  });
+
+  it('rend null sans override ni contact connu (état absent)', () => {
+    expect(serverAvatarOf(undefined, contacts, 'inconnu')).toBeNull();
+  });
+});
+
 describe('useGroups — non-lus', () => {
   it('mémorise les compteurs de groups.list au chargement', async () => {
     // Arrange
@@ -947,7 +1192,9 @@ describe('isChannelReadOnly', () => {
 describe('isChannelRestricted', () => {
   it('faux sans override sur ce salon', () => {
     const s = groupState({
-      overrides: [{ channel_id: 'autre', role_id: 'r', allow: 0, deny: PERMISSIONS.VIEW }],
+      overrides: [
+        { channel_id: 'autre', role_id: 'r', allow: 0, deny: PERMISSIONS.VIEW },
+      ],
     });
     expect(isChannelRestricted(s, 'c1')).toBe(false);
   });

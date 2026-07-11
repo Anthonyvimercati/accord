@@ -32,7 +32,8 @@ export type Modal =
       groupId: string;
       /** Onglet initial (menu du serveur → « Créer une catégorie ») ; défaut : Profil. */
       initialTab?: 'channels';
-    };
+    }
+  | { kind: 'events'; groupId: string };
 
 export interface Toast {
   id: number;

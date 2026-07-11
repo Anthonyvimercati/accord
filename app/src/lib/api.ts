@@ -87,6 +87,7 @@ export type MsgBody =
   | { type: 'edit'; target: string; text: string }
   | { type: 'delete'; target: string }
   | { type: 'reaction'; target: string; emoji: string; add: boolean }
+  | { type: 'sticker'; name: string; merkle_root: string }
   | { type: 'meta' }
   | { type: 'unknown' };
 
@@ -156,8 +157,7 @@ export interface MentionEntry {
 
 /** Conversation d'un résultat `search.query` (métadonnées côté nœud). */
 export type SearchConversation =
-  | { type: 'dm'; peer: string }
-  | { type: 'group'; group_id: string; channel_id: string };
+  { type: 'dm'; peer: string } | { type: 'group'; group_id: string; channel_id: string };
 
 /**
  * Résultat de `search.query` avec ses métadonnées : de quoi afficher et
@@ -224,6 +224,12 @@ export interface GroupMember {
    */
   voice_muted?: boolean;
   voice_deafened?: boolean;
+  /**
+   * Avatar de serveur self-service (`groups.set_member_avatar`), racine
+   * Merkle (hex 64) ou `null` sans avatar de serveur. Prime sur l'avatar de
+   * profil global quand présent. Optionnel par tolérance (nœud plus ancien).
+   */
+  avatar?: string | null;
 }
 
 export interface GroupInvite {
@@ -253,6 +259,30 @@ export interface PendingInvite {
 export interface ServerEmoji {
   name: string;
   merkle_root: string;
+}
+
+/** Sticker de serveur : même forme qu'un émoji (nom + racine Merkle de l'image). */
+export interface ServerSticker {
+  name: string;
+  merkle_root: string;
+}
+
+/**
+ * Événement planifié d'un groupe (`groups.events.*`) tel qu'exposé dans
+ * `groups.state.events`. `channel_id` référence un salon vocal existant, ou
+ * `null` (aucun salon associé, ou salon vocal supprimé depuis — l'événement
+ * survit). `rsvped` reflète l'appelant local (clé publique locale dans
+ * l'ensemble des RSVP).
+ */
+export interface GroupEvent {
+  event_id: string;
+  title: string;
+  description: string;
+  start_ms: number;
+  channel_id: string | null;
+  author: string;
+  rsvp_count: number;
+  rsvped: boolean;
 }
 
 /**
@@ -299,6 +329,16 @@ export interface GroupStateJson {
   overrides?: ChannelOverride[];
   /** Bitfield global de permissions de l'identité locale. */
   my_permissions: number;
+  /**
+   * Couleur de fond de la bannière de serveur (entier 0xRRGGBB), ou `null`
+   * sans couleur. Champ additif de `SetMeta` ; optionnel par tolérance (nœud
+   * plus ancien).
+   */
+  banner_color?: number | null;
+  /** Stickers de serveur, même forme que `groups.stickers.list` (peut manquer). */
+  stickers?: ServerSticker[];
+  /** Événements planifiés du groupe (peut manquer, nœud plus ancien). */
+  events?: GroupEvent[];
 }
 
 /**
@@ -534,7 +574,11 @@ export type AccordEvent =
       method: 'event.file_progress';
       params: { merkle_root: string; done: number; total: number; complete: boolean };
     }
-  | { method: 'event.desynchronise'; params: Record<string, never> };
+  | { method: 'event.desynchronise'; params: Record<string, never> }
+  | {
+      method: 'event.group_event_started';
+      params: { group_id: string; event_id: string; title: string };
+    };
 
 export class Api {
   constructor(private readonly rpc: RpcClient) {}
@@ -692,7 +736,10 @@ export class Api {
     });
   }
 
-  dmHistory(pubkey: string, limit = 50): Promise<{ messages: DmMessage[]; peer_read_lamport: number | null }> {
+  dmHistory(
+    pubkey: string,
+    limit = 50,
+  ): Promise<{ messages: DmMessage[]; peer_read_lamport: number | null }> {
     return this.rpc.call('dm.history', { pubkey, limit });
   }
 
@@ -705,7 +752,11 @@ export class Api {
     pubkey: string,
     msgId: string,
     limit = 50,
-  ): Promise<{ messages: DmMessage[]; found: boolean; peer_read_lamport: number | null }> {
+  ): Promise<{
+    messages: DmMessage[];
+    found: boolean;
+    peer_read_lamport: number | null;
+  }> {
     return this.rpc.call('dm.history_around', { pubkey, msg_id: msgId, limit });
   }
 
@@ -1030,7 +1081,11 @@ export class Api {
    * `MANAGE_ROLES` celui d'un membre de rang inférieur. `name` : 1 à 32
    * caractères après trim, sans caractère de contrôle (vide = efface).
    */
-  groupsSetNickname(groupId: string, name: string, member?: string): Promise<{ ok: true }> {
+  groupsSetNickname(
+    groupId: string,
+    name: string,
+    member?: string,
+  ): Promise<{ ok: true }> {
     return this.rpc.call('groups.set_nickname', {
       group_id: groupId,
       name,
@@ -1251,6 +1306,23 @@ export class Api {
   }
 
   /**
+   * Envoie un sticker de serveur (`groups.send` étendu, `sticker` référençant
+   * un nom actuellement enregistré) : message dédié, `text`/`reply_to`/
+   * `attachments` toujours ignorés côté nœud dès que `sticker` est fourni.
+   */
+  groupsSendSticker(
+    groupId: string,
+    channelId: string,
+    sticker: string,
+  ): Promise<{ msg_id: string }> {
+    return this.rpc.call('groups.send', {
+      group_id: groupId,
+      channel_id: channelId,
+      sticker,
+    });
+  }
+
+  /**
    * Autorise une invitation à usage unique vers `pubkey` (consentement
    * explicite requis côté invité, D-045 — aucun force-join) ; rend
    * l'identifiant de l'invitation créée.
@@ -1306,6 +1378,130 @@ export class Api {
   /** Supprime un émoji de serveur par son nom (`MANAGE_EMOJIS`). */
   groupsEmojiDel(groupId: string, name: string): Promise<{ ok: true }> {
     return this.rpc.call('groups.emoji.del', { group_id: groupId, name });
+  }
+
+  /**
+   * Crée un événement planifié (`MANAGE_CHANNELS`) : `description` vide et
+   * `channelId: null` (aucun salon associé) sont des valeurs explicites
+   * valides, jamais omises — l'édition réécrit intégralement les mêmes champs.
+   */
+  groupsEventsCreate(
+    groupId: string,
+    fields: {
+      title: string;
+      description: string;
+      startMs: number;
+      channelId: string | null;
+    },
+  ): Promise<{ event_id: string }> {
+    return this.rpc.call('groups.events.create', {
+      group_id: groupId,
+      title: fields.title,
+      description: fields.description,
+      start_ms: fields.startMs,
+      channel_id: fields.channelId,
+    });
+  }
+
+  /**
+   * Réécrit intégralement un événement (`MANAGE_CHANNELS` ou auteur) — pas de
+   * fusion partielle ; les RSVP existants sont conservés côté nœud.
+   */
+  groupsEventsEdit(
+    groupId: string,
+    eventId: string,
+    fields: {
+      title: string;
+      description: string;
+      startMs: number;
+      channelId: string | null;
+    },
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.events.edit', {
+      group_id: groupId,
+      event_id: eventId,
+      title: fields.title,
+      description: fields.description,
+      start_ms: fields.startMs,
+      channel_id: fields.channelId,
+    });
+  }
+
+  /** Supprime un événement planifié (`MANAGE_CHANNELS` ou auteur). */
+  groupsEventsDelete(groupId: string, eventId: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.events.delete', {
+      group_id: groupId,
+      event_id: eventId,
+    });
+  }
+
+  /**
+   * RSVP « je suis intéressé·e » (`interested` par défaut `true`) sur son
+   * propre RSVP ; `false` le retire. Dédoublonné côté nœud par
+   * `(event_id, membre)`.
+   */
+  groupsEventsRsvp(
+    groupId: string,
+    eventId: string,
+    interested?: boolean,
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.events.rsvp', {
+      group_id: groupId,
+      event_id: eventId,
+      ...(interested !== undefined ? { interested } : {}),
+    });
+  }
+
+  /**
+   * Ajoute (ou remplace) un sticker de serveur (`MANAGE_EMOJIS`) : nom
+   * `[a-z0-9_]` 2-32, image ≤ 512 Kio décodés. Rend la racine Merkle publiée.
+   */
+  groupsStickersAdd(
+    groupId: string,
+    name: string,
+    dataB64: string,
+    mime: string,
+  ): Promise<{ merkle_root: string }> {
+    return this.rpc.call('groups.stickers.add', {
+      group_id: groupId,
+      name,
+      data_b64: dataB64,
+      mime,
+    });
+  }
+
+  /** Supprime un sticker de serveur par son nom (`MANAGE_EMOJIS`). */
+  groupsStickersRemove(groupId: string, name: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.stickers.remove', { group_id: groupId, name });
+  }
+
+  /** Liste des stickers de serveur (aussi exposée par `groups.state.stickers`). */
+  groupsStickersList(groupId: string): Promise<{ stickers: ServerSticker[] }> {
+    return this.rpc.call('groups.stickers.list', { group_id: groupId });
+  }
+
+  /**
+   * Publie (ou efface, `image` omis) l'avatar de serveur — strictement
+   * self-service, aucun paramètre pour désigner un autre membre. `image`
+   * présent ⇒ ≤ 512 Kio décodés, `mime` libre `image/*`. Rend la nouvelle
+   * racine Merkle, ou `null` une fois effacé.
+   */
+  groupsSetMemberAvatar(
+    groupId: string,
+    image?: { dataB64: string; mime: string },
+  ): Promise<{ avatar: string | null }> {
+    return this.rpc.call('groups.set_member_avatar', {
+      group_id: groupId,
+      ...(image !== undefined ? { data_b64: image.dataB64, mime: image.mime } : {}),
+    });
+  }
+
+  /**
+   * Fixe (ou efface avec `null`) la couleur de fond de la bannière de serveur
+   * (`0xRRGGBB`, ≤ 24 bits). `color` est requis explicitement (contrat).
+   */
+  groupsSetBannerColor(groupId: string, color: number | null): Promise<{ ok: true }> {
+    return this.rpc.call('groups.set_banner_color', { group_id: groupId, color });
   }
 
   /**

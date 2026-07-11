@@ -142,12 +142,8 @@ export const useFriends = create<FriendsState>((set, get) => ({
               // Pronoms/couleurs absents (nœud pair ancien) : valeurs connues
               // conservées telles quelles, comme la présence riche.
               ...(profil.pronouns !== undefined ? { pronouns: profil.pronouns } : {}),
-              ...('accent_color' in profil
-                ? { accent_color: profil.accent_color }
-                : {}),
-              ...('banner_color' in profil
-                ? { banner_color: profil.banner_color }
-                : {}),
+              ...('accent_color' in profil ? { accent_color: profil.accent_color } : {}),
+              ...('banner_color' in profil ? { banner_color: profil.banner_color } : {}),
             }
           : c,
       ),
@@ -221,7 +217,7 @@ export function displayNameOf(contacts: Contact[], pubkey: string): string {
  * Hash d'avatar d'un pair : celui du contact connu, sinon `null` (les
  * avatars des non-amis ne circulent pas — limite connue du protocole).
  */
-export function avatarOf(contacts: Contact[], pubkey: string): string | null {
+export function avatarOf(contacts: readonly Contact[], pubkey: string): string | null {
   return contacts.find((c) => c.pubkey === pubkey)?.avatar ?? null;
 }
 

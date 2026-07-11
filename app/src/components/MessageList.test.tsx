@@ -5,7 +5,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import type { Mock } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   MessageList,
   messageLink,
@@ -18,6 +19,12 @@ import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
+
+vi.mock('../lib/files', () => ({ lireFichier: vi.fn() }));
+
+import { lireFichier } from '../lib/files';
+
+const lireMock = lireFichier as unknown as Mock;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BASE_MS = new Date('2026-07-08T10:00:00').getTime();
@@ -66,6 +73,7 @@ beforeEach(() => {
   useSession.setState({ self: null });
   useFriends.setState({ contacts: [] });
   useGroups.setState({ ids: [], states: {} });
+  lireMock.mockReset();
 });
 
 describe('messageLink', () => {
@@ -86,14 +94,24 @@ describe('messageLink', () => {
 
 describe('MessageList — transfert et lien', () => {
   it('expose les actions Transférer et Copier le lien', () => {
-    render(<MessageList messages={[textMsg('m1', BASE_MS, 'salut')]} actions={makeActions()} />);
+    render(
+      <MessageList
+        messages={[textMsg('m1', BASE_MS, 'salut')]}
+        actions={makeActions()}
+      />,
+    );
 
     expect(screen.getByLabelText('Transférer')).toBeInTheDocument();
     expect(screen.getByLabelText('Copier le lien')).toBeInTheDocument();
   });
 
   it('ouvre le sélecteur de transfert', () => {
-    render(<MessageList messages={[textMsg('m1', BASE_MS, 'salut')]} actions={makeActions()} />);
+    render(
+      <MessageList
+        messages={[textMsg('m1', BASE_MS, 'salut')]}
+        actions={makeActions()}
+      />,
+    );
 
     fireEvent.click(screen.getByLabelText('Transférer'));
 
@@ -162,6 +180,58 @@ describe('MessageList — rendu', () => {
     expect(screen.getByText('Message supprimé')).toBeInTheDocument();
     expect(screen.getByText(/version finale/)).toBeInTheDocument();
     expect(screen.getByText('(modifié)')).toBeInTheDocument();
+  });
+});
+
+describe('MessageList — sticker (MsgBody kind 4)', () => {
+  const HASH = 'ab'.repeat(32);
+
+  function stickerMsg(id: string, sentMs: number): DisplayMessage {
+    return {
+      msg_id: id,
+      author: 'aabbccddee',
+      sent_ms: sentMs,
+      deleted: false,
+      body: { type: 'sticker', name: 'wave', merkle_root: HASH },
+      edited: null,
+    };
+  }
+
+  it('affiche le jeton texte de repli pendant le chargement de l’image', () => {
+    lireMock.mockReturnValueOnce(new Promise(() => {}));
+    render(<MessageList messages={[stickerMsg('m1', BASE_MS)]} />);
+
+    expect(screen.getByText(':wave:')).toBeInTheDocument();
+  });
+
+  it('affiche l’image du sticker une fois chargée, avec alt `:name:`', async () => {
+    lireMock.mockResolvedValueOnce('data:image/webp;base64,QUJD');
+    const { container } = render(<MessageList messages={[stickerMsg('m1', BASE_MS)]} />);
+
+    await waitFor(() => {
+      expect(container.querySelector('img[alt=":wave:"]')).toBeInTheDocument();
+    });
+    expect(lireMock).toHaveBeenCalledWith(HASH, 'aabbccddee');
+    expect(screen.queryByText(':wave:')).not.toBeInTheDocument();
+  });
+
+  it('un message sticker supprimé retombe sur le texte générique', () => {
+    const deleted: DisplayMessage = { ...stickerMsg('m1', BASE_MS), deleted: true };
+    render(<MessageList messages={[deleted]} />);
+
+    expect(screen.getByText('Message supprimé')).toBeInTheDocument();
+    expect(lireMock).not.toHaveBeenCalled();
+  });
+
+  it('n’expose pas l’action « Modifier » pour un sticker (auteur soi-même)', () => {
+    lireMock.mockReturnValueOnce(new Promise(() => {}));
+    useSession.setState({ self: { ...SELF, pubkey: 'aabbccddee' } });
+    render(
+      <MessageList messages={[stickerMsg('m1', BASE_MS)]} actions={makeActions()} />,
+    );
+
+    expect(screen.queryByLabelText('Modifier')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Supprimer')).toBeInTheDocument();
   });
 });
 
@@ -538,7 +608,12 @@ describe('MessageList — état de livraison', () => {
       author: SELF.pubkey,
       delivery: 'sent',
     });
-    render(<MessageList messages={[message]} actions={{ ...makeActions(), onRetry: vi.fn() }} />);
+    render(
+      <MessageList
+        messages={[message]}
+        actions={{ ...makeActions(), onRetry: vi.fn() }}
+      />,
+    );
 
     expect(screen.queryByRole('button', { name: 'Réessayer' })).not.toBeInTheDocument();
   });
@@ -550,9 +625,7 @@ describe('MessageList — saut au message', () => {
       textMsg('m1', BASE_MS, 'premier'),
       textMsg('m2', BASE_MS + 60_000, 'cible'),
     ];
-    render(
-      <MessageList messages={messages} scrollTarget={{ msgId: 'm2', nonce: 1 }} />,
-    );
+    render(<MessageList messages={messages} scrollTarget={{ msgId: 'm2', nonce: 1 }} />);
 
     const row = screen.getByText('cible').closest('[data-msg-id]');
     expect(row).toHaveAttribute('data-msg-id', 'm2');
@@ -582,7 +655,9 @@ describe('MessageList — saut au message', () => {
 describe('MessageList — pseudos de serveur', () => {
   it('affiche le pseudo de serveur au lieu du pseudo global en salon', () => {
     useFriends.setState({
-      contacts: [{ pubkey: 'aabbccddee', display_name: 'GlobalAlice' } as unknown as Contact],
+      contacts: [
+        { pubkey: 'aabbccddee', display_name: 'GlobalAlice' } as unknown as Contact,
+      ],
     });
     const state = {
       group_id: 'g1',
@@ -607,7 +682,9 @@ describe('MessageList — pseudos de serveur', () => {
 
   it('retombe sur le pseudo global quand aucun pseudo de serveur n’est défini', () => {
     useFriends.setState({
-      contacts: [{ pubkey: 'aabbccddee', display_name: 'GlobalAlice' } as unknown as Contact],
+      contacts: [
+        { pubkey: 'aabbccddee', display_name: 'GlobalAlice' } as unknown as Contact,
+      ],
     });
     const state = {
       group_id: 'g1',

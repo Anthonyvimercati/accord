@@ -17,6 +17,7 @@ import {
   hasPerm,
   memberColor,
   nicknameOf,
+  serverAvatarOf,
   sortRoles,
   PERMISSIONS,
 } from '../stores/groups';
@@ -582,12 +583,16 @@ function MemberList({ groupId }: { groupId: string }) {
           {section.members.map((member) => {
             const color = memberColor(member, state.roles);
             const roleNames = roleNamesOf(member.roles);
-            // Avatar d'un membre : le sien, sinon celui du contact ami connu —
-            // les avatars des non-amis ne circulent pas (limite du protocole).
-            const avatarHash =
+            // Avatar d'un membre : avatar de serveur self-service s'il est
+            // défini, sinon l'avatar global (le sien, ou celui du contact ami
+            // connu — les avatars des non-amis ne circulent pas, limite du
+            // protocole).
+            const globalAvatarHash =
               self && member.pubkey === self.pubkey
                 ? self.avatar
                 : avatarOf(contacts, member.pubkey);
+            const avatarHash =
+              serverAvatarOf(state, contacts, member.pubkey) ?? globalAvatarHash;
             const status = statusOf(member.pubkey);
             const statusText = statusTextOf(member.pubkey);
             return (

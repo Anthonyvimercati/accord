@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { GroupChannel } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
+import { profileCardGradient } from '../lib/color';
 import { useCalls } from '../stores/calls';
 import { presenceOf, useFriends } from '../stores/friends';
 import {
@@ -17,6 +18,7 @@ import {
   hasPerm,
   isChannelRestricted,
   isChannelVisible,
+  upcomingEvents,
   PERMISSIONS,
 } from '../stores/groups';
 import { useSession } from '../stores/session';
@@ -272,6 +274,28 @@ export function ChannelIcon({ kind }: { kind: GroupChannel['kind'] }) {
     <span aria-hidden className="text-[17px] font-medium leading-none">
       #
     </span>
+  );
+}
+
+/** Icône « calendrier » (entrée Événements), icon spec 20 px. */
+function CalendarIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M16 2v4" />
+      <path d="M8 2v4" />
+      <path d="M3 10h18" />
+    </svg>
   );
 }
 
@@ -673,9 +697,15 @@ function GroupSidebar({ groupId }: { groupId: string }) {
     setView({ kind: 'group', groupId, channelId: channel.channel_id });
   };
 
+  const bannerGradient = profileCardGradient(state?.banner_color ?? null);
+  const upcomingCount = upcomingEvents(state).length;
+
   return (
     <>
-      <div className="relative flex h-12 items-center gap-1 border-b border-rail bg-sidebar px-4 shadow-1">
+      <div
+        className="relative flex h-12 items-center gap-1 border-b border-rail bg-sidebar px-4 shadow-1"
+        style={bannerGradient !== null ? { backgroundImage: bannerGradient } : undefined}
+      >
         <button
           type="button"
           aria-haspopup="menu"
@@ -740,6 +770,28 @@ function GroupSidebar({ groupId }: { groupId: string }) {
         </HeaderIconButton>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
+        <button
+          type="button"
+          onClick={() => openModal({ kind: 'events', groupId })}
+          className="flex h-9 w-full items-center gap-3 rounded-md px-2 font-medium text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+            <CalendarIcon />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-left">
+            {t.groups.eventsEntry}
+          </span>
+          {upcomingCount > 0 && (
+            <span
+              aria-label={interpolate(t.groups.eventsBadge, {
+                count: String(upcomingCount),
+              })}
+              className="badge-pop ml-auto min-w-4 shrink-0 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-white"
+            >
+              {upcomingCount}
+            </span>
+          )}
+        </button>
         <div className="flex items-center justify-between px-2 pb-1 pt-2">
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
             {t.groups.channels}

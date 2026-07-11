@@ -35,6 +35,29 @@ export function formatTimestamp(
   });
 }
 
+/**
+ * Horodatage complet d'un événement planifié (date courte + heure, toujours
+ * les deux — contrairement à `formatTimestamp`, qui masque la date du jour
+ * même). Un événement affiché loin dans le futur ou le passé reste lisible
+ * sans ambiguïté.
+ */
+export function formatEventDateTime(
+  ms: number,
+  lang: Lang,
+  hourFormat: HourFormat = 'auto',
+): string {
+  const locale = lang === 'fr' ? 'fr-FR' : 'en-US';
+  const options: Intl.DateTimeFormatOptions = {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  };
+  if (hourFormat !== 'auto') options.hour12 = hourFormat === '12h';
+  return new Date(ms).toLocaleString(locale, options);
+}
+
 /** Séparateur de jour dans un fil de messages. */
 export function formatDay(ms: number, lang: Lang): string {
   const locale = lang === 'fr' ? 'fr-FR' : 'en-US';

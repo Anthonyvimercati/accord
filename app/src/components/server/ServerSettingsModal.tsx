@@ -23,9 +23,10 @@ import { ServerEmojisTab } from './ServerEmojisTab';
 import { ServerMembersTab } from './ServerMembersTab';
 import { ServerProfileTab } from './ServerProfileTab';
 import { ServerRolesTab } from './ServerRolesTab';
+import { ServerStickersTab } from './ServerStickersTab';
 
 export type ServerTabId =
-  'profile' | 'channels' | 'roles' | 'emojis' | 'members' | 'bans' | 'audit';
+  'profile' | 'channels' | 'roles' | 'emojis' | 'stickers' | 'members' | 'bans' | 'audit';
 
 interface ServerTab {
   id: ServerTabId;
@@ -43,6 +44,13 @@ const TABS: ServerTab[] = [
     id: 'emojis',
     label: (t) => t.serveur.tabEmojis,
     Content: ServerEmojisTab,
+    visible: (perms) => hasPerm(perms, PERMISSIONS.MANAGE_EMOJIS),
+  },
+  {
+    id: 'stickers',
+    label: (t) => t.serveur.tabStickers,
+    Content: ServerStickersTab,
+    // Stickers réutilisent MANAGE_EMOJIS (même famille que les émojis, contrat).
     visible: (perms) => hasPerm(perms, PERMISSIONS.MANAGE_EMOJIS),
   },
   { id: 'members', label: (t) => t.serveur.tabMembers, Content: ServerMembersTab },

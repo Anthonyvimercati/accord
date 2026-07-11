@@ -7,8 +7,6 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { interpolate } from '../../i18n';
-import { profileColorCss } from '../../lib/color';
 import {
   isValidName,
   BIO_MAX,
@@ -20,68 +18,14 @@ import { useUi, useT } from '../../stores/ui';
 import { lireFichier } from '../../lib/files';
 import { AvatarCropper } from '../AvatarCropper';
 import { Avatar } from '../Avatar';
-import { SettingsSection } from './controls';
+import { ColorSwatchPicker, SettingsSection } from './controls';
 
 const COPY_FEEDBACK_MS = 1500;
-
-/** Palette de couleurs de profil, façon Discord (blurple en tête). */
-const PRESET_PROFILE_COLORS: readonly number[] = [
-  0x5865f2, // Blurple
-  0x3ba55c, // Vert
-  0xfaa61a, // Or
-  0xed4245, // Rouge
-  0xeb459e, // Fuchsia
-  0x9b59b6, // Violet
-  0x1abc9c, // Sarcelle
-  0x3498db, // Bleu
-  0x99aab5, // Greyple
-  0xffffff, // Blanc
-];
 
 /** Clé publique abrégée : assez pour comparer, sans mur d'hexadécimal. */
 function abbreviate(pubkey: string): string {
   if (pubkey.length <= 20) return pubkey;
   return `${pubkey.slice(0, 12)}…${pubkey.slice(-8)}`;
-}
-
-/** Icône « ajouter une couleur personnalisée » (voir ICON SPEC, styles/global.css). */
-function AddColorIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  );
-}
-
-/** Icône « aucune couleur » (voir ICON SPEC, styles/global.css). */
-function NoColorIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="12" r="9" />
-      <line x1="5.5" y1="18.5" x2="18.5" y2="5.5" />
-    </svg>
-  );
 }
 
 /** Section avatar : aperçu, choix d'image (recadrage + 256 px), retrait. */
@@ -443,93 +387,6 @@ function BioSection() {
         </div>
       </div>
     </SettingsSection>
-  );
-}
-
-/**
- * Rangée de pastilles de couleur : ~10 préréglages, une pastille « couleur
- * personnalisée » (input natif `type=color`, engagée au blur pour éviter de
- * spammer `profile.set` pendant le glisser dans le sélecteur du système)
- * et une pastille « aucune » qui efface la couleur.
- */
-function ColorSwatchPicker({
-  label,
-  value,
-  busy,
-  onPick,
-}: {
-  label: string;
-  value: number | null;
-  busy: boolean;
-  onPick: (color: number | null) => void;
-}) {
-  const t = useT();
-  // Repli sur le blurple de la palette (même valeur que le token design
-  // system --color-blurple) quand aucune couleur personnalisée n'est encore
-  // choisie — l'input natif `type=color` exige un littéral hexadécimal.
-  const defaultCustomColor = profileColorCss(PRESET_PROFILE_COLORS[0]) ?? '#5865f2';
-  const [customDraft, setCustomDraft] = useState<string>(
-    () => profileColorCss(value) ?? defaultCustomColor,
-  );
-
-  // Resynchronise l'aperçu du sélecteur personnalisé quand la couleur
-  // enregistrée change ailleurs (préréglage cliqué, effacement, etc.).
-  useEffect(() => {
-    setCustomDraft(profileColorCss(value) ?? defaultCustomColor);
-  }, [value, defaultCustomColor]);
-
-  const commitCustom = (): void => {
-    const parsed = Number.parseInt(customDraft.slice(1), 16);
-    if (Number.isFinite(parsed) && parsed !== value) onPick(parsed);
-  };
-
-  return (
-    <div role="group" aria-label={label} className="flex flex-wrap items-center gap-2">
-      {PRESET_PROFILE_COLORS.map((color) => {
-        const hex = profileColorCss(color) ?? '#000000';
-        const selected = value === color;
-        return (
-          <button
-            key={color}
-            type="button"
-            disabled={busy}
-            aria-pressed={selected}
-            aria-label={interpolate(t.settings.colorSwatchLabel, { hex })}
-            onClick={() => onPick(color)}
-            style={{ backgroundColor: hex }}
-            className={`h-8 w-8 shrink-0 rounded-full transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50 ${
-              selected
-                ? 'ring-2 ring-header ring-offset-2 ring-offset-sidebar'
-                : 'hover:scale-105'
-            }`}
-          />
-        );
-      })}
-      <label
-        title={t.settings.colorCustom}
-        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-faint bg-rail text-faint transition-colors duration-fast hover:text-norm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blurple has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-sidebar"
-      >
-        <input
-          type="color"
-          aria-label={t.settings.colorCustom}
-          disabled={busy}
-          value={customDraft}
-          onChange={(e) => setCustomDraft(e.target.value)}
-          onBlur={commitCustom}
-          className="sr-only"
-        />
-        <AddColorIcon />
-      </label>
-      <button
-        type="button"
-        disabled={busy || value === null}
-        aria-label={t.settings.colorNone}
-        onClick={() => onPick(null)}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-fast hover:border-red hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
-      >
-        <NoColorIcon />
-      </button>
-    </div>
   );
 }
 

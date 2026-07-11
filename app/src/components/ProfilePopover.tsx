@@ -11,10 +11,17 @@ import type { PresenceStatus } from '../lib/api';
 import { profileCardGradient, profileColorCss } from '../lib/color';
 import { copyToClipboard } from '../lib/clipboard';
 import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
-import { nicknameOf, roleColorCss, sortRoles, useGroups } from '../stores/groups';
+import {
+  nicknameOf,
+  roleColorCss,
+  serverAvatarOf,
+  sortRoles,
+  useGroups,
+} from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { api } from '../lib/client';
+import { AvatarCropper } from './AvatarCropper';
 import { Avatar } from './Avatar';
 import { CopyMenuIcon, EnvelopeMenuIcon } from './ContextMenu';
 import { MarkdownText } from './MarkdownText';
@@ -108,8 +115,13 @@ export function ProfilePopover() {
     profile?.groupId != null ? s.states[profile.groupId] : undefined,
   );
   const setNickname = useGroups((s) => s.setNickname);
+  const setMemberAvatar = useGroups((s) => s.setMemberAvatar);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  /** Image en cours de recadrage pour l'avatar de serveur (ouvert tant que non nulle). */
+  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
 
   // Position calée après mesure réelle de la carte (hauteur variable).
   useLayoutEffect(() => {
@@ -184,7 +196,13 @@ export function ProfilePopover() {
   const name =
     nicknameOf(state, pubkey) ??
     (isSelf && self !== null ? selfDisplayName(self) : displayNameOf(contacts, pubkey));
-  const avatarHash = isSelf && self !== null ? self.avatar : (contact?.avatar ?? null);
+  const globalAvatarHash =
+    isSelf && self !== null ? self.avatar : (contact?.avatar ?? null);
+  // Contexte serveur : l'avatar self-service prime sur l'avatar global.
+  const avatarHash =
+    state !== undefined
+      ? (serverAvatarOf(state, contacts, pubkey) ?? globalAvatarHash)
+      : globalAvatarHash;
   const bannerHash = isSelf && self !== null ? self.banner : (contact?.banner ?? null);
   const bio = isSelf && self !== null ? self.bio : (contact?.bio ?? null);
   const pronouns = isSelf && self !== null ? self.pronouns : (contact?.pronouns ?? null);
@@ -262,256 +280,332 @@ export function ProfilePopover() {
     setNickname(groupId, trimmed).catch(() => toast('error', t.errors.actionFailed));
   };
 
+  /** Publie l'avatar de serveur recadré (self-service, `groups.set_member_avatar`). */
+  const enregistrerAvatarServeur = async (
+    dataB64: string,
+    mime: string,
+  ): Promise<void> => {
+    const groupId = profile.groupId;
+    if (groupId == null) return;
+    setAvatarBusy(true);
+    try {
+      await setMemberAvatar(groupId, { dataB64, mime });
+    } catch {
+      toast('error', t.errors.actionFailed);
+    } finally {
+      setAvatarBusy(false);
+      setAvatarCropFile(null);
+    }
+  };
+
+  /** Efface l'avatar de serveur (self-service). */
+  const effacerAvatarServeur = (): void => {
+    const groupId = profile.groupId;
+    if (groupId == null) return;
+    setAvatarBusy(true);
+    setMemberAvatar(groupId)
+      .catch(() => toast('error', t.errors.actionFailed))
+      .finally(() => setAvatarBusy(false));
+  };
+
   const canNote = !isSelf && contact !== undefined;
 
   return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-label={t.profil.title}
-      style={{
-        position: 'fixed',
-        left: pos?.left ?? profile.ancre.left,
-        top: pos?.top ?? profile.ancre.bottom,
-        width: CARD_WIDTH,
-        visibility: pos === null ? 'hidden' : 'visible',
-      }}
-      className="glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl"
-    >
-      <ProfileBanner hash={bannerHash} hint={pubkey} color={bannerColor} />
-      <div className="-mt-8 px-4 pb-4">
-        <div className="mb-2 flex items-end justify-between">
-          <div className="relative z-10 rounded-full ring-4 ring-modal">
-            <Avatar
-              id={pubkey}
-              name={name}
-              size={72}
-              avatarHash={avatarHash}
-              hint={pubkey}
-            />
-          </div>
-          {status !== null && (
-            <span className="mb-1 flex items-center gap-1.5 text-xs text-muted">
-              <PresenceDot status={status} />
-              {t.profil[status]}
-            </span>
-          )}
-        </div>
-
-        <div
-          className="rounded-lg bg-sidebar/90 p-3"
-          style={cardGradient !== null ? { backgroundImage: cardGradient } : undefined}
-        >
-          {accentHex !== null && (
-            <div
-              aria-hidden
-              className="mb-2 h-1 w-10 rounded-full"
-              style={{ backgroundColor: accentHex }}
-            />
-          )}
-          <div className="flex items-center gap-2">
-            <span
-              className="truncate text-lg font-semibold text-header"
-              style={accentHex !== null ? { color: accentHex } : undefined}
-            >
-              {name}
-            </span>
-            {isFounder && (
-              <span className="shrink-0 text-[10px] uppercase text-yellow">
-                {t.groups.founder}
+    <>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-label={t.profil.title}
+        style={{
+          position: 'fixed',
+          left: pos?.left ?? profile.ancre.left,
+          top: pos?.top ?? profile.ancre.bottom,
+          width: CARD_WIDTH,
+          visibility: pos === null ? 'hidden' : 'visible',
+        }}
+        className="glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl"
+      >
+        <ProfileBanner hash={bannerHash} hint={pubkey} color={bannerColor} />
+        <div className="-mt-8 px-4 pb-4">
+          <div className="mb-2 flex items-end justify-between">
+            <div className="relative z-10 rounded-full ring-4 ring-modal">
+              <Avatar
+                id={pubkey}
+                name={name}
+                size={72}
+                avatarHash={avatarHash}
+                hint={pubkey}
+              />
+            </div>
+            {status !== null && (
+              <span className="mb-1 flex items-center gap-1.5 text-xs text-muted">
+                <PresenceDot status={status} />
+                {t.profil[status]}
               </span>
             )}
           </div>
-          {pronouns !== null && pronouns !== '' && (
-            <p className="mt-0.5 truncate text-xs text-muted">{pronouns}</p>
-          )}
-          {statusText !== null && statusText !== '' && (
-            <p className="mt-0.5 truncate text-sm text-muted">{statusText}</p>
-          )}
-          {friendCode !== null && friendCode !== '' && (
-            <div className="mt-1 flex items-center gap-1.5">
-              <span className="selectable truncate font-mono text-xs text-faint">
-                {friendCode}
+
+          <div
+            className="rounded-lg bg-sidebar/90 p-3"
+            style={cardGradient !== null ? { backgroundImage: cardGradient } : undefined}
+          >
+            {accentHex !== null && (
+              <div
+                aria-hidden
+                className="mb-2 h-1 w-10 rounded-full"
+                style={{ backgroundColor: accentHex }}
+              />
+            )}
+            <div className="flex items-center gap-2">
+              <span
+                className="truncate text-lg font-semibold text-header"
+                style={accentHex !== null ? { color: accentHex } : undefined}
+              >
+                {name}
               </span>
+              {isFounder && (
+                <span className="shrink-0 text-[10px] uppercase text-yellow">
+                  {t.groups.founder}
+                </span>
+              )}
+            </div>
+            {pronouns !== null && pronouns !== '' && (
+              <p className="mt-0.5 truncate text-xs text-muted">{pronouns}</p>
+            )}
+            {statusText !== null && statusText !== '' && (
+              <p className="mt-0.5 truncate text-sm text-muted">{statusText}</p>
+            )}
+            {friendCode !== null && friendCode !== '' && (
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="selectable truncate font-mono text-xs text-faint">
+                  {friendCode}
+                </span>
+                <button
+                  type="button"
+                  aria-label={t.profil.copyFriendCode}
+                  title={t.profil.copyFriendCode}
+                  onClick={() =>
+                    copyToClipboard(
+                      friendCode,
+                      () => toast('info', t.app.copied),
+                      () => toast('error', t.errors.actionFailed),
+                    )
+                  }
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
+                >
+                  <CopyMenuIcon />
+                </button>
+              </div>
+            )}
+
+            {bio !== null && bio !== '' && (
+              <>
+                <div className="mt-3 h-px bg-input/60" role="separator" />
+                <div className="mt-2 whitespace-pre-wrap break-words text-sm text-norm">
+                  <MarkdownText text={bio} />
+                </div>
+              </>
+            )}
+
+            {roles.length > 0 && (
+              <>
+                <div className="mt-3 h-px bg-input/60" role="separator" />
+                <div className="mt-2 text-xs font-medium uppercase tracking-wide text-faint">
+                  {t.profil.rolesLabel}
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {roles.map((role) => {
+                    const couleur = role.color === 0 ? null : roleColorCss(role.color);
+                    return (
+                      <span
+                        key={role.role_id}
+                        className="flex items-center gap-1 rounded-xs bg-rail px-2 py-0.5 text-xs text-norm"
+                      >
+                        <span
+                          aria-hidden
+                          className="h-2 w-2 rounded-full"
+                          style={{
+                            backgroundColor: couleur ?? 'rgb(var(--color-faint))',
+                          }}
+                        />
+                        {role.name}
+                      </span>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {isSelf && state !== undefined && (
+              <>
+                <div className="mt-3 h-px bg-input/60" role="separator" />
+                <label
+                  htmlFor="profil-nickname"
+                  className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
+                >
+                  {t.profil.nicknameLabel}
+                </label>
+                <input
+                  id="profil-nickname"
+                  value={nick}
+                  onChange={(e) => setNick(e.target.value)}
+                  onBlur={enregistrerNick}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  maxLength={32}
+                  placeholder={t.profil.nicknamePlaceholder}
+                  className="mt-1 w-full rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+                />
+
+                <label className="mt-3 block text-xs font-medium uppercase tracking-wide text-faint">
+                  {t.profil.serverAvatarLabel}
+                </label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    ref={avatarFileRef}
+                    type="file"
+                    accept="image/*"
+                    aria-label={t.profil.serverAvatarChoose}
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file !== undefined) setAvatarCropFile(file);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={() => avatarFileRef.current?.click()}
+                    className="rounded-md bg-rail px-2.5 py-1.5 text-xs font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+                  >
+                    {t.profil.serverAvatarChoose}
+                  </button>
+                  {(member?.avatar ?? null) !== null && (
+                    <button
+                      type="button"
+                      disabled={avatarBusy}
+                      onClick={effacerAvatarServeur}
+                      className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+                    >
+                      {t.profil.serverAvatarClear}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+
+            {canNote && (
+              <>
+                <div className="mt-3 h-px bg-input/60" role="separator" />
+                <label
+                  htmlFor="profil-note"
+                  className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
+                >
+                  {t.profil.noteLabel}
+                </label>
+                <textarea
+                  id="profil-note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  onBlur={enregistrerNote}
+                  maxLength={4096}
+                  rows={2}
+                  placeholder={t.profil.notePlaceholder}
+                  className="mt-1 w-full resize-none rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+                />
+              </>
+            )}
+
+            {isSelf && (
               <button
                 type="button"
-                aria-label={t.profil.copyFriendCode}
-                title={t.profil.copyFriendCode}
-                onClick={() =>
-                  copyToClipboard(
-                    friendCode,
-                    () => toast('info', t.app.copied),
-                    () => toast('error', t.errors.actionFailed),
-                  )
-                }
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
+                onClick={modifierProfil}
+                className="mt-3 w-full rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98]"
               >
-                <CopyMenuIcon />
+                {t.profil.editProfile}
               </button>
-            </div>
-          )}
+            )}
 
-          {bio !== null && bio !== '' && (
-            <>
-              <div className="mt-3 h-px bg-input/60" role="separator" />
-              <div className="mt-2 whitespace-pre-wrap break-words text-sm text-norm">
-                <MarkdownText text={bio} />
-              </div>
-            </>
-          )}
-
-          {roles.length > 0 && (
-            <>
-              <div className="mt-3 h-px bg-input/60" role="separator" />
-              <div className="mt-2 text-xs font-medium uppercase tracking-wide text-faint">
-                {t.profil.rolesLabel}
-              </div>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {roles.map((role) => {
-                  const couleur = role.color === 0 ? null : roleColorCss(role.color);
-                  return (
-                    <span
-                      key={role.role_id}
-                      className="flex items-center gap-1 rounded-xs bg-rail px-2 py-0.5 text-xs text-norm"
-                    >
-                      <span
-                        aria-hidden
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: couleur ?? 'rgb(var(--color-faint))' }}
-                      />
-                      {role.name}
-                    </span>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {isSelf && state !== undefined && (
-            <>
-              <div className="mt-3 h-px bg-input/60" role="separator" />
-              <label
-                htmlFor="profil-nickname"
-                className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
-              >
-                {t.profil.nicknameLabel}
-              </label>
-              <input
-                id="profil-nickname"
-                value={nick}
-                onChange={(e) => setNick(e.target.value)}
-                onBlur={enregistrerNick}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    e.currentTarget.blur();
-                  }
-                }}
-                maxLength={32}
-                placeholder={t.profil.nicknamePlaceholder}
-                className="mt-1 w-full rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
-              />
-            </>
-          )}
-
-          {canNote && (
-            <>
-              <div className="mt-3 h-px bg-input/60" role="separator" />
-              <label
-                htmlFor="profil-note"
-                className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
-              >
-                {t.profil.noteLabel}
-              </label>
-              <textarea
-                id="profil-note"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                onBlur={enregistrerNote}
-                maxLength={4096}
-                rows={2}
-                placeholder={t.profil.notePlaceholder}
-                className="mt-1 w-full resize-none rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
-              />
-            </>
-          )}
-
-          {isSelf && (
-            <button
-              type="button"
-              onClick={modifierProfil}
-              className="mt-3 w-full rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98]"
-            >
-              {t.profil.editProfile}
-            </button>
-          )}
-
-          {(canMessage || canRemove || canBlock) && !confirmRemove && (
-            <div className="mt-3 flex items-center gap-1.5">
-              {canMessage && (
-                <button
-                  type="button"
-                  onClick={envoyerMessage}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.97]"
-                >
-                  <span
-                    aria-hidden
-                    className="flex h-4 w-4 shrink-0 items-center justify-center"
+            {(canMessage || canRemove || canBlock) && !confirmRemove && (
+              <div className="mt-3 flex items-center gap-1.5">
+                {canMessage && (
+                  <button
+                    type="button"
+                    onClick={envoyerMessage}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.97]"
                   >
-                    <EnvelopeMenuIcon size={16} />
-                  </span>
-                  {t.friends.sendDm}
-                </button>
-              )}
-              {canRemove && (
-                <button
-                  type="button"
-                  title={t.friends.remove}
-                  aria-label={t.friends.remove}
-                  onClick={() => setConfirmRemove(true)}
-                  className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
-                >
-                  <RemoveFriendIcon />
-                </button>
-              )}
-              {canBlock && (
-                <button
-                  type="button"
-                  title={t.friends.block}
-                  aria-label={t.friends.block}
-                  onClick={bloquer}
-                  className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
-                >
-                  <BlockUserIcon />
-                </button>
-              )}
-            </div>
-          )}
-
-          {confirmRemove && (
-            <div className="mt-3 rounded-lg border border-rail bg-rail/40 p-2.5">
-              <p className="text-sm text-norm">{t.friends.removeQuestion}</p>
-              <p className="mt-0.5 text-xs text-faint">{t.friends.removeKeepHistory}</p>
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={retirer}
-                  className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
-                >
-                  {t.friends.remove}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmRemove(false)}
-                  className="rounded-full bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
-                >
-                  {t.app.cancel}
-                </button>
+                    <span
+                      aria-hidden
+                      className="flex h-4 w-4 shrink-0 items-center justify-center"
+                    >
+                      <EnvelopeMenuIcon size={16} />
+                    </span>
+                    {t.friends.sendDm}
+                  </button>
+                )}
+                {canRemove && (
+                  <button
+                    type="button"
+                    title={t.friends.remove}
+                    aria-label={t.friends.remove}
+                    onClick={() => setConfirmRemove(true)}
+                    className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+                  >
+                    <RemoveFriendIcon />
+                  </button>
+                )}
+                {canBlock && (
+                  <button
+                    type="button"
+                    title={t.friends.block}
+                    aria-label={t.friends.block}
+                    onClick={bloquer}
+                    className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+                  >
+                    <BlockUserIcon />
+                  </button>
+                )}
               </div>
-            </div>
-          )}
+            )}
+
+            {confirmRemove && (
+              <div className="mt-3 rounded-lg border border-rail bg-rail/40 p-2.5">
+                <p className="text-sm text-norm">{t.friends.removeQuestion}</p>
+                <p className="mt-0.5 text-xs text-faint">{t.friends.removeKeepHistory}</p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={retirer}
+                    className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                  >
+                    {t.friends.remove}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemove(false)}
+                    className="rounded-full bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                  >
+                    {t.app.cancel}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      {avatarCropFile !== null && (
+        <AvatarCropper
+          fichier={avatarCropFile}
+          forme="cercle"
+          onAnnuler={() => setAvatarCropFile(null)}
+          onValider={(r) => enregistrerAvatarServeur(r.dataB64, r.mime)}
+        />
+      )}
+    </>
   );
 }

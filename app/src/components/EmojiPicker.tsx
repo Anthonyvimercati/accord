@@ -17,6 +17,7 @@ import { interpolate } from '../i18n';
 import type { Dict } from '../i18n';
 import { useT } from '../stores/ui';
 import { CustomEmoji } from './CustomEmoji';
+import { StickerImage } from './StickerImage';
 
 interface EmojiPickerProps {
   /** Contexte serveur : expose ses émojis custom (`null`/absent = MP). */
@@ -25,6 +26,14 @@ interface EmojiPickerProps {
   onClose: () => void;
   /** Classes de placement du panneau (positionné par l'appelant). */
   positionClass?: string;
+  /**
+   * Stickers du serveur courant : présent uniquement en contexte de groupe
+   * (`groupId` non nul) où l'appelant sait envoyer un sticker. Choisir un
+   * sticker envoie immédiatement le message (jamais inséré dans le composeur)
+   * — absent = pas de section Stickers (MP, ou barre d'actions au survol
+   * d'un message, où l'envoi d'un nouveau message n'a pas de sens).
+   */
+  onPickSticker?: (name: string, merkleRoot: string) => void;
 }
 
 /** Libellé i18n d'une catégorie Unicode. */
@@ -54,6 +63,7 @@ export function EmojiPicker({
   onSelect,
   onClose,
   positionClass = 'bottom-full right-0 mb-2',
+  onPickSticker,
 }: EmojiPickerProps) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -69,6 +79,9 @@ export function EmojiPicker({
         : aggregateEmojis(ids, states),
     [groupId, ids, states],
   );
+  // Stickers : uniquement en contexte de groupe (jamais agrégés en MP — un
+  // sticker ne peut être envoyé que dans le salon d'un serveur).
+  const stickers = groupId != null ? (states[groupId]?.stickers ?? []) : [];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -90,6 +103,7 @@ export function EmojiPicker({
 
   const q = query.trim().toLowerCase();
   const customsFiltres = customs.filter((e) => q === '' || e.name.includes(q));
+  const stickersFiltres = stickers.filter((s) => q === '' || s.name.includes(q));
   // MP : les customs viennent de plusieurs serveurs, le libellé le précise.
   const customSectionLabel =
     groupId != null ? t.emoji.customSection : t.emoji.customSectionDm;
@@ -98,7 +112,10 @@ export function EmojiPicker({
     emojis: cat.emojis.filter((e) => correspond(e, q)),
   })).filter((cat) => cat.emojis.length > 0);
 
-  const rien = customsFiltres.length === 0 && categories.length === 0;
+  const rien =
+    customsFiltres.length === 0 &&
+    stickersFiltres.length === 0 &&
+    categories.length === 0;
 
   return (
     <div
@@ -149,6 +166,33 @@ export function EmojiPicker({
                     merkleRoot={emoji.merkle_root}
                     hint={emoji.groupId}
                     size={24}
+                  />
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {stickersFiltres.length > 0 && onPickSticker !== undefined && (
+          <section aria-label={t.emoji.stickersSection} className="mb-2">
+            <h4 className="mb-1 px-1 text-xs font-medium uppercase tracking-wide text-faint">
+              {t.emoji.stickersSection}
+            </h4>
+            <div className="flex flex-wrap gap-1">
+              {stickersFiltres.map((sticker) => (
+                <button
+                  key={sticker.name}
+                  type="button"
+                  aria-label={jetonEmojiTexte(sticker.name)}
+                  title={jetonEmojiTexte(sticker.name)}
+                  onClick={() => onPickSticker(sticker.name, sticker.merkle_root)}
+                  className="flex h-14 w-14 items-center justify-center rounded-md transition-transform duration-fast ease-spring hover:scale-105 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-95"
+                >
+                  <StickerImage
+                    name={sticker.name}
+                    merkleRoot={sticker.merkle_root}
+                    hint={groupId ?? undefined}
+                    size={48}
                   />
                 </button>
               ))}

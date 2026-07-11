@@ -1,12 +1,15 @@
 /**
- * Compression client d'une image d'émoji façon Discord : quelle que soit la
- * taille de l'original choisi par l'utilisateur, on produit des octets
- * garantis ≤ `EMOJI_OCTETS_MAX` sans changer le contrat d'envoi (mêmes bornes,
- * mêmes types MIME acceptés — voir `lib/emoji.ts`).
+ * Compression client d'une image façon Discord : quelle que soit la taille de
+ * l'original choisi par l'utilisateur, on produit des octets garantis sous la
+ * limite demandée sans changer le contrat d'envoi (mêmes types MIME acceptés
+ * — voir `lib/emoji.ts`). Paramétrée (`CompressOptions`) plutôt que dupliquée :
+ * les émojis de serveur (défaut, 256 Kio / 128 px) et les stickers de serveur
+ * (512 Kio / 320 px, voir `lib/sticker.ts`) partagent exactement le même
+ * pipeline, seules les bornes numériques diffèrent.
  *
  * - Images statiques (PNG/JPEG/WebP, GIF non animé) : redessinées sur un
- *   canvas hors-écran, réduites pour tenir dans 128×128 (plafond d'affichage
- *   d'un émoji, ratio conservé, aucun recadrage, fond transparent préservé),
+ *   canvas hors-écran, réduites pour tenir dans le plafond d'affichage
+ *   demandé (ratio conservé, aucun recadrage, fond transparent préservé),
  *   puis encodées en WebP (repli PNG si l'encodage WebP est indisponible) en
  *   dégradant qualité puis dimensions jusqu'à passer sous la limite.
  * - GIF animés : un ré-encodage canvas ne capturerait qu'une image fixe (perte
@@ -117,7 +120,10 @@ export function ajusterDimensions(
   const l = Math.max(1, largeur);
   const h = Math.max(1, hauteur);
   const echelle = Math.min(1, maxCote / Math.max(l, h));
-  return { w: Math.max(1, Math.round(l * echelle)), h: Math.max(1, Math.round(h * echelle)) };
+  return {
+    w: Math.max(1, Math.round(l * echelle)),
+    h: Math.max(1, Math.round(h * echelle)),
+  };
 }
 
 /** Dessine `source` réduite dans `w`×`h` sur un canvas transparent hors-écran. */
@@ -135,21 +141,27 @@ function dessiner(source: CanvasImageSource, w: number, h: number): HTMLCanvasEl
 /** Encode `canvas` en WebP (qualité `quality`), repli PNG si WebP indisponible. */
 function encoder(canvas: HTMLCanvasElement, quality: number): EmojiImageEncode {
   const webp = canvas.toDataURL('image/webp', quality);
-  const dataUrl = webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/png');
+  const dataUrl = webp.startsWith('data:image/webp')
+    ? webp
+    : canvas.toDataURL('image/png');
   const mime = dataUrl.startsWith('data:image/webp') ? 'image/webp' : 'image/png';
   return { dataUrl, mime, dataB64: dataUrl.slice(dataUrl.indexOf(',') + 1) };
 }
 
-/** Redessine `img` en dégradant dimension/qualité jusqu'à tenir sous la limite. */
-function compresserStatique(img: HTMLImageElement): EmojiImageEncode {
+/** Redessine `img` en dégradant dimension/qualité jusqu'à tenir sous `maxBytes`. */
+function compresserStatique(
+  img: HTMLImageElement,
+  maxBytes: number,
+  sizes: readonly number[],
+): EmojiImageEncode {
   const largeur = img.naturalWidth || img.width;
   const hauteur = img.naturalHeight || img.height;
-  for (const palier of PALIERS_TAILLE) {
+  for (const palier of sizes) {
     const { w, h } = ajusterDimensions(largeur, hauteur, palier);
     const canvas = dessiner(img, w, h);
     for (const quality of PALIERS_QUALITE) {
       const resultat = encoder(canvas, quality);
-      if (octetsBase64(resultat.dataB64) <= EMOJI_OCTETS_MAX) return resultat;
+      if (octetsBase64(resultat.dataB64) <= maxBytes) return resultat;
       // PNG ignore la qualité : inutile de retenter la même sortie.
       if (resultat.mime === 'image/png') break;
     }
@@ -171,26 +183,46 @@ function octetsDepuisBase64(b64: string): Uint8Array {
 }
 
 /** GIF animé sous la limite : transmis tel quel, sinon échec dédié. */
-function passerGifAnime(dataB64: string, tailleOctets: number): EmojiImageEncode {
-  if (tailleOctets > EMOJI_OCTETS_MAX) {
+function passerGifAnime(
+  dataB64: string,
+  tailleOctets: number,
+  maxBytes: number,
+): EmojiImageEncode {
+  if (tailleOctets > maxBytes) {
     throw new EmojiCompressionError('gif-anime-trop-lourd');
   }
   return { dataB64, mime: 'image/gif', dataUrl: `data:image/gif;base64,${dataB64}` };
 }
 
+/** Bornes de compression paramétrables (défauts : émoji de serveur). */
+export interface CompressOptions {
+  /** Taille max en octets décodés (défaut `EMOJI_OCTETS_MAX`, 256 Kio). */
+  maxBytes?: number;
+  /** Paliers de dimension tentés, du plus grand au plus petit (défaut `PALIERS_TAILLE`). */
+  sizes?: readonly number[];
+}
+
 /**
- * Compresse une image d'émoji choisie par l'utilisateur pour tenir sous
- * `EMOJI_OCTETS_MAX` une fois décodée. Ne touche jamais aux GIF animés au-delà
- * d'une vérification de taille (voir en-tête de fichier) ; toute autre image
- * (y compris un GIF statique) passe par le pipeline canvas.
+ * Compresse une image choisie par l'utilisateur pour tenir sous
+ * `options.maxBytes` (défaut `EMOJI_OCTETS_MAX`) une fois décodée, mise à
+ * l'échelle par paliers de `options.sizes` (défaut `PALIERS_TAILLE`). Ne
+ * touche jamais aux GIF animés au-delà d'une vérification de taille (voir
+ * en-tête de fichier) ; toute autre image (y compris un GIF statique) passe
+ * par le pipeline canvas. Les stickers de serveur (`lib/sticker.ts`) réutilisent
+ * ce même pipeline avec des bornes plus larges plutôt que de le dupliquer.
  */
-export async function compressEmojiImage(fichier: File): Promise<EmojiImageEncode> {
+export async function compressEmojiImage(
+  fichier: File,
+  options: CompressOptions = {},
+): Promise<EmojiImageEncode> {
+  const maxBytes = options.maxBytes ?? EMOJI_OCTETS_MAX;
+  const sizes = options.sizes ?? PALIERS_TAILLE;
   if (fichier.type === 'image/gif') {
     const dataB64 = await fichierEnB64(fichier);
     const bytes = octetsDepuisBase64(dataB64);
-    if (estGifAnime(bytes)) return passerGifAnime(dataB64, bytes.byteLength);
+    if (estGifAnime(bytes)) return passerGifAnime(dataB64, bytes.byteLength, maxBytes);
   }
   const url = await fichierEnDataUrl(fichier);
   const img = await chargerImage(url);
-  return compresserStatique(img);
+  return compresserStatique(img, maxBytes, sizes);
 }

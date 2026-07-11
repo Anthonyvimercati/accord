@@ -5,6 +5,7 @@ import {
   avatarColor,
   formatDay,
   formatDuration,
+  formatEventDateTime,
   formatTimestamp,
   formatTimestampCompact,
   initials,
@@ -45,6 +46,18 @@ describe('formatTimestamp', () => {
 
   it('ne change pas l’affichage d’une autre date (heure absente)', () => {
     expect(formatTimestamp(CHRISTMAS, 'fr', NOW, '12h')).toBe('25/12/2025');
+  });
+});
+
+describe('formatEventDateTime', () => {
+  it('affiche toujours la date, même pour un événement du jour même', () => {
+    expect(formatEventDateTime(SAME_DAY, 'fr')).toContain('2026');
+    expect(formatEventDateTime(SAME_DAY, 'fr')).toContain('09:05');
+  });
+
+  it('force le format 12 h/24 h indépendamment de la locale', () => {
+    expect(formatEventDateTime(SAME_DAY, 'en', '24h')).not.toMatch(/AM$|PM$/);
+    expect(formatEventDateTime(SAME_DAY, 'fr', '12h')).toMatch(/AM$/i);
   });
 });
 
