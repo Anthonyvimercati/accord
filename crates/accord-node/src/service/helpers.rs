@@ -355,6 +355,10 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
             // Active timeout deadline (wall ms), or 0 when not muted. The UI
             // compares it against the current time (expired timeouts are moot).
             "timeout_until_ms": s.timeouts.get(pk).copied().unwrap_or(0),
+            // Server-side voice moderation (op 0x1F): forced mute/deafen in
+            // every voice channel of the group (both false when unmoderated).
+            "voice_muted": s.voice_moderation_of(pk).mute,
+            "voice_deafened": s.voice_moderation_of(pk).deafen,
         })).collect::<Vec<_>>(),
         "bans": s.banned.iter().map(|pk| hex::encode(pk)).collect::<Vec<_>>(),
         "channels": s.channels.iter().map(|(id, ch)| json!({

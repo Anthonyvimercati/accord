@@ -522,6 +522,29 @@ impl Node {
         )
     }
 
+    /// Modération vocale serveur : force la sourdine et/ou la surdité d'un
+    /// membre dans tous les salons vocaux du groupe (permission `KICK` et
+    /// hiérarchie de kick vérifiées au rejeu, comme `group_timeout`).
+    /// `mute == deafen == false` lève la modération. Appliquée par le moteur
+    /// voix de chaque pair honnête (capture coupée chez la cible, trames
+    /// jetées chez les auditeurs).
+    pub fn group_voice_moderate(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+        mute: bool,
+        deafen: bool,
+    ) -> Result<(), NodeError> {
+        self.group_author(
+            group_id,
+            GroupOpBody::VoiceModerate {
+                member: *member,
+                mute,
+                deafen,
+            },
+        )
+    }
+
     /// Fixe (ou efface avec un nom vide) le pseudo de serveur d'un membre. Un
     /// membre peut fixer le sien ; un modérateur `MANAGE_ROLES` peut fixer
     /// celui d'un membre de rang inférieur (vérifié au rejeu). `name` est

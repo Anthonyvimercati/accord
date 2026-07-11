@@ -831,6 +831,8 @@ async fn group_state_enriched_exact_shape() {
             "roles": [],
             "nickname": null,
             "timeout_until_ms": 0,
+            "voice_muted": false,
+            "voice_deafened": false,
         }])
     );
     assert_eq!(state["bans"], json!([]));
@@ -1765,7 +1767,7 @@ async fn voice_join_status_mute_leave_exact_shapes() {
     assert_eq!(joined, json!({ "participants": [me] }));
 
     // status : forme exacte du contrat gelé (étendu de façon additive :
-    // deafen et volumes).
+    // deafen, volumes, appels 1-à-1, DSP, modération et priorité vocales).
     let status = s.call("voice.status", json!({})).await.unwrap();
     assert_eq!(
         status,
@@ -1773,6 +1775,7 @@ async fn voice_join_status_mute_leave_exact_shapes() {
             "active": {
                 "group_id": gid,
                 "channel_id": gid,
+                "is_call": false,
                 "muted": false,
                 "deafened": false,
                 "participants": [{
@@ -1781,9 +1784,13 @@ async fn voice_join_status_mute_leave_exact_shapes() {
                     "muted": false,
                     "deafened": false,
                     "volume": 100,
+                    "server_muted": false,
+                    "server_deafened": false,
+                    "priority_speaker": false,
                 }],
             },
             "master_volume": 100,
+            "dsp": { "noise_suppression": false, "agc": false },
         })
     );
 
@@ -1828,10 +1835,17 @@ async fn voice_join_status_mute_leave_exact_shapes() {
     assert_eq!(status["master_volume"], json!(150));
     assert_eq!(status["active"]["participants"][0]["volume"], json!(40));
 
-    // leave : plus de salon actif (le volume maître reste exposé).
+    // leave : plus de salon actif (volume maître et DSP restent exposés).
     assert_eq!(s.call("voice.leave", json!({})).await.unwrap(), json!({}));
     let status = s.call("voice.status", json!({})).await.unwrap();
-    assert_eq!(status, json!({ "active": null, "master_volume": 150 }));
+    assert_eq!(
+        status,
+        json!({
+            "active": null,
+            "master_volume": 150,
+            "dsp": { "noise_suppression": false, "agc": false },
+        })
+    );
 }
 
 #[tokio::test]

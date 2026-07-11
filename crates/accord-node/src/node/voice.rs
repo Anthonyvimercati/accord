@@ -76,6 +76,36 @@ impl Node {
             Ok(())
         })
     }
+
+    /// Persisted capture DSP flags `(noise suppression, AGC)` — both default
+    /// to `false` (the UI decides its own policy); same `meta`-table pattern
+    /// as the audio devices (no schema migration). A corrupt value falls
+    /// back to the default rather than making voice unusable.
+    pub fn voice_dsp_config(&self) -> Result<(bool, bool), NodeError> {
+        self.with_db(|db| {
+            Ok((
+                read_flag_meta(db, META_VOICE_DSP_NS)?,
+                read_flag_meta(db, META_VOICE_DSP_AGC)?,
+            ))
+        })
+    }
+
+    /// Persists the capture DSP flags (`None` = unchanged).
+    pub fn set_voice_dsp_config(
+        &self,
+        noise_suppression: Option<bool>,
+        agc: Option<bool>,
+    ) -> Result<(), NodeError> {
+        self.with_db(|db| {
+            if let Some(enabled) = noise_suppression {
+                db.set_meta(META_VOICE_DSP_NS, flag_bytes(enabled))?;
+            }
+            if let Some(enabled) = agc {
+                db.set_meta(META_VOICE_DSP_AGC, flag_bytes(enabled))?;
+            }
+            Ok(())
+        })
+    }
 }
 
 /// Clé de métadonnée du périphérique d'entrée audio choisi (D-029).
@@ -87,9 +117,28 @@ const META_VOICE_MASTER_VOLUME: &str = "voice.volume.master";
 /// Longueur maximale d'un nom de périphérique audio (caractères).
 const DEVICE_NAME_MAX_CHARS: usize = 256;
 
+/// Meta key of the persisted noise-suppression flag.
+const META_VOICE_DSP_NS: &str = "voice.dsp.noise_suppression";
+/// Meta key of the persisted AGC flag.
+const META_VOICE_DSP_AGC: &str = "voice.dsp.agc";
+
 /// Meta key of a peer's persisted output volume (percent).
 fn peer_volume_key(pubkey: &[u8; 32]) -> String {
     format!("voice.volume.{}", crate::hex::encode(pubkey))
+}
+
+/// Wire form of a persisted boolean flag.
+fn flag_bytes(enabled: bool) -> &'static [u8] {
+    if enabled {
+        b"1"
+    } else {
+        b"0"
+    }
+}
+
+/// Reads a persisted boolean flag (absent or unreadable ⇒ `false`).
+fn read_flag_meta(db: &Db, key: &str) -> Result<bool, NodeError> {
+    Ok(db.meta(key)?.as_deref() == Some(b"1"))
 }
 
 /// Validates a volume percent (0..=200).

@@ -235,6 +235,18 @@ fn audit_entry_json(op: &GroupOp) -> Value {
                 "set_nickname",
                 json!({ "member": hex::encode(&member), "name": name }),
             ),
+            GroupOpBody::VoiceModerate {
+                member,
+                mute,
+                deafen,
+            } => (
+                "voice_moderate",
+                json!({
+                    "member": hex::encode(&member),
+                    "mute": mute,
+                    "deafen": deafen,
+                }),
+            ),
         },
         Err(_) => ("unknown", json!({})),
     };
@@ -422,6 +434,19 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let gid = param_id16(params, "group_id")?;
             let member = param_pubkey(params, "pubkey")?;
             node.group_timeout_clear(&gid, &member)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.voice_moderate" => {
+            let gid = param_id16(params, "group_id")?;
+            let member = param_pubkey(params, "pubkey")?;
+            // Absent = faux : `{ mute: false, deafen: false }` lève la
+            // modération vocale du membre.
+            let mute = params.get("mute").and_then(Value::as_bool).unwrap_or(false);
+            let deafen = params
+                .get("deafen")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            node.group_voice_moderate(&gid, &member, mute, deafen)?;
             Ok(json!({ "ok": true }))
         }
         "groups.set_nickname" => {
