@@ -29,7 +29,9 @@ pub use identity::{Paths, Unlocked};
 pub use maintenance::MaintenanceConfig;
 pub use node::Node;
 pub use service::NodeService;
-pub use voice::{VoiceBackend, VoiceDevices, VoiceHandle, VoiceParticipant, VoiceStatus};
+pub use voice::{
+    CallPhase, CallSnapshot, VoiceBackend, VoiceDevices, VoiceHandle, VoiceParticipant, VoiceStatus,
+};
 
 use outbound::OutboundSink;
 use runtime::{Runtime, TransportDhtRpc};
