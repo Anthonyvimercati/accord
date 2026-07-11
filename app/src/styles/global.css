@@ -23,7 +23,7 @@
  * GLASS APPLICATION MAP (`.glass` / `.glass-strong` utilities below):
  *   strong glass         → context menus, popovers, toasts (`.glass-strong`)
  *   medium glass         → modal panels (`.glass`)
- *   subtle translucency  → user panel, chat header (plain bg-*/opacity, NOT
+ *   subtle translucency  → user panel, chat header (plain bg + opacity, NOT
  *                          `.glass` — no backdrop-filter)
  *   NEVER on scrolling containers or the message list. backdrop-filter is
  *   expensive — reserve it for small, non-scrolling floating surfaces only.
