@@ -477,3 +477,24 @@ describe('useUi — largeurs redimensionnables', () => {
     expect(fresh.useUi.getState().membersWidth).toBe(MEMBERS_WIDTH_MAX);
   });
 });
+
+describe('useUi — sélecteur rapide', () => {
+  beforeEach(() => {
+    useUi.setState({ quickSwitcherOpen: false });
+  });
+
+  it('ouvre, ferme puis bascule l’état du sélecteur rapide', () => {
+    expect(useUi.getState().quickSwitcherOpen).toBe(false);
+
+    useUi.getState().openQuickSwitcher();
+    expect(useUi.getState().quickSwitcherOpen).toBe(true);
+
+    useUi.getState().closeQuickSwitcher();
+    expect(useUi.getState().quickSwitcherOpen).toBe(false);
+
+    useUi.getState().toggleQuickSwitcher();
+    expect(useUi.getState().quickSwitcherOpen).toBe(true);
+    useUi.getState().toggleQuickSwitcher();
+    expect(useUi.getState().quickSwitcherOpen).toBe(false);
+  });
+});

@@ -1,18 +1,21 @@
 /**
- * Pièces jointes d'un message : vignette inline pour les images (progression
- * du téléchargement via event.file_progress/files.status, clic = plein
- * écran), carte de fichier téléchargeable sinon. Au-delà de 8 Mio (borne
- * `files.read`), ni aperçu ni téléchargement — carte avec explication.
+ * Pièces jointes d'un message : lecteur dédié pour les messages vocaux (mime
+ * `audio/*`, toujours rendu ainsi — indépendant du réglage aperçu, voir
+ * `VoiceMessagePlayer`), vignette inline pour les images (progression du
+ * téléchargement via event.file_progress/files.status, clic = plein écran),
+ * carte de fichier téléchargeable sinon. Au-delà de 8 Mio (borne
+ * `files.read`), ni aperçu/lecture ni téléchargement — carte avec explication.
  */
 
 import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { FileAttachment } from '../lib/api';
-import { estImage, MAX_TAILLE_PIECE } from '../lib/attachments';
+import { estAudio, estImage, MAX_TAILLE_PIECE } from '../lib/attachments';
 import { lireFichier, observerProgression, statutFichier } from '../lib/files';
 import { tailleLisible } from '../lib/format';
 import { useUi, useT } from '../stores/ui';
 import { CloseIcon } from './ContextMenu';
+import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 
 /** Plein écran très simple : clic n'importe où ou Échap pour fermer. */
 function Lightbox({
@@ -260,7 +263,9 @@ function CarteFichier({
  * Pièces jointes de l'enveloppe d'un message, empilées sous le corps.
  * Réglage « Aperçu des images et médias » (Paramètres → Texte & médias) :
  * désactivé, les images se rabattent sur la carte de fichier existante
- * (nom + téléchargement) au lieu de la vignette en ligne.
+ * (nom + téléchargement) au lieu de la vignette en ligne. Les messages
+ * vocaux (mime `audio/*`) ignorent ce réglage : ils SONT le message, donc
+ * toujours rendus comme lecteur tant qu'ils restent sous la borne de 8 Mio.
  */
 export function AttachmentRow({
   pieces,
@@ -275,7 +280,13 @@ export function AttachmentRow({
   return (
     <div className="mt-1 flex flex-col items-start gap-1.5">
       {pieces.map((piece, i) => {
-        const tropGrandPourApercu = estImage(piece.mime) && piece.size > MAX_TAILLE_PIECE;
+        const tropGrandPourApercu =
+          (estImage(piece.mime) || estAudio(piece.mime)) && piece.size > MAX_TAILLE_PIECE;
+        if (estAudio(piece.mime) && !tropGrandPourApercu) {
+          return (
+            <VoiceMessagePlayer key={`${piece.merkle_root}-${i}`} piece={piece} hint={hint} />
+          );
+        }
         return showPreviews && estImage(piece.mime) && !tropGrandPourApercu ? (
           <VignetteImage key={`${piece.merkle_root}-${i}`} piece={piece} hint={hint} />
         ) : (

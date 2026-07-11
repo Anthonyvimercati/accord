@@ -16,6 +16,7 @@ import {
 } from '../lib/notifications';
 import { playNotificationSound } from '../lib/notificationSound';
 import { usePushToTalk } from '../hooks/usePushToTalk';
+import { cycleChannel, cycleDm, visibleNavigableChannels } from '../lib/quickSwitch';
 import { useCalls } from '../stores/calls';
 import { isEditableTarget } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
@@ -38,6 +39,7 @@ import { FriendsView } from './FriendsView';
 import { IncomingCall } from './IncomingCall';
 import { Modals } from './Modals';
 import { ProfilePopover } from './ProfilePopover';
+import { QuickSwitcher } from './QuickSwitcher';
 import { ResizeHandle } from './ResizeHandle';
 import { ServerRail } from './ServerRail';
 import { Sidebar } from './Sidebar';
@@ -197,6 +199,70 @@ function useSuppressNativeContextMenu(): void {
     };
     document.addEventListener('contextmenu', onContextMenu);
     return () => document.removeEventListener('contextmenu', onContextMenu);
+  }, []);
+}
+
+/**
+ * Raccourcis clavier globaux (voir Paramètres → Raccourcis clavier) :
+ * - Ctrl/Cmd+K bascule le sélecteur rapide, y compris champ de saisie
+ *   focalisé (convention Discord) ;
+ * - Alt+↑/↓, Ctrl/Cmd+Maj+M sont ignorés tant qu'un champ éditable a le
+ *   focus (`isEditableTarget`, même garde que le menu contextuel).
+ * N'intercepte jamais Échap : menus et modales gèrent déjà leur fermeture
+ * par leur propre écouteur (voir `QuickSwitcher`, `SettingsModal`, etc.).
+ */
+function useGlobalShortcuts(): void {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      const mod = e.ctrlKey || e.metaKey;
+
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        useUi.getState().toggleQuickSwitcher();
+        return;
+      }
+
+      if (isEditableTarget(e.target)) return;
+
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        useVoice
+          .getState()
+          .toggleMute()
+          .catch(() => {
+            // Best effort : l'état vocal se corrigera au prochain événement.
+          });
+        return;
+      }
+
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        const direction = e.key === 'ArrowDown' ? 1 : -1;
+        const view = useUi.getState().view;
+
+        if (view.kind === 'group') {
+          const state = useGroups.getState().states[view.groupId];
+          if (state === undefined) return;
+          const self = useSession.getState().self;
+          const channels = visibleNavigableChannels(state, self?.pubkey ?? null);
+          const nextChannelId = cycleChannel(channels, view.channelId, direction);
+          if (nextChannelId !== null) {
+            useUi.getState().setView({ kind: 'group', groupId: view.groupId, channelId: nextChannelId });
+          }
+          return;
+        }
+
+        const peers = useFriends
+          .getState()
+          .contacts.filter((c) => c.state === 'friend')
+          .map((c) => c.pubkey);
+        const currentPeer = view.kind === 'dm' ? view.peer : null;
+        const nextPeer = cycleDm(peers, currentPeer, direction);
+        if (nextPeer !== null) useUi.getState().setView({ kind: 'dm', peer: nextPeer });
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 }
 
@@ -410,6 +476,7 @@ export function AppShell() {
   useNotificationNavigation();
   useSuppressNativeContextMenu();
   useStartupPresence();
+  useGlobalShortcuts();
 
   // Appui-pour-parler global : actif dès qu'un salon vocal est rejoint.
   const onPttError = useCallback(() => toast('error', t.errors.actionFailed), [toast, t]);
@@ -453,6 +520,7 @@ export function AppShell() {
       <ProfilePopover />
       <ContextMenu />
       <IncomingCall />
+      <QuickSwitcher />
     </div>
   );
 }

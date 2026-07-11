@@ -24,6 +24,11 @@ export function estImage(mime: string): boolean {
   return mime.startsWith('image/');
 }
 
+/** Vrai si le type MIME désigne un contenu audio (message vocal, lecteur dédié). */
+export function estAudio(mime: string): boolean {
+  return mime.startsWith('audio/');
+}
+
 /** Bilan d'un ajout de fichiers à un message en cours de composition. */
 export interface AjoutPieces<T> {
   /** Fichiers admis, dans la limite du nombre et de la taille. */

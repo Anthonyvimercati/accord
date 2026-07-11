@@ -6,9 +6,14 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MAX_TAILLE_PIECE } from '../lib/attachments';
 import type { Contact, GroupStateJson } from '../lib/api';
+import type {
+  VoiceRecorderCallbacks,
+  VoiceRecorderResult,
+  VoiceRecorderError,
+} from '../lib/voiceRecorder';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
@@ -20,16 +25,60 @@ vi.mock('../lib/client', () => ({
   api: { filesShareBytes: vi.fn() },
 }));
 
+/**
+ * Enregistreur factice piloté depuis les tests : capture les rappels passés
+ * par `MessageInput` pour simuler `onTick`/`onStop`/`onError` sans toucher au
+ * micro réel (déjà couvert isolément par `lib/voiceRecorder.test.ts`). Défini
+ * via `vi.hoisted` car `vi.mock` est hissé au-dessus des imports/déclarations.
+ */
+const { FakeVoiceRecorder } = vi.hoisted(() => {
+  class FakeVoiceRecorder {
+    static instances: FakeVoiceRecorder[] = [];
+    started = false;
+    stopped = false;
+    canceled = false;
+    callbacks: VoiceRecorderCallbacks;
+    constructor(callbacks: VoiceRecorderCallbacks) {
+      this.callbacks = callbacks;
+      FakeVoiceRecorder.instances.push(this);
+    }
+    start(): Promise<void> {
+      this.started = true;
+      return Promise.resolve();
+    }
+    stop(): void {
+      this.stopped = true;
+    }
+    cancel(): void {
+      this.canceled = true;
+    }
+  }
+  return { FakeVoiceRecorder };
+});
+
+vi.mock('../lib/voiceRecorder', () => ({
+  VoiceRecorder: FakeVoiceRecorder,
+  voiceFileName: (mime: string) => `voice-message.${mime.includes('ogg') ? 'ogg' : 'webm'}`,
+}));
+
 import { api } from '../lib/client';
 
 const shareMock = api.filesShareBytes as unknown as Mock;
 
+/** Dernier enregistreur créé (un par clic sur le micro). */
+function dernierEnregistreur(): InstanceType<typeof FakeVoiceRecorder> {
+  const instance = FakeVoiceRecorder.instances.at(-1);
+  if (instance === undefined) throw new Error('aucun VoiceRecorder créé');
+  return instance;
+}
+
 beforeEach(() => {
-  useUi.setState({ lang: 'fr' });
+  useUi.setState({ lang: 'fr', toasts: [] });
   useGroups.setState({ states: {} });
   useFriends.setState({ contacts: [] });
   useSession.setState({ self: null });
   shareMock.mockReset();
+  FakeVoiceRecorder.instances = [];
 });
 
 function renderInput(onSend = vi.fn(async () => {})) {
@@ -358,5 +407,140 @@ describe('MessageInput — composeur en lecture seule', () => {
 
     expect(screen.getByRole('textbox')).toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageInput — message vocal', () => {
+  it('démarre l’enregistrement au clic sur le micro : minuteur, textarea désactivée', () => {
+    renderInput();
+
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+
+    expect(dernierEnregistreur().started).toBe(true);
+    expect(screen.getByRole('textbox')).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('0:00');
+    expect(screen.getByLabelText('Annuler l’enregistrement')).toBeInTheDocument();
+    expect(screen.getByLabelText('Envoyer le message vocal')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Enregistrer un message vocal')).not.toBeInTheDocument();
+  });
+
+  it('affiche le temps écoulé au fil des rappels onTick', () => {
+    renderInput();
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+
+    act(() => dernierEnregistreur().callbacks.onTick(4200));
+
+    expect(screen.getByRole('status')).toHaveTextContent('0:04');
+  });
+
+  it('annule au clic sur la corbeille : micro relâché, composeur normal restauré', () => {
+    renderInput();
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+    const enregistreur = dernierEnregistreur();
+
+    fireEvent.click(screen.getByLabelText('Annuler l’enregistrement'));
+
+    expect(enregistreur.canceled).toBe(true);
+    expect(screen.getByLabelText('Enregistrer un message vocal')).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toBeEnabled();
+    expect(shareMock).not.toHaveBeenCalled();
+  });
+
+  it('le clic sur la coche appelle stop() (le vrai envoi part de onStop)', () => {
+    renderInput();
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+    const enregistreur = dernierEnregistreur();
+
+    fireEvent.click(screen.getByLabelText('Envoyer le message vocal'));
+
+    expect(enregistreur.stopped).toBe(true);
+  });
+
+  it('publie le blob fini via files.share_bytes puis envoie un message avec la pièce audio', async () => {
+    const piece = {
+      merkle_root: 'ab'.repeat(32),
+      name: 'voice-message.webm',
+      size: 42,
+      mime: 'audio/webm;codecs=opus',
+    };
+    shareMock.mockResolvedValueOnce({ file: piece });
+    const onSend = renderInput();
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+    const enregistreur = dernierEnregistreur();
+    const result: VoiceRecorderResult = {
+      blob: new Blob(['son'], { type: 'audio/webm;codecs=opus' }),
+      mime: 'audio/webm;codecs=opus',
+      durationMs: 3000,
+      reason: 'manual',
+    };
+
+    await act(async () => enregistreur.callbacks.onStop(result));
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('', [piece]));
+    expect(shareMock).toHaveBeenCalledWith(
+      'voice-message.webm',
+      'audio/webm;codecs=opus',
+      expect.any(String),
+    );
+    // Le composeur redevient normal, sans repasser par du texte.
+    expect(screen.getByLabelText('Enregistrer un message vocal')).toBeInTheDocument();
+  });
+
+  it('signale une limite atteinte (info) quand l’arrêt n’est pas volontaire', async () => {
+    shareMock.mockResolvedValueOnce({
+      file: {
+        merkle_root: 'cd'.repeat(32),
+        name: 'voice-message.webm',
+        size: 10,
+        mime: 'audio/webm',
+      },
+    });
+    renderInput();
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+    const enregistreur = dernierEnregistreur();
+
+    await act(async () =>
+      enregistreur.callbacks.onStop({
+        blob: new Blob(['son']),
+        mime: 'audio/webm',
+        durationMs: 120_000,
+        reason: 'max_duration',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        useUi.getState().toasts.some((toast) => toast.kind === 'info'),
+      ).toBe(true),
+    );
+  });
+
+  it('permission refusée : toast d’erreur, composeur revient à l’état normal sans planter', () => {
+    renderInput();
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+    const enregistreur = dernierEnregistreur();
+
+    const error: VoiceRecorderError = 'permission_denied';
+    act(() => enregistreur.callbacks.onError(error));
+
+    expect(
+      useUi
+        .getState()
+        .toasts.some((toast) => toast.kind === 'error' && /Micro/.test(toast.text)),
+    ).toBe(true);
+    expect(screen.getByLabelText('Enregistrer un message vocal')).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toBeEnabled();
+  });
+
+  it('relâche tout enregistreur en cours au démontage (pas de micro fantôme)', () => {
+    const { unmount } = render(
+      <MessageInput placeholder="Écrire à @Alice" onSend={vi.fn(async () => {})} />,
+    );
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+    const enregistreur = dernierEnregistreur();
+
+    unmount();
+
+    expect(enregistreur.canceled).toBe(true);
   });
 });

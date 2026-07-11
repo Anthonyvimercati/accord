@@ -25,7 +25,8 @@ import {
   type MentionCandidate,
 } from '../lib/mentions';
 import { api } from '../lib/client';
-import { formatTimestamp, tailleLisible } from '../lib/format';
+import { formatTimestamp, formatDuration, tailleLisible } from '../lib/format';
+import { VoiceRecorder, voiceFileName } from '../lib/voiceRecorder';
 import { useTypingEmitter, type TypingTarget } from '../hooks/useTypingEmitter';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { isChannelReadOnly, sortRoles, timeoutUntil, useGroups } from '../stores/groups';
@@ -62,6 +63,7 @@ export function MessageInput({
 }: MessageInputProps) {
   const t = useT();
   const lang = useUi((s) => s.lang);
+  const toast = useUi((s) => s.toast);
   const mentionInsert = useUi((s) => s.mentionInsert);
   const clearMentionInsert = useUi((s) => s.clearMentionInsert);
   /** Signale la frappe au pair/salon (throttlé, best effort). */
@@ -72,8 +74,11 @@ export function MessageInput({
   const [erreur, setErreur] = useState<string | null>(null);
   const [survol, setSurvol] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recorderRef = useRef<VoiceRecorder | null>(null);
 
   /* @mention autocomplete: candidates from the group state (members, roles
    * and the two broadcasts); no candidates in a direct message. */
@@ -226,6 +231,78 @@ export function MessageInput({
       setSending(false);
     }
   };
+
+  /**
+   * Publie l'enregistrement fini (blob → base64 → `files.share_bytes`) et
+   * envoie immédiatement un message dédié (texte vide, une pièce audio) —
+   * même chemin de publication que `submit()`, indépendant de `pieces`.
+   */
+  const envoyerVocal = async (blob: Blob, mime: string): Promise<void> => {
+    setRecording(false);
+    setElapsedMs(0);
+    setSending(true);
+    try {
+      const nom = voiceFileName(mime);
+      const dataB64 = await fichierEnB64(blob);
+      const { file } = await api.filesShareBytes(nom, mime, dataB64);
+      await onSend('', [file]);
+      setErreur(null);
+    } catch {
+      setErreur(t.errors.sendFailed);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /** Démarre l'enregistrement d'un message vocal (bouton micro, click-toggle). */
+  const demarrerEnregistrement = (): void => {
+    if (sending || recording) return;
+    setErreur(null);
+    setElapsedMs(0);
+    setRecording(true);
+    const recorder = new VoiceRecorder({
+      onTick: (ms) => setElapsedMs(ms),
+      onStop: (result) => {
+        recorderRef.current = null;
+        if (result.reason !== 'manual') {
+          toast('info', t.vocal.limiteAtteinte);
+        }
+        void envoyerVocal(result.blob, result.mime);
+      },
+      onError: (error) => {
+        recorderRef.current = null;
+        setRecording(false);
+        setElapsedMs(0);
+        toast(
+          'error',
+          error === 'permission_denied' ? t.vocal.permissionRefusee : t.vocal.nonSupporte,
+        );
+      },
+    });
+    recorderRef.current = recorder;
+    void recorder.start();
+  };
+
+  /** Annule l'enregistrement en cours (bouton corbeille) : octets jetés, micro relâché. */
+  const annulerEnregistrement = (): void => {
+    recorderRef.current?.cancel();
+    recorderRef.current = null;
+    setRecording(false);
+    setElapsedMs(0);
+  };
+
+  /** Arrête l'enregistrement en cours (bouton coche) : finalise puis envoie via `onStop`. */
+  const arreterEtEnvoyer = (): void => {
+    recorderRef.current?.stop();
+  };
+
+  // Micro jamais laissé ouvert : annule toute capture en cours au démontage
+  // (changement de conversation, fermeture de l'app).
+  useEffect(() => {
+    return () => {
+      recorderRef.current?.cancel();
+    };
+  }, []);
 
   const publierEnCours = sending && pieces.length > 0;
 
@@ -380,7 +457,7 @@ export function MessageInput({
           ajouter(Array.from(e.dataTransfer.files));
         }}
       >
-        {mentionOpen && (
+        {mentionOpen && !recording && (
           <MentionAutocomplete
             candidates={suggestions}
             activeIndex={activeIndex}
@@ -405,7 +482,7 @@ export function MessageInput({
           type="button"
           aria-label={t.fichiers.joindre}
           title={t.fichiers.joindre}
-          disabled={sending}
+          disabled={sending || recording}
           onClick={() => fileRef.current?.click()}
           className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
         >
@@ -423,11 +500,57 @@ export function MessageInput({
             <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
           </svg>
         </button>
+        {recording ? (
+          <div
+            aria-hidden
+            className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center"
+          >
+            <span className="h-2.5 w-2.5 rounded-full bg-red animate-pulse" />
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-label={t.vocal.enregistrer}
+            title={t.vocal.enregistrer}
+            disabled={sending}
+            onClick={demarrerEnregistrement}
+            className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+              <line x1="12" x2="12" y1="18" y2="22" />
+              <line x1="8" x2="16" y1="22" y2="22" />
+            </svg>
+          </button>
+        )}
+        {recording && (
+          <span
+            role="status"
+            aria-label={interpolate(t.vocal.enCours, {
+              time: formatDuration(elapsedMs / 1000),
+            })}
+            className="mx-1 shrink-0 select-none text-[13px] tabular-nums text-muted"
+          >
+            {formatDuration(elapsedMs / 1000)}
+          </span>
+        )}
         <textarea
           ref={textareaRef}
           aria-label={placeholder}
           placeholder={placeholder}
           value={text}
+          disabled={recording}
           rows={1}
           onChange={(e) => {
             const value = e.target.value;
@@ -480,79 +603,132 @@ export function MessageInput({
           }}
           className="max-h-48 min-h-[40px] flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
         />
-        <div className="relative">
-          <button
-            type="button"
-            aria-label={t.emoji.open}
-            title={t.emoji.open}
-            aria-expanded={emojiOpen}
-            disabled={sending}
-            onClick={() => setEmojiOpen((open) => !open)}
-            className={`m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all duration-fast disabled:opacity-40 ${
-              emojiOpen
-                ? 'bg-blurple/15 text-blurple'
-                : 'text-muted enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95'
-            }`}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
+        {recording ? (
+          <>
+            <button
+              type="button"
+              aria-label={t.vocal.annuler}
+              title={t.vocal.annuler}
+              onClick={annulerEnregistrement}
+              className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-red active:scale-95"
             >
-              <circle cx="12" cy="12" r="10" />
-              <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-              <line x1="9" x2="9.01" y1="9" y2="9" />
-              <line x1="15" x2="15.01" y1="9" y2="9" />
-            </svg>
-          </button>
-          {emojiOpen && (
-            <EmojiPicker
-              groupId={groupId}
-              onSelect={(pick) => {
-                setEmojiOpen(false);
-                insererEmoji(pick);
-              }}
-              onClose={() => setEmojiOpen(false)}
-              {...(groupId !== null && channelId !== null
-                ? {
-                    onPickSticker: (name: string) => {
-                      setEmojiOpen(false);
-                      envoyerSticker(name);
-                    },
-                  }
-                : {})}
-            />
-          )}
-        </div>
-        <button
-          type="button"
-          aria-label={t.app.send}
-          title={t.app.send}
-          disabled={(text.trim() === '' && pieces.length === 0) || sending}
-          onClick={() => void submit()}
-          className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="m22 2-7 20-4-9-9-4Z" />
-            <path d="M22 2 11 13" />
-          </svg>
-        </button>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M3 6h18" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <line x1="10" x2="10" y1="11" y2="17" />
+                <line x1="14" x2="14" y1="11" y2="17" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label={t.vocal.envoyer}
+              title={t.vocal.envoyer}
+              onClick={arreterEtEnvoyer}
+              className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-blurple active:scale-95"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="relative">
+              <button
+                type="button"
+                aria-label={t.emoji.open}
+                title={t.emoji.open}
+                aria-expanded={emojiOpen}
+                disabled={sending}
+                onClick={() => setEmojiOpen((open) => !open)}
+                className={`m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all duration-fast disabled:opacity-40 ${
+                  emojiOpen
+                    ? 'bg-blurple/15 text-blurple'
+                    : 'text-muted enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95'
+                }`}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                  <line x1="9" x2="9.01" y1="9" y2="9" />
+                  <line x1="15" x2="15.01" y1="9" y2="9" />
+                </svg>
+              </button>
+              {emojiOpen && (
+                <EmojiPicker
+                  groupId={groupId}
+                  onSelect={(pick) => {
+                    setEmojiOpen(false);
+                    insererEmoji(pick);
+                  }}
+                  onClose={() => setEmojiOpen(false)}
+                  {...(groupId !== null && channelId !== null
+                    ? {
+                        onPickSticker: (name: string) => {
+                          setEmojiOpen(false);
+                          envoyerSticker(name);
+                        },
+                      }
+                    : {})}
+                />
+              )}
+            </div>
+            <button
+              type="button"
+              aria-label={t.app.send}
+              title={t.app.send}
+              disabled={(text.trim() === '' && pieces.length === 0) || sending}
+              onClick={() => void submit()}
+              className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="m22 2-7 20-4-9-9-4Z" />
+                <path d="M22 2 11 13" />
+              </svg>
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

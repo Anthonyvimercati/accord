@@ -171,6 +171,50 @@ describe('Pièces jointes — carte de fichier', () => {
   });
 });
 
+describe('Pièces jointes — message vocal', () => {
+  it('rend le lecteur vocal pour une pièce audio, même aperçu désactivé', async () => {
+    useUi.getState().setShowMediaPreviews(false);
+    lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');
+    render(
+      <MessageList
+        messages={[
+          message([
+            piece({ name: 'voice-message.webm', mime: 'audio/webm;codecs=opus' }),
+          ]),
+        ]}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('button', { name: 'Lire le message vocal' }),
+    ).toBeInTheDocument();
+    // Pas de carte de fichier générique pour l'audio : c'est le lecteur qui rend la pièce.
+    expect(screen.queryByText('voice-message.webm')).not.toBeInTheDocument();
+  });
+
+  it('replie un message vocal trop volumineux en carte de fichier', () => {
+    render(
+      <MessageList
+        messages={[
+          message([
+            piece({
+              name: 'voice-message.webm',
+              mime: 'audio/webm;codecs=opus',
+              size: MAX_TAILLE_PIECE + 1,
+            }),
+          ]),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('voice-message.webm')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Lire le message vocal' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Trop volumineux pour l’aperçu/)).toBeInTheDocument();
+  });
+});
+
 describe('Pièces jointes — réglage « Aperçu des images et médias »', () => {
   it('replie une image de taille normale en carte de fichier quand l’aperçu est désactivé', () => {
     useUi.getState().setShowMediaPreviews(false);

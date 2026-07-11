@@ -434,6 +434,8 @@ interface UiState {
   sidebarWidth: number;
   /** Largeur de la liste des membres (px), bornée à `[MEMBERS_WIDTH_MIN, MEMBERS_WIDTH_MAX]`. */
   membersWidth: number;
+  /** Sélecteur rapide ouvert (Ctrl/Cmd+K), voir `components/QuickSwitcher`. */
+  quickSwitcherOpen: boolean;
   setView: (view: View) => void;
   /** Bascule vers `view` et demande le saut vers `msgId` (recherche, épingle). */
   requestJump: (view: View, msgId: string) => void;
@@ -478,6 +480,10 @@ interface UiState {
   setMembersWidth: (width: number) => void;
   /** Restaure `MEMBERS_WIDTH_DEFAULT` (double-clic sur la poignée). */
   resetMembersWidth: () => void;
+  openQuickSwitcher: () => void;
+  closeQuickSwitcher: () => void;
+  /** Bascule l'ouverture (raccourci Ctrl/Cmd+K, voir `AppShell`). */
+  toggleQuickSwitcher: () => void;
 }
 
 const TOAST_LIFETIME_MS = 5000;
@@ -535,6 +541,7 @@ export const useUi = create<UiState>((set) => {
       MEMBERS_WIDTH_MIN,
       MEMBERS_WIDTH_MAX,
     ),
+    quickSwitcherOpen: false,
 
     setView: (view) =>
       set((s) => ({ view, jump: null, profile: null, ...withNavMemory(s, view) })),
@@ -667,6 +674,10 @@ export const useUi = create<UiState>((set) => {
       writeStored(STORAGE_KEYS.membersWidth, String(MEMBERS_WIDTH_DEFAULT));
       set({ membersWidth: MEMBERS_WIDTH_DEFAULT });
     },
+
+    openQuickSwitcher: () => set({ quickSwitcherOpen: true }),
+    closeQuickSwitcher: () => set({ quickSwitcherOpen: false }),
+    toggleQuickSwitcher: () => set((s) => ({ quickSwitcherOpen: !s.quickSwitcherOpen })),
   };
 });
 

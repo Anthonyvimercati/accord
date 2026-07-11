@@ -13,6 +13,7 @@ import { LanguageTab } from './LanguageTab';
 import { NetworkTab } from './NetworkTab';
 import { NotificationsTab } from './NotificationsTab';
 import { PrivacyTab } from './PrivacyTab';
+import { ShortcutsTab } from './ShortcutsTab';
 import { TextMediaTab } from './TextMediaTab';
 import { VoiceTab } from './VoiceTab';
 
@@ -23,6 +24,7 @@ export type SettingsTabId =
   | 'accessibility'
   | 'textMedia'
   | 'language'
+  | 'shortcuts'
   | 'voice'
   | 'notifications'
   | 'network'
@@ -72,6 +74,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         label: (t) => t.settings.languageAndTime,
         Content: LanguageTab,
       },
+      { id: 'shortcuts', label: (t) => t.settings.shortcuts, Content: ShortcutsTab },
       { id: 'voice', label: (t) => t.settings.voice, Content: VoiceTab },
       {
         id: 'notifications',
