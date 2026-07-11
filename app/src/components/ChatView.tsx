@@ -10,6 +10,7 @@ import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
 import {
   useGroups,
+  aggregateEmojiMap,
   channelKey,
   hasPerm,
   memberColor,
@@ -139,6 +140,10 @@ export function DmView({ peer }: { peer: string }) {
   const retry = useDms((s) => s.retry);
   const markRead = useFriends((s) => s.markRead);
   const requestJump = useUi((s) => s.requestJump);
+  // Serveurs rejoints par le membre local, pour l'agrégat d'émojis custom
+  // (aucun `groupId` de contexte en MP — voir `emojiMap` ci-dessous).
+  const groupIds = useGroups((s) => s.ids);
+  const groupStates = useGroups((s) => s.states);
   const name = displayNameOf(contacts, peer);
   /** Volet des messages épinglés (fermé par défaut). */
   const [pinsOpen, setPinsOpen] = useState(false);
@@ -186,6 +191,11 @@ export function DmView({ peer }: { peer: string }) {
     pins,
     messages,
   );
+  // Aucun serveur de contexte en MP : les émojis custom viennent de l'agrégat
+  // de tous les serveurs rejoints (voir `aggregateEmojiMap`) — l'image reste
+  // chargée par sa racine Merkle, indépendante du groupe. Repli en texte
+  // `:name:` si l'émoji n'appartient à aucun serveur du destinataire.
+  const emojiMap = aggregateEmojiMap(groupIds, groupStates);
 
   const ouvrirProfil = (target: HTMLElement): void => {
     const r = target.getBoundingClientRect();
@@ -259,6 +269,7 @@ export function DmView({ peer }: { peer: string }) {
         scrollTarget={scrollTarget}
         pinnedIds={pinnedIds}
         knownMentions={knownMentions}
+        emojiMap={emojiMap}
         onLoadOlder={() => {
           loadOlder(peer).catch(() => toast('error', t.errors.loadFailed));
         }}

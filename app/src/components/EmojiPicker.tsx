@@ -1,19 +1,18 @@
 /**
- * Sélecteur d'émojis en popover : émojis custom du serveur courant (quand un
- * `groupId` est fourni) puis un jeu d'émojis Unicode courants, groupés et
- * filtrables. En MP (aucun serveur), seuls les Unicode sont proposés. Se ferme
- * au clic extérieur et à Échap ; le champ de recherche prend le focus.
+ * Sélecteur d'émojis en popover : émojis custom (du serveur courant quand un
+ * `groupId` est fourni, sinon agrégés de tous les serveurs rejoints en MP)
+ * puis un jeu d'émojis Unicode courants, groupés et filtrables. Se ferme au
+ * clic extérieur et à Échap ; le champ de recherche prend le focus.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   EMOJIS_UNICODE,
   jetonEmojiTexte,
   type EmojiPick,
   type EmojiUnicode,
 } from '../lib/emoji';
-import type { ServerEmoji } from '../lib/api';
-import { useGroups } from '../stores/groups';
+import { aggregateEmojis, useGroups, type AggregatedEmoji } from '../stores/groups';
 import { interpolate } from '../i18n';
 import type { Dict } from '../i18n';
 import { useT } from '../stores/ui';
@@ -59,8 +58,17 @@ export function EmojiPicker({
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
-  const state = useGroups((s) => (groupId != null ? s.states[groupId] : undefined));
-  const customs: ServerEmoji[] = state?.emojis ?? [];
+  const ids = useGroups((s) => s.ids);
+  const states = useGroups((s) => s.states);
+  // Contexte serveur : émojis du groupe courant. MP (`groupId` absent) :
+  // agrégat dédupliqué de tous les serveurs rejoints (voir `aggregateEmojis`).
+  const customs: AggregatedEmoji[] = useMemo(
+    () =>
+      groupId != null
+        ? (states[groupId]?.emojis ?? []).map((e) => ({ ...e, groupId }))
+        : aggregateEmojis(ids, states),
+    [groupId, ids, states],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -82,6 +90,8 @@ export function EmojiPicker({
 
   const q = query.trim().toLowerCase();
   const customsFiltres = customs.filter((e) => q === '' || e.name.includes(q));
+  // MP : les customs viennent de plusieurs serveurs, le libellé le précise.
+  const customSectionLabel = groupId != null ? t.emoji.customSection : t.emoji.customSectionDm;
   const categories = EMOJIS_UNICODE.map((cat) => ({
     id: cat.id,
     emojis: cat.emojis.filter((e) => correspond(e, q)),
@@ -113,9 +123,9 @@ export function EmojiPicker({
         )}
 
         {customsFiltres.length > 0 && (
-          <section aria-label={t.emoji.customSection} className="mb-2">
+          <section aria-label={customSectionLabel} className="mb-2">
             <h4 className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-faint">
-              {t.emoji.customSection}
+              {customSectionLabel}
             </h4>
             <div className="flex flex-wrap gap-0.5">
               {customsFiltres.map((emoji) => (
@@ -136,7 +146,7 @@ export function EmojiPicker({
                   <CustomEmoji
                     name={emoji.name}
                     merkleRoot={emoji.merkle_root}
-                    hint={groupId ?? undefined}
+                    hint={emoji.groupId}
                     size={24}
                   />
                 </button>

@@ -343,6 +343,7 @@ export const fr = {
     more: 'Plus d’émojis',
     search: 'Rechercher un émoji',
     customSection: 'Émojis du serveur',
+    customSectionDm: 'Tes émojis personnalisés',
     noResult: 'Aucun émoji trouvé.',
     insert: 'Insérer {emoji}',
     spoilerReveal: 'Spoiler — cliquez pour révéler',

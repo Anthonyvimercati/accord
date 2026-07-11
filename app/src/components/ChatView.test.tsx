@@ -1,7 +1,9 @@
 /**
  * Tests de la vue conversation privée : marquage lu (dm.mark_read) au
  * lamport du dernier message affiché à l'ouverture puis à chaque arrivée,
- * aucun marquage sur fil vide, et indicateur de frappe du pair.
+ * aucun marquage sur fil vide, indicateur de frappe du pair, et résolution
+ * des émojis custom agrégés de tous les serveurs rejoints (aucun contexte de
+ * serveur en MP).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,10 +24,15 @@ vi.mock('../lib/client', () => ({
   },
 }));
 
+vi.mock('../lib/files', () => ({
+  lireFichier: vi.fn(() => Promise.resolve('blob:emoji')),
+}));
+
 import { api, rpc } from '../lib/client';
-import type { Contact, DmMessage } from '../lib/api';
+import type { Contact, DmMessage, GroupStateJson } from '../lib/api';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
+import { useGroups } from '../stores/groups';
 import { useTyping, dmTypingKey, TYPING_EXPIRY_MS } from '../stores/typing';
 import { useUi } from '../stores/ui';
 import { DmView } from './ChatView';
@@ -53,7 +60,7 @@ function contact(pubkey: string, displayName: string): Contact {
   };
 }
 
-function dmMsg(id: string, lamport: number): DmMessage {
+function dmMsg(id: string, lamport: number, text = `message ${id}`): DmMessage {
   return {
     msg_id: id,
     author: PEER,
@@ -61,8 +68,26 @@ function dmMsg(id: string, lamport: number): DmMessage {
     sent_ms: lamport * 1000,
     acked: true,
     deleted: false,
-    body: { type: 'text', text: `message ${id}`, reply_to: null, attachments: 0 },
+    body: { type: 'text', text, reply_to: null, attachments: 0 },
     edited: null,
+  };
+}
+
+function makeGroupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
+  return {
+    group_id: 'g1',
+    name: 'Guilde',
+    icon: null,
+    founder: 'f',
+    members: [],
+    bans: [],
+    channels: [],
+    categories: [],
+    roles: [],
+    invites: [],
+    emojis: [],
+    my_permissions: 0x1ff,
+    ...over,
   };
 }
 
@@ -70,6 +95,7 @@ beforeEach(() => {
   useUi.setState({ lang: 'fr', view: { kind: 'dm', peer: PEER }, toasts: [], jump: null });
   useDms.setState({ conversations: {}, hasMore: {}, loadingOlder: {}, pins: {} });
   useFriends.setState({ contacts: [contact(PEER, 'Alice')], loaded: false });
+  useGroups.setState({ ids: [], states: {} });
   useTyping.setState({ writers: {} });
   callMock.mockReset();
   markReadMock.mockReset();
@@ -204,5 +230,36 @@ describe('DmView — indicateur de frappe', () => {
     // Assert
     expect(screen.getByText('Alice est en train d’écrire…')).toBeInTheDocument();
     await waitFor(() => expect(callMock).toHaveBeenCalled());
+  });
+});
+
+describe('DmView — émojis custom agrégés', () => {
+  it('rend en image un émoji custom d’un serveur rejoint', async () => {
+    // Arrange : le membre local a rejoint g1, qui connaît :parrot:.
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({ emojis: [{ name: 'parrot', merkle_root: 'racine' }] }),
+      },
+    });
+    callMock.mockResolvedValue({ messages: [dmMsg('a', 5, 'salut :parrot:')] });
+
+    // Act
+    render(<DmView peer={PEER} />);
+
+    // Assert
+    expect(await screen.findByAltText(':parrot:')).toBeInTheDocument();
+  });
+
+  it('laisse le jeton en texte quand aucun serveur rejoint ne connaît l’émoji', async () => {
+    // Arrange : aucun serveur rejoint ne publie :ghost:.
+    callMock.mockResolvedValue({ messages: [dmMsg('a', 5, ':ghost:')] });
+
+    // Act
+    render(<DmView peer={PEER} />);
+
+    // Assert : jeton littéral, jamais d'image cassée.
+    expect(await screen.findByText(':ghost:')).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 });

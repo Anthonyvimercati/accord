@@ -16,6 +16,7 @@ import type {
   GroupRole,
   GroupStateJson,
   PendingInvite,
+  ServerEmoji,
 } from '../lib/api';
 import {
   PAGE_SIZE,
@@ -262,6 +263,43 @@ export function channelsByCategory(
     });
   }
   return groups;
+}
+
+/** Émoji custom agrégé : nom, racine Merkle et groupe d'origine (indice de pair). */
+export interface AggregatedEmoji extends ServerEmoji {
+  groupId: string;
+}
+
+/**
+ * Agrège les émojis custom de tous les groupes rejoints (`ids`), dédupliqués
+ * par nom : en cas de collision entre serveurs, le premier groupe rencontré
+ * dans `ids` l'emporte (ordre stable et déterministe). Sert à proposer et
+ * afficher les émojis custom en MP, où aucun `groupId` de contexte de serveur
+ * n'existe — l'image reste ensuite chargée par sa racine Merkle, indépendante
+ * du groupe (contenu adressé, voir `lib/files.lireFichier`).
+ */
+export function aggregateEmojis(
+  ids: readonly string[],
+  states: Readonly<Record<string, GroupStateJson>>,
+): AggregatedEmoji[] {
+  const seen = new Set<string>();
+  const out: AggregatedEmoji[] = [];
+  for (const groupId of ids) {
+    for (const emoji of states[groupId]?.emojis ?? []) {
+      if (seen.has(emoji.name)) continue;
+      seen.add(emoji.name);
+      out.push({ ...emoji, groupId });
+    }
+  }
+  return out;
+}
+
+/** Carte nom → racine Merkle agrégée sur tous les groupes rejoints (voir `aggregateEmojis`). */
+export function aggregateEmojiMap(
+  ids: readonly string[],
+  states: Readonly<Record<string, GroupStateJson>>,
+): Map<string, string> {
+  return new Map(aggregateEmojis(ids, states).map((e) => [e.name, e.merkle_root] as const));
 }
 
 /* ------------------------------------------------------------------ */

@@ -341,6 +341,7 @@ export const en: Dict = {
     more: 'More emojis',
     search: 'Search an emoji',
     customSection: 'Server emojis',
+    customSectionDm: 'Your custom emojis',
     noResult: 'No emoji found.',
     insert: 'Insert {emoji}',
     spoilerReveal: 'Spoiler — click to reveal',

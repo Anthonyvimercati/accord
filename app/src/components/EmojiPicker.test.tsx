@@ -1,7 +1,8 @@
 /**
  * Tests du sélecteur d'émojis : insertion d'un émoji Unicode et d'un émoji
- * custom du serveur courant, absence des customs en MP, recherche par mots-clés
- * et fermeture (Échap).
+ * custom du serveur courant, agrégation des customs de tous les serveurs
+ * rejoints en MP (aucun serveur non rejoint ne fuite), recherche par
+ * mots-clés et fermeture (Échap).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,8 +37,9 @@ function makeState(over: Partial<GroupStateJson> = {}): GroupStateJson {
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
-  // Par défaut sans émoji custom (aucune image asynchrone à charger).
-  useGroups.setState({ states: { g1: makeState({ emojis: [] }) } });
+  // Par défaut sans émoji custom (aucune image asynchrone à charger) et
+  // aucun serveur rejoint (l'agrégat MP ne doit rien voir fuiter).
+  useGroups.setState({ ids: [], states: { g1: makeState({ emojis: [] }) } });
 });
 
 describe('EmojiPicker — insertion', () => {
@@ -65,13 +67,39 @@ describe('EmojiPicker — insertion', () => {
     });
   });
 
-  it('n’expose aucun émoji custom en MP (sans serveur)', () => {
+  it('n’agrège pas les émojis d’un serveur non rejoint (absent de `ids`) en MP', () => {
+    // `g1` a un émoji custom mais ne figure pas dans `ids` (serveur non
+    // rejoint, ou état mis en cache localement sans y appartenir).
     render(<EmojiPicker groupId={null} onSelect={vi.fn()} onClose={vi.fn()} />);
 
-    expect(screen.queryByText('Émojis du serveur')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tes émojis personnalisés')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: ':parrot:' })).not.toBeInTheDocument();
     // Les Unicode restent proposés.
     expect(screen.getByRole('button', { name: 'Insérer 👍' })).toBeInTheDocument();
+  });
+
+  it('agrège en MP les émojis custom de tous les serveurs rejoints', async () => {
+    useGroups.setState({
+      ids: ['g1', 'g2'],
+      states: {
+        g1: makeState({ group_id: 'g1', emojis: [{ name: 'parrot', merkle_root: 'racine' }] }),
+        g2: makeState({
+          group_id: 'g2',
+          emojis: [{ name: 'penguin', merkle_root: 'racine2' }],
+        }),
+      },
+    });
+    const onSelect = vi.fn();
+    render(<EmojiPicker groupId={null} onSelect={onSelect} onClose={vi.fn()} />);
+
+    expect(screen.getByText('Tes émojis personnalisés')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: ':penguin:' }));
+
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'custom',
+      name: 'penguin',
+      merkleRoot: 'racine2',
+    });
   });
 });
 
