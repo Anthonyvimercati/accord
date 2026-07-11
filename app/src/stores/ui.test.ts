@@ -5,7 +5,15 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useUi } from './ui';
+import {
+  useUi,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_MAX,
+  MEMBERS_WIDTH_DEFAULT,
+  MEMBERS_WIDTH_MIN,
+  MEMBERS_WIDTH_MAX,
+} from './ui';
 
 const root = document.documentElement;
 
@@ -205,5 +213,96 @@ describe('useUi — restauration au démarrage', () => {
     expect(fresh.useUi.getState().density).toBe('comfortable');
     expect(fresh.useUi.getState().fontScale).toBe(100);
     expect(root.dataset.theme).toBe('dark');
+  });
+});
+
+describe('useUi — largeurs redimensionnables', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useUi.getState().resetSidebarWidth();
+    useUi.getState().resetMembersWidth();
+    window.localStorage.clear();
+  });
+
+  it('expose les largeurs par défaut au démarrage', () => {
+    expect(useUi.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
+    expect(useUi.getState().membersWidth).toBe(MEMBERS_WIDTH_DEFAULT);
+  });
+
+  it('setSidebarWidth applique et persiste une largeur valide', () => {
+    useUi.getState().setSidebarWidth(300);
+
+    expect(useUi.getState().sidebarWidth).toBe(300);
+    expect(window.localStorage.getItem('accord.layout.sidebarWidth')).toBe('300');
+  });
+
+  it('setSidebarWidth borne en dessous du minimum', () => {
+    useUi.getState().setSidebarWidth(SIDEBAR_WIDTH_MIN - 50);
+
+    expect(useUi.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_MIN);
+  });
+
+  it('setSidebarWidth borne au-dessus du maximum', () => {
+    useUi.getState().setSidebarWidth(SIDEBAR_WIDTH_MAX + 50);
+
+    expect(useUi.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_MAX);
+  });
+
+  it('resetSidebarWidth restaure et persiste la largeur par défaut', () => {
+    useUi.getState().setSidebarWidth(320);
+    useUi.getState().resetSidebarWidth();
+
+    expect(useUi.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
+    expect(window.localStorage.getItem('accord.layout.sidebarWidth')).toBe(
+      String(SIDEBAR_WIDTH_DEFAULT),
+    );
+  });
+
+  it('setMembersWidth applique, borne et persiste', () => {
+    useUi.getState().setMembersWidth(260);
+    expect(useUi.getState().membersWidth).toBe(260);
+    expect(window.localStorage.getItem('accord.layout.membersWidth')).toBe('260');
+
+    useUi.getState().setMembersWidth(MEMBERS_WIDTH_MIN - 10);
+    expect(useUi.getState().membersWidth).toBe(MEMBERS_WIDTH_MIN);
+
+    useUi.getState().setMembersWidth(MEMBERS_WIDTH_MAX + 10);
+    expect(useUi.getState().membersWidth).toBe(MEMBERS_WIDTH_MAX);
+  });
+
+  it('resetMembersWidth restaure la largeur par défaut', () => {
+    useUi.getState().setMembersWidth(200);
+    useUi.getState().resetMembersWidth();
+
+    expect(useUi.getState().membersWidth).toBe(MEMBERS_WIDTH_DEFAULT);
+  });
+
+  it('restaure une largeur persistée valide au démarrage', async () => {
+    window.localStorage.setItem('accord.layout.sidebarWidth', '350');
+    window.localStorage.setItem('accord.layout.membersWidth', '300');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().sidebarWidth).toBe(350);
+    expect(fresh.useUi.getState().membersWidth).toBe(300);
+  });
+
+  it('replie sur la largeur par défaut quand la valeur persistée est invalide', async () => {
+    window.localStorage.setItem('accord.layout.sidebarWidth', 'pas-un-nombre');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
+  });
+
+  it('borne une largeur persistée hors plage au démarrage', async () => {
+    window.localStorage.setItem('accord.layout.membersWidth', '9999');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().membersWidth).toBe(MEMBERS_WIDTH_MAX);
   });
 });

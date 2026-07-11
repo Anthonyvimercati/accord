@@ -2,21 +2,22 @@
  * Onglet Émojis : ajout (choix d'une image + nom validé `[a-z0-9_]` 2-32),
  * grille des émojis existants (image + `:name:`) et suppression confirmée.
  * Réservé à la permission `MANAGE_EMOJIS` (l'onglet n'apparaît pas sinon, mais
- * on revérifie ici). L'image n'est pas recadrée (les GIF animés sont préservés).
+ * on revérifie ici). L'image n'est pas recadrée ; elle est automatiquement
+ * compressée côté client pour tenir sous la limite d'envoi (voir
+ * `lib/compressEmojiImage.ts`) — seuls les GIF animés trop lourds sont rejetés,
+ * un ré-encodage canvas en détruirait l'animation.
  */
 
 import { useRef, useState } from 'react';
 import { interpolate } from '../../i18n';
-import { fichierEnB64 } from '../../lib/attachments';
+import { EmojiCompressionError, compressEmojiImage } from '../../lib/compressEmojiImage';
 import {
   EMOJI_MAX_PAR_SERVEUR,
   EMOJI_MIMES,
-  EMOJI_OCTETS_MAX,
   estMimeEmojiValide,
   estNomEmojiValide,
   jetonEmojiTexte,
 } from '../../lib/emoji';
-import { octetsBase64 } from '../../lib/image';
 import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useUi, useT } from '../../stores/ui';
 import { SettingsSection } from '../settings/controls';
@@ -63,20 +64,18 @@ export function ServerEmojisTab({ groupId }: { groupId: string }) {
       return;
     }
     try {
-      const dataB64 = await fichierEnB64(file);
-      if (octetsBase64(dataB64) > EMOJI_OCTETS_MAX) {
-        setErreur(t.serveur.emojiTooLarge);
-        return;
-      }
+      const compresse = await compressEmojiImage(file);
       setImage({
-        dataB64,
-        mime: file.type,
-        apercu: `data:${file.type};base64,${dataB64}`,
+        dataB64: compresse.dataB64,
+        mime: compresse.mime,
+        apercu: compresse.dataUrl,
       });
       setErreur(null);
       if (name === '') setName(nomDepuisFichier(file.name));
-    } catch {
-      setErreur(t.serveur.emojiInvalidImage);
+    } catch (e) {
+      const gifTropLourd =
+        e instanceof EmojiCompressionError && e.raison === 'gif-anime-trop-lourd';
+      setErreur(gifTropLourd ? t.serveur.emojiAnimatedTooLarge : t.serveur.emojiInvalidImage);
     }
   };
 

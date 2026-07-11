@@ -280,6 +280,7 @@ export const en: Dict = {
     emojiCount: 'Emojis — {count}',
     emojiEmpty: 'No emoji yet.',
     emojiTooLarge: 'The image exceeds the 256 KiB limit.',
+    emojiAnimatedTooLarge: 'Animated GIF too large (256 KiB max).',
     emojiInvalidImage: 'This file is not a usable image (PNG, JPEG, WebP, GIF).',
     emojiLimit: 'At most 50 emojis per server.',
     // Categories.
@@ -519,8 +520,7 @@ export const en: Dict = {
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logout: 'Log out',
-    logoutHint:
-      'Locks your vault and returns to the unlock screen. No data is deleted.',
+    logoutHint: 'Locks your vault and returns to the unlock screen. No data is deleted.',
     logoutConfirmText: 'Your passphrase will be required to sign back in.',
     logoutConfirm: 'Yes, log me out',
   },
@@ -600,5 +600,9 @@ export const en: Dict = {
     viewProfile: 'View profile',
     markAsRead: 'Mark as read',
     editChannel: 'Edit channel',
+  },
+  layout: {
+    resizeSidebar: 'Resize the sidebar',
+    resizeMembers: 'Resize the members list',
   },
 };

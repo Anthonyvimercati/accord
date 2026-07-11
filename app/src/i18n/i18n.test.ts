@@ -1,7 +1,7 @@
-/** Tests i18n : interpolation, détection de langue, parité des clés fr/en. */
+/** Tests i18n : interpolation et parité des clés fr/en. */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { detectLang, dictionaries, interpolate } from './index';
+import { describe, expect, it } from 'vitest';
+import { dictionaries, interpolate } from './index';
 import { fr } from './fr';
 import { en } from './en';
 
@@ -20,31 +20,6 @@ describe('interpolate', () => {
 
   it('rend le libellé inchangé sans marqueur', () => {
     expect(interpolate('Bonjour', { name: 'x' })).toBe('Bonjour');
-  });
-});
-
-describe('detectLang', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  function stubNavigator(languages: string[], language: string): void {
-    vi.stubGlobal('navigator', { languages, language });
-  }
-
-  it('choisit le français pour un système en fr-*', () => {
-    stubNavigator(['fr-FR', 'en-US'], 'fr-FR');
-    expect(detectLang()).toBe('fr');
-  });
-
-  it('replie sur l’anglais pour toute autre langue', () => {
-    stubNavigator(['de-DE'], 'de-DE');
-    expect(detectLang()).toBe('en');
-  });
-
-  it('replie sur `language` quand `languages` est vide', () => {
-    stubNavigator([], 'fr-CA');
-    expect(detectLang()).toBe('fr');
   });
 });
 

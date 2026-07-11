@@ -20,7 +20,14 @@ import {
 } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { dmTypingKey, groupTypingKey } from '../stores/typing';
-import { useUi, useT, type JumpRequest } from '../stores/ui';
+import {
+  useUi,
+  useT,
+  type JumpRequest,
+  MEMBERS_WIDTH_DEFAULT,
+  MEMBERS_WIDTH_MIN,
+  MEMBERS_WIDTH_MAX,
+} from '../stores/ui';
 import { Avatar } from './Avatar';
 import {
   CloseIcon,
@@ -32,6 +39,7 @@ import {
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
 import { PresenceDot } from './PresenceDot';
+import { ResizeHandle } from './ResizeHandle';
 import { TypingIndicator } from './TypingIndicator';
 import { ownDotStatus } from './UserMenu';
 
@@ -370,6 +378,7 @@ function MemberList({ groupId }: { groupId: string }) {
   const openProfile = useUi((s) => s.openProfile);
   const requestMentionInsert = useUi((s) => s.requestMentionInsert);
   const toast = useUi((s) => s.toast);
+  const membersWidth = useUi((s) => s.membersWidth);
   if (!state) return null;
 
   /** Statut de présence d'un membre — le sien (fiable), sinon celui du contact ami connu. */
@@ -462,18 +471,25 @@ function MemberList({ groupId }: { groupId: string }) {
   for (const member of state.members) {
     const owned = new Set(member.roles);
     const top = sortedRoles.find((r) => owned.has(r.role_id));
-    const bucket = top === undefined ? withoutRole : sections.find((s) => s.key === top.role_id);
+    const bucket =
+      top === undefined ? withoutRole : sections.find((s) => s.key === top.role_id);
     (bucket ?? withoutRole).members.push(member);
   }
   const populatedSections = [...sections, withoutRole]
     .filter((section) => section.members.length > 0)
     .map((section) => ({
       ...section,
-      members: [...section.members].sort((a, b) => nameOf(a.pubkey).localeCompare(nameOf(b.pubkey))),
+      members: [...section.members].sort((a, b) =>
+        nameOf(a.pubkey).localeCompare(nameOf(b.pubkey)),
+      ),
     }));
 
   return (
-    <aside className="w-60 shrink-0 overflow-y-auto bg-sidebar p-2" aria-label={t.groups.members}>
+    <aside
+      className="shrink-0 overflow-y-auto bg-sidebar p-2"
+      style={{ width: membersWidth }}
+      aria-label={t.groups.members}
+    >
       {populatedSections.map((section) => (
         <div key={section.key}>
           <div className="px-1.5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted first:pt-1">
@@ -508,7 +524,11 @@ function MemberList({ groupId }: { groupId: string }) {
                   e.preventDefault();
                   useContextMenu
                     .getState()
-                    .openMenu(e.clientX, e.clientY, buildMemberItems(member.pubkey, e.currentTarget));
+                    .openMenu(
+                      e.clientX,
+                      e.clientY,
+                      buildMemberItems(member.pubkey, e.currentTarget),
+                    );
                 }}
                 className="flex min-h-9 w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
@@ -649,6 +669,8 @@ export function GroupView({
   const self = useSession((s) => s.self);
   const contacts = useFriends((s) => s.contacts);
   const state = useGroups((s) => s.states[groupId]);
+  const membersWidth = useUi((s) => s.membersWidth);
+  const setMembersWidth = useUi((s) => s.setMembersWidth);
   const key = channelId === null ? null : channelKey(groupId, channelId);
   const messages = useGroups((s) => (key === null ? undefined : s.messages[key])) ?? [];
   const hasMore = useGroups((s) => (key === null ? false : s.hasMore[key])) === true;
@@ -754,7 +776,10 @@ export function GroupView({
     <div className="flex h-full">
       <div className="relative flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
-          <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center text-[19px] font-medium leading-none text-faint">
+          <span
+            aria-hidden
+            className="flex h-5 w-5 shrink-0 items-center justify-center text-[19px] font-medium leading-none text-faint"
+          >
             #
           </span>
           <span className="shrink-0 font-semibold text-header">{channel.name}</span>
@@ -800,10 +825,7 @@ export function GroupView({
             }}
             onJump={(msgId) => {
               setPinsOpen(false);
-              requestJump(
-                { kind: 'group', groupId, channelId },
-                msgId,
-              );
+              requestJump({ kind: 'group', groupId, channelId }, msgId);
             }}
             onClose={() => setPinsOpen(false)}
             nameOf={nameOf}
@@ -875,6 +897,16 @@ export function GroupView({
         />
         <TypingIndicator typingKey={groupTypingKey(groupId, channelId)} />
       </div>
+      <ResizeHandle
+        value={membersWidth}
+        min={MEMBERS_WIDTH_MIN}
+        max={MEMBERS_WIDTH_MAX}
+        defaultValue={MEMBERS_WIDTH_DEFAULT}
+        onChange={setMembersWidth}
+        ariaLabel={t.layout.resizeMembers}
+        panelSide="right"
+        ringOffsetClassName="ring-offset-sidebar"
+      />
       <MemberList groupId={groupId} />
     </div>
   );

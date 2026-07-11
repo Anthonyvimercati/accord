@@ -20,13 +20,21 @@ import { useFriends, displayNameOf } from '../stores/friends';
 import { useGroups, channelKey } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useTyping, dmTypingKey, groupTypingKey } from '../stores/typing';
-import { useUi, useT, type View } from '../stores/ui';
+import {
+  useUi,
+  useT,
+  type View,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_MAX,
+} from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { DmView, GroupView } from './ChatView';
 import { ContextMenu } from './ContextMenu';
 import { FriendsView } from './FriendsView';
 import { Modals } from './Modals';
 import { ProfilePopover } from './ProfilePopover';
+import { ResizeHandle } from './ResizeHandle';
 import { ServerRail } from './ServerRail';
 import { Sidebar } from './Sidebar';
 
@@ -288,6 +296,8 @@ export function AppShell() {
   const t = useT();
   const view = useUi((s) => s.view);
   const toast = useUi((s) => s.toast);
+  const sidebarWidth = useUi((s) => s.sidebarWidth);
+  const setSidebarWidth = useUi((s) => s.setSidebarWidth);
   const loadFriends = useFriends((s) => s.load);
   const loadGroups = useGroups((s) => s.loadList);
   const syncVoice = useVoice((s) => s.sync);
@@ -312,6 +322,16 @@ export function AppShell() {
     <div className="app-ambient flex h-full">
       <ServerRail />
       <Sidebar />
+      <ResizeHandle
+        value={sidebarWidth}
+        min={SIDEBAR_WIDTH_MIN}
+        max={SIDEBAR_WIDTH_MAX}
+        defaultValue={SIDEBAR_WIDTH_DEFAULT}
+        onChange={setSidebarWidth}
+        ariaLabel={t.layout.resizeSidebar}
+        panelSide="left"
+        ringOffsetClassName="ring-offset-sidebar"
+      />
       <main className="min-w-0 flex-1 bg-chat" aria-label={t.app.name}>
         {view.kind === 'friends' && <FriendsView />}
         {view.kind === 'dm' && <DmView peer={view.peer} />}

@@ -7,7 +7,7 @@
  */
 
 import { create } from 'zustand';
-import { detectLang, type Lang } from '../i18n';
+import { type Lang } from '../i18n';
 import {
   loadLastChannelByServer,
   loadLastDm,
@@ -67,6 +67,20 @@ export type Density = 'comfortable' | 'compact';
 export const FONT_SCALES = [90, 100, 110, 120] as const;
 export type FontScale = (typeof FONT_SCALES)[number];
 
+/**
+ * Largeurs redimensionnables façon Discord (barre latérale de navigation,
+ * liste des membres d'un serveur). Bornes en pixels — `ResizeHandle`
+ * applique le même clamp côté glissé/clavier, ces constantes restent la
+ * source de vérité unique (store et poignée s'y réfèrent toutes deux).
+ */
+export const SIDEBAR_WIDTH_DEFAULT = 240;
+export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_MAX = 420;
+
+export const MEMBERS_WIDTH_DEFAULT = 240;
+export const MEMBERS_WIDTH_MIN = 180;
+export const MEMBERS_WIDTH_MAX = 380;
+
 const STORAGE_KEYS = {
   theme: 'accord.theme',
   density: 'accord.density',
@@ -77,6 +91,8 @@ const STORAGE_KEYS = {
   notifyDms: 'accord.notifyDms',
   notifyGroups: 'accord.notifyGroups',
   notifyOnlyUnfocused: 'accord.notifyOnlyUnfocused',
+  sidebarWidth: 'accord.layout.sidebarWidth',
+  membersWidth: 'accord.layout.membersWidth',
 } as const;
 
 /** Touche d'appui-pour-parler par défaut (`KeyboardEvent.code`). */
@@ -132,9 +148,13 @@ function initialFontScale(): FontScale {
   return isFontScale(parsed) ? parsed : 100;
 }
 
+/**
+ * Langue au démarrage : celle choisie par l'utilisateur (persistée), sinon
+ * anglais par défaut (décision produit — pas de détection système).
+ */
 function initialLang(): Lang {
   const stored = readStored(STORAGE_KEYS.lang);
-  return isLang(stored) ? stored : detectLang();
+  return isLang(stored) ? stored : 'en';
 }
 
 /** Booléen persisté (`'true'`/`'false'`), avec repli en valeur par défaut. */
@@ -148,6 +168,21 @@ function initialBool(key: string, fallback: boolean): boolean {
 function initialPttKey(): string {
   const stored = readStored(STORAGE_KEYS.pttKey);
   return stored !== null && stored !== '' ? stored : DEFAULT_PTT_KEY;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Largeur persistée (px), bornée à `[min, max]` — une valeur absente ou non
+ * numérique replie sur `fallback` plutôt que de clamper `0`.
+ */
+function initialWidth(key: string, fallback: number, min: number, max: number): number {
+  const stored = readStored(key);
+  if (stored === null) return fallback;
+  const parsed = Number(stored);
+  return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
 }
 
 /* Application immédiate sur la racine du document. */
@@ -236,6 +271,10 @@ interface UiState {
    * toujours avant de s'y fier (voir `ServerRail`).
    */
   lastDmPeer: string | null;
+  /** Largeur de la barre latérale (px), bornée à `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`. */
+  sidebarWidth: number;
+  /** Largeur de la liste des membres (px), bornée à `[MEMBERS_WIDTH_MIN, MEMBERS_WIDTH_MAX]`. */
+  membersWidth: number;
   setView: (view: View) => void;
   /** Bascule vers `view` et demande le saut vers `msgId` (recherche, épingle). */
   requestJump: (view: View, msgId: string) => void;
@@ -261,6 +300,14 @@ interface UiState {
   setNotifyDms: (enabled: boolean) => void;
   setNotifyGroups: (enabled: boolean) => void;
   setNotifyOnlyUnfocused: (enabled: boolean) => void;
+  /** Applique `width` bornée à `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`. */
+  setSidebarWidth: (width: number) => void;
+  /** Restaure `SIDEBAR_WIDTH_DEFAULT` (double-clic sur la poignée). */
+  resetSidebarWidth: () => void;
+  /** Applique `width` bornée à `[MEMBERS_WIDTH_MIN, MEMBERS_WIDTH_MAX]`. */
+  setMembersWidth: (width: number) => void;
+  /** Restaure `MEMBERS_WIDTH_DEFAULT` (double-clic sur la poignée). */
+  resetMembersWidth: () => void;
 }
 
 const TOAST_LIFETIME_MS = 5000;
@@ -292,6 +339,18 @@ export const useUi = create<UiState>((set) => {
     notifyOnlyUnfocused: initialBool(STORAGE_KEYS.notifyOnlyUnfocused, true),
     lastChannelByServer: loadLastChannelByServer(),
     lastDmPeer: loadLastDm(),
+    sidebarWidth: initialWidth(
+      STORAGE_KEYS.sidebarWidth,
+      SIDEBAR_WIDTH_DEFAULT,
+      SIDEBAR_WIDTH_MIN,
+      SIDEBAR_WIDTH_MAX,
+    ),
+    membersWidth: initialWidth(
+      STORAGE_KEYS.membersWidth,
+      MEMBERS_WIDTH_DEFAULT,
+      MEMBERS_WIDTH_MIN,
+      MEMBERS_WIDTH_MAX,
+    ),
 
     setView: (view) =>
       set((s) => ({ view, jump: null, profile: null, ...withNavMemory(s, view) })),
@@ -360,6 +419,25 @@ export const useUi = create<UiState>((set) => {
     setNotifyOnlyUnfocused: (enabled) => {
       writeStored(STORAGE_KEYS.notifyOnlyUnfocused, String(enabled));
       set({ notifyOnlyUnfocused: enabled });
+    },
+
+    setSidebarWidth: (width) => {
+      const clamped = clamp(width, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+      writeStored(STORAGE_KEYS.sidebarWidth, String(clamped));
+      set({ sidebarWidth: clamped });
+    },
+    resetSidebarWidth: () => {
+      writeStored(STORAGE_KEYS.sidebarWidth, String(SIDEBAR_WIDTH_DEFAULT));
+      set({ sidebarWidth: SIDEBAR_WIDTH_DEFAULT });
+    },
+    setMembersWidth: (width) => {
+      const clamped = clamp(width, MEMBERS_WIDTH_MIN, MEMBERS_WIDTH_MAX);
+      writeStored(STORAGE_KEYS.membersWidth, String(clamped));
+      set({ membersWidth: clamped });
+    },
+    resetMembersWidth: () => {
+      writeStored(STORAGE_KEYS.membersWidth, String(MEMBERS_WIDTH_DEFAULT));
+      set({ membersWidth: MEMBERS_WIDTH_DEFAULT });
     },
   };
 });

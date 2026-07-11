@@ -281,6 +281,7 @@ export const fr = {
     emojiCount: 'Émojis — {count}',
     emojiEmpty: 'Aucun émoji pour le moment.',
     emojiTooLarge: 'L’image dépasse la limite de 256 Kio.',
+    emojiAnimatedTooLarge: 'GIF animé trop lourd (max 256 Kio).',
     emojiInvalidImage:
       'Ce fichier n’est pas une image exploitable (PNG, JPEG, WebP, GIF).',
     emojiLimit: '50 émojis au maximum par serveur.',
@@ -474,7 +475,8 @@ export const fr = {
     pronounsSave: 'Enregistrer',
     pronounsSaved: 'Pronoms mis à jour !',
     colorsTitle: 'Couleurs du profil',
-    colorsHint: 'Personnalisez la couleur d’accent et la couleur de bannière de votre profil.',
+    colorsHint:
+      'Personnalisez la couleur d’accent et la couleur de bannière de votre profil.',
     accentColorLabel: 'Couleur d’accent',
     accentColorSaved: 'Couleur d’accent mise à jour !',
     bannerColorLabel: 'Couleur de bannière',
@@ -603,5 +605,9 @@ export const fr = {
     viewProfile: 'Voir le profil',
     markAsRead: 'Marquer comme lu',
     editChannel: 'Modifier le salon',
+  },
+  layout: {
+    resizeSidebar: 'Redimensionner la barre latérale',
+    resizeMembers: 'Redimensionner la liste des membres',
   },
 } as const;

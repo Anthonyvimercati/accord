@@ -19,12 +19,6 @@ export type Lang = 'fr' | 'en';
 
 export const dictionaries: Record<Lang, Dict> = { fr, en };
 
-/** Détecte la langue préférée du système (repli : anglais). */
-export function detectLang(): Lang {
-  const preferred = navigator.languages?.[0] ?? navigator.language ?? 'en';
-  return preferred.toLowerCase().startsWith('fr') ? 'fr' : 'en';
-}
-
 /** Interpole `{name}`-style placeholders dans un libellé. */
 export function interpolate(label: string, vars: Record<string, string>): string {
   return label.replace(/\{(\w+)\}/g, (_, key: string) => vars[key] ?? `{${key}}`);

@@ -286,7 +286,9 @@ function ChannelRow({
               const key = channelKey(groupId, channel.channel_id);
               const last = (useGroups.getState().messages[key] ?? []).at(-1);
               if (last !== undefined) {
-                await useGroups.getState().markRead(groupId, channel.channel_id, last.lamport);
+                await useGroups
+                  .getState()
+                  .markRead(groupId, channel.channel_id, last.lamport);
               }
             } catch {
               toast('error', t.errors.actionFailed);
@@ -307,7 +309,11 @@ function ChannelRow({
         icon: <DeleteMenuIcon />,
         danger: true,
         onClick: () => {
-          if (!window.confirm(interpolate(t.serveur.deleteChannelConfirm, { name: channel.name }))) {
+          if (
+            !window.confirm(
+              interpolate(t.serveur.deleteChannelConfirm, { name: channel.name }),
+            )
+          ) {
             return;
           }
           useGroups
@@ -334,7 +340,10 @@ function ChannelRow({
           : 'text-muted hover:bg-chat-hover hover:text-norm'
       }`}
     >
-      <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center text-faint">
+      <span
+        aria-hidden
+        className="flex h-4 w-4 shrink-0 items-center justify-center text-faint"
+      >
         <ChannelIcon kind={channel.kind} />
       </span>
       <span className="min-w-0 truncate">{channel.name}</span>
@@ -496,10 +505,14 @@ function GroupSidebar({ groupId }: { groupId: string }) {
 
 export function Sidebar() {
   const view = useUi((s) => s.view);
+  const sidebarWidth = useUi((s) => s.sidebarWidth);
   const [inboxOpen, setInboxOpen] = useState(false);
   const openInbox = (): void => setInboxOpen(true);
   return (
-    <aside className="flex h-full w-60 flex-col bg-sidebar">
+    <aside
+      className="flex h-full shrink-0 flex-col bg-sidebar"
+      style={{ width: sidebarWidth }}
+    >
       {view.kind === 'group' ? (
         <GroupSidebar groupId={view.groupId} />
       ) : (
