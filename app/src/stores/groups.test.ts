@@ -48,6 +48,9 @@ vi.mock('../lib/client', () => ({
     groupsSendSticker: vi.fn(),
     groupsSetMemberAvatar: vi.fn(),
     groupsSetBannerColor: vi.fn(),
+    groupsSendPoll: vi.fn(),
+    groupsPollVote: vi.fn(),
+    groupsPollClose: vi.fn(),
   },
 }));
 
@@ -56,6 +59,7 @@ import type {
   Contact,
   GroupEvent,
   GroupMessage,
+  GroupPoll,
   GroupRole,
   GroupStateJson,
   PendingInvite,
@@ -76,6 +80,8 @@ import {
   nicknameOf,
   overrideOf,
   planRoleMove,
+  pollOf,
+  pollResults,
   roleColorCss,
   serverAvatarOf,
   sortCategories,
@@ -125,6 +131,9 @@ const stickersRemoveMock = api.groupsStickersRemove as unknown as Mock;
 const sendStickerMock = api.groupsSendSticker as unknown as Mock;
 const setMemberAvatarMock = api.groupsSetMemberAvatar as unknown as Mock;
 const setBannerColorMock = api.groupsSetBannerColor as unknown as Mock;
+const sendPollMock = api.groupsSendPoll as unknown as Mock;
+const pollVoteMock = api.groupsPollVote as unknown as Mock;
+const pollCloseMock = api.groupsPollClose as unknown as Mock;
 const callMock = rpc.call as unknown as Mock;
 
 function role(id: string, position: number, color = 0): GroupRole {
@@ -212,6 +221,9 @@ beforeEach(() => {
     sendStickerMock,
     setMemberAvatarMock,
     setBannerColorMock,
+    sendPollMock,
+    pollVoteMock,
+    pollCloseMock,
     callMock,
   ]) {
     mock.mockReset();
@@ -1449,5 +1461,147 @@ describe('useGroups — jumpTo (saut au message)', () => {
 
     expect(found).toBe(false);
     expect(useGroups.getState().messages[key]).toBeUndefined();
+  });
+});
+
+function poll(over: Partial<GroupPoll> = {}): GroupPoll {
+  return {
+    poll_id: 'p1',
+    author: 'moi',
+    closed: false,
+    counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    total_votes: 0,
+    my_vote: null,
+    ...over,
+  };
+}
+
+describe('pollOf', () => {
+  it('retrouve le sondage par id', () => {
+    const state = groupState({ polls: [poll({ poll_id: 'a' }), poll({ poll_id: 'b' })] });
+    expect(pollOf(state, 'b')?.poll_id).toBe('b');
+  });
+
+  it('rend undefined si le sondage est absent de l’état', () => {
+    const state = groupState({ polls: [poll({ poll_id: 'a' })] });
+    expect(pollOf(state, 'inconnu')).toBeUndefined();
+  });
+
+  it('rend undefined sans état ni tableau polls', () => {
+    expect(pollOf(undefined, 'a')).toBeUndefined();
+    expect(pollOf(groupState(), 'a')).toBeUndefined();
+  });
+});
+
+describe('pollResults', () => {
+  it('clampe les décomptes au nombre RÉEL d’options — un vote fantôme hors bornes n’apparaît jamais', () => {
+    // 10 cases brutes (MAX_POLL_OPTIONS) mais seulement 3 options réelles :
+    // les votes forgés sur les index 3-9 doivent être ignorés à l'affichage.
+    const p = poll({
+      counts: [2, 1, 0, 99, 5, 0, 0, 0, 0, 0],
+      total_votes: 107,
+    });
+
+    const results = pollResults(p, 3);
+
+    expect(results.counts).toEqual([2, 1, 0]);
+    expect(results.total).toBe(3);
+    expect(results.percentages).toEqual([67, 33, 0]);
+  });
+
+  it('rend un dépouillement à zéro, de la bonne forme, quand le sondage est absent (état pas encore convergé)', () => {
+    const results = pollResults(undefined, 4);
+    expect(results.counts).toEqual([0, 0, 0, 0]);
+    expect(results.total).toBe(0);
+    expect(results.percentages).toEqual([0, 0, 0, 0]);
+    expect(results.myVote).toBeNull();
+  });
+
+  it('efface myVote si son index dépasse les options réelles (même défense que counts)', () => {
+    const p = poll({ counts: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], my_vote: 7, total_votes: 2 });
+    const results = pollResults(p, 2);
+    expect(results.myVote).toBeNull();
+  });
+
+  it('conserve myVote quand il pointe vers une option réelle', () => {
+    const p = poll({ counts: [1, 1, 0, 0, 0, 0, 0, 0, 0, 0], my_vote: 1, total_votes: 2 });
+    const results = pollResults(p, 3);
+    expect(results.myVote).toBe(1);
+  });
+});
+
+describe('useGroups — sondages (D-048)', () => {
+  it('sendPoll publie le sondage puis rafraîchit l’historique et l’état, et rend le poll_id', async () => {
+    sendPollMock.mockResolvedValueOnce({ msg_id: 'm1', poll_id: 'p1' });
+    callMock.mockResolvedValueOnce({ messages: [] });
+    stateMock.mockResolvedValueOnce(groupState({ polls: [poll()] }));
+
+    const pollId = await useGroups
+      .getState()
+      .sendPoll('g1', 'c1', 'Pizza ou sushis ?', ['Pizza', 'Sushis']);
+
+    expect(sendPollMock).toHaveBeenCalledWith('g1', 'c1', 'Pizza ou sushis ?', [
+      'Pizza',
+      'Sushis',
+    ]);
+    expect(stateMock).toHaveBeenCalledWith('g1');
+    expect(pollId).toBe('p1');
+  });
+
+  it('votePoll appelle groups.polls.vote et met à jour le dépouillement localement (optimiste)', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: groupState({ polls: [poll()] }) },
+    });
+    pollVoteMock.mockResolvedValueOnce({ ok: true });
+
+    await useGroups.getState().votePoll('g1', 'p1', 1);
+
+    expect(pollVoteMock).toHaveBeenCalledWith('g1', 'p1', 1);
+    const updated = useGroups.getState().states.g1?.polls?.[0];
+    expect(updated?.counts).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(updated?.my_vote).toBe(1);
+    expect(updated?.total_votes).toBe(1);
+  });
+
+  it('votePoll déplace le décompte quand on change de vote (pas d’accumulation)', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: groupState({
+          polls: [poll({ counts: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], my_vote: 0, total_votes: 1 })],
+        }),
+      },
+    });
+    pollVoteMock.mockResolvedValueOnce({ ok: true });
+
+    await useGroups.getState().votePoll('g1', 'p1', 1);
+
+    const updated = useGroups.getState().states.g1?.polls?.[0];
+    expect(updated?.counts).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(updated?.my_vote).toBe(1);
+    expect(updated?.total_votes).toBe(1);
+  });
+
+  it('votePoll restaure l’état et propage l’erreur si le nœud refuse', async () => {
+    const initial = groupState({ polls: [poll({ counts: [0, 0], total_votes: 0 })] });
+    useGroups.setState({ ids: ['g1'], states: { g1: initial } });
+    pollVoteMock.mockRejectedValueOnce(new Error('refusé : sondage clos'));
+
+    await expect(useGroups.getState().votePoll('g1', 'p1', 0)).rejects.toThrow(
+      'refusé : sondage clos',
+    );
+
+    expect(useGroups.getState().states.g1).toEqual(initial);
+  });
+
+  it('closePoll clôture le sondage puis recharge l’état', async () => {
+    pollCloseMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState({ polls: [poll({ closed: true })] }));
+
+    await useGroups.getState().closePoll('g1', 'p1');
+
+    expect(pollCloseMock).toHaveBeenCalledWith('g1', 'p1');
+    expect(stateMock).toHaveBeenCalledWith('g1');
   });
 });

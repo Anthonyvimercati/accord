@@ -15,6 +15,7 @@ import type {
   GroupEvent,
   GroupMember,
   GroupMessage,
+  GroupPoll,
   GroupRole,
   GroupStateJson,
   PendingInvite,
@@ -27,6 +28,7 @@ import {
   mergeRecentPage,
   sortAscending,
 } from '../lib/history';
+import { POLL_MAX_OPTIONS } from '../lib/poll';
 import { avatarOf, useFriends } from './friends';
 
 /** Clé d'index des historiques de salon (aussi comprise par lib/search). */
@@ -398,6 +400,58 @@ export function upcomingEvents(
   return sortEvents((state?.events ?? []).filter((e) => e.start_ms > now));
 }
 
+/**
+ * Sondage d'un groupe par son identifiant (`groups.state.polls`), ou
+ * `undefined` si l'état n'a pas encore convergé (sondage tout juste envoyé,
+ * `event.group_state` pas encore rejoué) — voir `pollResults` pour un repli
+ * sûr et toujours de la bonne forme.
+ */
+export function pollOf(
+  state: Pick<GroupStateJson, 'polls'> | undefined,
+  pollId: string,
+): GroupPoll | undefined {
+  return state?.polls?.find((p) => p.poll_id === pollId);
+}
+
+/** Dépouillement d'un sondage prêt à l'affichage (voir `pollResults`). */
+export interface PollResults {
+  /**
+   * Décomptes bornés au nombre RÉEL d'options du message — jamais les 10
+   * cases brutes de `GroupPoll.counts`. Un vote forgé sur un `option_index`
+   * hors bornes réelles (accepté structurellement au repli, D-048 §6.1)
+   * n'apparaît donc jamais dans une case affichée.
+   */
+  counts: number[];
+  /** Somme des décomptes réels seulement (ignore tout vote fantôme éventuellement compté dans `total_votes`). */
+  total: number;
+  /** Pourcentage entier par option réelle (0 sans aucun vote). */
+  percentages: number[];
+  /** Option votée localement, `null` si absente ou si son index dépasse les options réelles. */
+  myVote: number | null;
+}
+
+/**
+ * Dépouillement défensif d'un sondage : clampe `poll.counts` (toujours large
+ * de `MAX_POLL_OPTIONS`, quel que soit le nombre réel d'options du message)
+ * au nombre réel d'options (`optionCount`, tiré du corps du message, jamais
+ * de l'op-log). `poll` absent (état pas encore convergé) rend un
+ * dépouillement à zéro, toujours de la forme attendue par l'UI.
+ */
+export function pollResults(
+  poll: GroupPoll | undefined,
+  optionCount: number,
+): PollResults {
+  const safeCount = Math.max(0, Math.min(optionCount, POLL_MAX_OPTIONS));
+  const counts = Array.from({ length: safeCount }, (_, i) => poll?.counts[i] ?? 0);
+  const total = counts.reduce((sum, c) => sum + c, 0);
+  const percentages = counts.map((c) => (total > 0 ? Math.round((c / total) * 100) : 0));
+  const myVote =
+    poll?.my_vote !== undefined && poll.my_vote !== null && poll.my_vote < safeCount
+      ? poll.my_vote
+      : null;
+  return { counts, total, percentages, myVote };
+}
+
 /* ------------------------------------------------------------------ */
 /* Store.                                                              */
 /* ------------------------------------------------------------------ */
@@ -645,6 +699,25 @@ interface GroupsState {
   setBannerColor: (groupId: string, color: number | null) => Promise<void>;
   /** Envoie un sticker de serveur (message dédié) puis rafraîchit l'historique. */
   sendSticker: (groupId: string, channelId: string, name: string) => Promise<void>;
+  /**
+   * Envoie un sondage (message dédié, D-048) puis rafraîchit l'historique et
+   * l'état du groupe (le nœud enregistre `PollCreate` en même temps que le
+   * message). Rend l'identifiant du sondage fraîchement créé.
+   */
+  sendPoll: (
+    groupId: string,
+    channelId: string,
+    question: string,
+    options: string[],
+  ) => Promise<string>;
+  /**
+   * Vote (ou change son vote) sur un sondage — optimiste : `counts`/
+   * `my_vote`/`total_votes` mis à jour localement avant la réponse du nœud,
+   * restaurés en cas d'échec (même schéma que `rsvpEvent`).
+   */
+  votePoll: (groupId: string, pollId: string, optionIndex: number) => Promise<void>;
+  /** Clôture un sondage (auteur ou MANAGE_CHANNELS) puis recharge l'état. */
+  closePoll: (groupId: string, pollId: string) => Promise<void>;
 }
 
 export const useGroups = create<GroupsState>((set, get) => ({
@@ -1102,6 +1175,50 @@ export const useGroups = create<GroupsState>((set, get) => ({
   sendSticker: async (groupId, channelId, name) => {
     await api.groupsSendSticker(groupId, channelId, name);
     await get().refreshHistory(groupId, channelId);
+  },
+
+  sendPoll: async (groupId, channelId, question, options) => {
+    const { poll_id } = await api.groupsSendPoll(groupId, channelId, question, options);
+    // Le message (question/options) et l'état (PollCreate, dépouillement à
+    // zéro) sont deux sources distinctes — les deux doivent être rechargées.
+    await Promise.all([
+      get().refreshHistory(groupId, channelId),
+      get().loadState(groupId),
+    ]);
+    return poll_id;
+  },
+
+  votePoll: async (groupId, pollId, optionIndex) => {
+    const state = get().states[groupId];
+    const poll = state?.polls?.find((p) => p.poll_id === pollId);
+    if (state === undefined || poll === undefined) {
+      // État pas encore chargé/convergé pour ce sondage : vote à l'aveugle,
+      // aucun patch optimiste possible sans dépouillement de départ.
+      await api.groupsPollVote(groupId, pollId, optionIndex);
+      return;
+    }
+    if (poll.my_vote === optionIndex) return;
+    const counts = [...poll.counts];
+    if (poll.my_vote !== null) {
+      counts[poll.my_vote] = Math.max(0, (counts[poll.my_vote] ?? 0) - 1);
+    }
+    counts[optionIndex] = (counts[optionIndex] ?? 0) + 1;
+    const total_votes = poll.total_votes + (poll.my_vote === null ? 1 : 0);
+    const polls = (state.polls ?? []).map((p) =>
+      p.poll_id === pollId ? { ...p, counts, my_vote: optionIndex, total_votes } : p,
+    );
+    set((s) => ({ states: { ...s.states, [groupId]: { ...state, polls } } }));
+    try {
+      await api.groupsPollVote(groupId, pollId, optionIndex);
+    } catch (err) {
+      set((s) => ({ states: { ...s.states, [groupId]: state } }));
+      throw err;
+    }
+  },
+
+  closePoll: async (groupId, pollId) => {
+    await api.groupsPollClose(groupId, pollId);
+    await get().loadState(groupId);
   },
 }));
 

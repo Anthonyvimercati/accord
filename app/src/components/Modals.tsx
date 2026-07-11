@@ -6,7 +6,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Dict } from '../i18n';
+import { interpolate } from '../i18n';
 import type { GroupChannelKind } from '../lib/api';
+import {
+  estOptionSondageValide,
+  estQuestionSondageValide,
+  POLL_MAX_OPTIONS,
+  POLL_MAX_PAR_GROUPE,
+  POLL_MIN_OPTIONS,
+  POLL_OPTION_MAX,
+  POLL_QUESTION_MAX,
+  utf8ByteLength,
+} from '../lib/poll';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useUi, useT } from '../stores/ui';
@@ -14,6 +25,7 @@ import { Avatar } from './Avatar';
 import { ChannelIcon } from './Sidebar';
 import { CloseIcon } from './ContextMenu';
 import { EventsModal } from './EventsModal';
+import { messageOf } from './server/controls';
 import { ServerSettingsModal } from './server/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
 
@@ -339,6 +351,180 @@ function InviteModal({ groupId }: { groupId: string }) {
   );
 }
 
+/**
+ * Formulaire de création d'un sondage (`groups.send` étendu, D-048) :
+ * question (compteur d'octets UTF-8 en direct), 2 à 10 options (rangées
+ * ajoutables/retirables), Créer désactivé tant que les bornes du contrat ne
+ * sont pas respectées. Coquille propre (pas `ModalFrame`, sans défilement) —
+ * jusqu'à 10 options peut dépasser un petit viewport, même schéma flottant
+ * qu'`EventsModal`.
+ */
+function CreatePollModal({ groupId, channelId }: { groupId: string; channelId: string }) {
+  const t = useT();
+  const closeModal = useUi((s) => s.closeModal);
+  const sendPoll = useGroups((s) => s.sendPoll);
+  const pollCount = useGroups((s) => s.states[groupId]?.polls?.length ?? 0);
+  const [question, setQuestion] = useState('');
+  const [options, setOptions] = useState<string[]>(['', '']);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') closeModal();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [closeModal]);
+
+  // Indication client (la borne fait foi côté nœud, `APP_ERROR` sinon) : le
+  // décompte peut manquer côté état (nœud plus ancien) — on laisse alors
+  // passer, le nœud tranchera.
+  const atCap = pollCount >= POLL_MAX_PAR_GROUPE;
+  const trimmedQuestion = question.trim();
+  const trimmedOptions = options.map((o) => o.trim());
+  const canSubmit =
+    estQuestionSondageValide(trimmedQuestion) &&
+    trimmedOptions.length >= POLL_MIN_OPTIONS &&
+    trimmedOptions.every(estOptionSondageValide) &&
+    !atCap &&
+    !busy;
+
+  const updateOption = (index: number, value: string): void =>
+    setOptions((prev) => prev.map((o, i) => (i === index ? value : o)));
+  const addOption = (): void =>
+    setOptions((prev) => (prev.length >= POLL_MAX_OPTIONS ? prev : [...prev, '']));
+  const removeOption = (index: number): void =>
+    setOptions((prev) =>
+      prev.length <= POLL_MIN_OPTIONS ? prev : prev.filter((_, i) => i !== index),
+    );
+
+  const submit = async (): Promise<void> => {
+    if (!canSubmit) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sendPoll(groupId, channelId, trimmedQuestion, trimmedOptions);
+      closeModal();
+    } catch (e) {
+      setError(messageOf(e, t.errors.actionFailed));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-overlay-enter fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) closeModal();
+      }}
+    >
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.groups.pollCreateTitle}
+        className="glass modal-panel-enter flex max-h-[85vh] w-[440px] max-w-[92vw] flex-col overflow-hidden rounded-xl shadow-3"
+      >
+        <div className="flex items-center justify-between border-b border-input/50 p-5 pb-4">
+          <h2 className="text-lg font-semibold text-header">{t.groups.pollCreateTitle}</h2>
+          <button
+            type="button"
+            aria-label={t.app.close}
+            onClick={closeModal}
+            className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+          >
+            <CloseIcon size={20} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5 pt-4">
+          <label
+            htmlFor="poll-question"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-faint"
+          >
+            {t.groups.pollQuestionLabel}
+          </label>
+          <textarea
+            id="poll-question"
+            value={question}
+            rows={2}
+            maxLength={POLL_QUESTION_MAX + 20}
+            placeholder={t.groups.pollQuestionPlaceholder}
+            onChange={(e) => setQuestion(e.target.value)}
+            className="w-full resize-none rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+          />
+          <div className="mb-3 mt-1 text-right text-xs text-faint">
+            {utf8ByteLength(question)}/{POLL_QUESTION_MAX}
+          </div>
+          <div className="space-y-2">
+            {options.map((option, index) => (
+              <div key={index} className="flex items-center gap-2">
+                <input
+                  aria-label={interpolate(t.groups.pollOptionPlaceholder, {
+                    index: String(index + 1),
+                  })}
+                  placeholder={interpolate(t.groups.pollOptionPlaceholder, {
+                    index: String(index + 1),
+                  })}
+                  value={option}
+                  maxLength={POLL_OPTION_MAX + 20}
+                  onChange={(e) => updateOption(index, e.target.value)}
+                  className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+                />
+                {options.length > POLL_MIN_OPTIONS && (
+                  <button
+                    type="button"
+                    aria-label={interpolate(t.groups.pollRemoveOption, {
+                      index: String(index + 1),
+                    })}
+                    onClick={() => removeOption(index)}
+                    className="shrink-0 rounded-sm p-1.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                  >
+                    <CloseIcon size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          {options.length < POLL_MAX_OPTIONS && (
+            <button
+              type="button"
+              onClick={addOption}
+              className="mt-2 text-sm font-medium text-blurple transition-colors duration-fast hover:text-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+            >
+              + {t.groups.pollAddOption}
+            </button>
+          )}
+          {atCap && <p className="mt-3 text-xs text-faint">{t.groups.pollLimit}</p>}
+          {error !== null && (
+            <p className="mt-3 text-sm text-red" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="mt-4 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={closeModal}
+              className="rounded-sm px-4 py-2 text-sm font-medium text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+            >
+              {t.app.cancel}
+            </button>
+            <button
+              type="button"
+              disabled={!canSubmit}
+              onClick={() => void submit()}
+              className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50 active:scale-[0.98]"
+            >
+              {t.groups.pollCreateAction}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Modals() {
   const modal = useUi((s) => s.modal);
   if (modal === null) return null;
@@ -360,5 +546,7 @@ export function Modals() {
       );
     case 'events':
       return <EventsModal groupId={modal.groupId} />;
+    case 'createPoll':
+      return <CreatePollModal groupId={modal.groupId} channelId={modal.channelId} />;
   }
 }

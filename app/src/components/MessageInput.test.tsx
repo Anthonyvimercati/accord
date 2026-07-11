@@ -14,6 +14,7 @@ import type {
   VoiceRecorderResult,
   VoiceRecorderError,
 } from '../lib/voiceRecorder';
+import { useContextMenu } from '../stores/contextMenu';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
@@ -73,10 +74,11 @@ function dernierEnregistreur(): InstanceType<typeof FakeVoiceRecorder> {
 }
 
 beforeEach(() => {
-  useUi.setState({ lang: 'fr', toasts: [] });
+  useUi.setState({ lang: 'fr', toasts: [], modal: null });
   useGroups.setState({ states: {} });
   useFriends.setState({ contacts: [] });
   useSession.setState({ self: null });
+  useContextMenu.setState({ menu: null });
   shareMock.mockReset();
   FakeVoiceRecorder.instances = [];
 });
@@ -542,5 +544,77 @@ describe('MessageInput — message vocal', () => {
     unmount();
 
     expect(enregistreur.canceled).toBe(true);
+  });
+});
+
+describe('MessageInput — menu du trombone (Fichier / Sondage)', () => {
+  it('en message privé, ouvre directement le sélecteur de fichiers (aucun menu, aucun sondage)', () => {
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+    renderInput();
+
+    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+
+    expect(clickSpy).toHaveBeenCalled();
+    expect(useContextMenu.getState().menu).toBeNull();
+    clickSpy.mockRestore();
+  });
+
+  it('en salon de groupe, révèle un menu « Fichier » / « Sondage »', () => {
+    seedComposer({}, 'text');
+    render(
+      <MessageInput
+        placeholder="Écrire dans #salon"
+        onSend={vi.fn()}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+
+    const items = useContextMenu.getState().menu?.items ?? [];
+    expect(items.map((item) => item.label)).toEqual(['Fichier', 'Sondage']);
+  });
+
+  it('« Fichier » du menu ouvre le sélecteur de fichiers', () => {
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+    seedComposer({}, 'text');
+    render(
+      <MessageInput
+        placeholder="Écrire dans #salon"
+        onSend={vi.fn()}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+
+    const fileItem = useContextMenu.getState().menu?.items.find((i) => i.label === 'Fichier');
+    fileItem?.onClick();
+
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it('« Sondage » du menu ouvre la modale de création réservée au salon courant', () => {
+    seedComposer({}, 'text');
+    render(
+      <MessageInput
+        placeholder="Écrire dans #salon"
+        onSend={vi.fn()}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+
+    const pollItem = useContextMenu.getState().menu?.items.find((i) => i.label === 'Sondage');
+    pollItem?.onClick();
+
+    expect(useUi.getState().modal).toEqual({
+      kind: 'createPoll',
+      groupId: 'g1',
+      channelId: 'c1',
+    });
   });
 });

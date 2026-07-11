@@ -28,6 +28,7 @@ import { api } from '../lib/client';
 import { formatTimestamp, formatDuration, tailleLisible } from '../lib/format';
 import { VoiceRecorder, voiceFileName } from '../lib/voiceRecorder';
 import { useTypingEmitter, type TypingTarget } from '../hooks/useTypingEmitter';
+import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { isChannelReadOnly, sortRoles, timeoutUntil, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
@@ -64,6 +65,7 @@ export function MessageInput({
   const t = useT();
   const lang = useUi((s) => s.lang);
   const toast = useUi((s) => s.toast);
+  const openModal = useUi((s) => s.openModal);
   const mentionInsert = useUi((s) => s.mentionInsert);
   const clearMentionInsert = useUi((s) => s.clearMentionInsert);
   /** Signale la frappe au pair/salon (throttlé, best effort). */
@@ -323,6 +325,64 @@ export function MessageInput({
       .catch(() => setErreur(t.errors.sendFailed));
   };
 
+  /**
+   * Bouton trombone : ouvre directement le sélecteur de fichiers en MP (pas
+   * de sondage possible hors groupe). En salon de groupe, révèle un petit
+   * menu « Fichier » / « Sondage » (sondages réservés aux salons de groupe,
+   * D-048 — jamais proposés en MP) via le menu contextuel partagé
+   * (`.glass-strong`, navigation clavier déjà gérée par `ContextMenu`).
+   */
+  const openAttachMenu = (e: React.MouseEvent<HTMLButtonElement>): void => {
+    if (groupId === null || channelId === null) {
+      fileRef.current?.click();
+      return;
+    }
+    const r = e.currentTarget.getBoundingClientRect();
+    const items: ContextMenuItem[] = [
+      {
+        label: t.groups.pollMenuFile,
+        icon: (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+          </svg>
+        ),
+        onClick: () => fileRef.current?.click(),
+      },
+      {
+        label: t.groups.pollMenuPoll,
+        icon: (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <line x1="18" x2="18" y1="20" y2="10" />
+            <line x1="12" x2="12" y1="20" y2="4" />
+            <line x1="6" x2="6" y1="20" y2="14" />
+          </svg>
+        ),
+        onClick: () => openModal({ kind: 'createPoll', groupId, channelId }),
+      },
+    ];
+    useContextMenu.getState().openMenu(r.left, r.top, items);
+  };
+
   const selfMember =
     self !== null && groupState !== undefined
       ? groupState.members.find((m) => m.pubkey === self.pubkey)
@@ -483,7 +543,7 @@ export function MessageInput({
           aria-label={t.fichiers.joindre}
           title={t.fichiers.joindre}
           disabled={sending || recording}
-          onClick={() => fileRef.current?.click()}
+          onClick={openAttachMenu}
           className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
         >
           <svg

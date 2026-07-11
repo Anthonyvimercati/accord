@@ -88,6 +88,7 @@ export type MsgBody =
   | { type: 'delete'; target: string }
   | { type: 'reaction'; target: string; emoji: string; add: boolean }
   | { type: 'sticker'; name: string; merkle_root: string }
+  | { type: 'poll'; poll_id: string; question: string; options: string[] }
   | { type: 'meta' }
   | { type: 'unknown' };
 
@@ -286,6 +287,27 @@ export interface GroupEvent {
 }
 
 /**
+ * Dépouillement d'un sondage de salon (`groups.state.polls`, D-048) — la
+ * question et les options n'y voyagent jamais : elles vivent dans le message
+ * (`MsgBody::Poll`, kind 7, `groups.history`). `counts` est toujours large de
+ * `MAX_POLL_OPTIONS` (10), quel que soit le nombre réel d'options du
+ * sondage ; les cases au-delà du nombre réel restent à `0` de la part d'un
+ * pair honnête, mais un pair malveillant peut voter sur un `option_index`
+ * hors bornes réelles (accepté structurellement au repli) — une UI honnête
+ * clampe donc `counts` au nombre réel d'options avant affichage (voir
+ * `stores/groups.ts#pollResults`).
+ */
+export interface GroupPoll {
+  poll_id: string;
+  author: string;
+  closed: boolean;
+  counts: number[];
+  total_votes: number;
+  /** Option votée par l'appelant local, ou `null` s'il n'a pas voté. */
+  my_vote: number | null;
+}
+
+/**
  * Override de permissions d'un rôle sur un salon (`deny` prioritaire sur
  * `allow` ; un bit absent des deux masques est hérité).
  */
@@ -339,6 +361,11 @@ export interface GroupStateJson {
   stickers?: ServerSticker[];
   /** Événements planifiés du groupe (peut manquer, nœud plus ancien). */
   events?: GroupEvent[];
+  /**
+   * Sondages du groupe, dépouillement uniquement (peut manquer, nœud plus
+   * ancien) — question/options vivent dans le message (`groups.history`).
+   */
+  polls?: GroupPoll[];
 }
 
 /**
@@ -1319,6 +1346,52 @@ export class Api {
       group_id: groupId,
       channel_id: channelId,
       sticker,
+    });
+  }
+
+  /**
+   * Envoie un sondage de salon (`groups.send` étendu, D-048) : la question et
+   * les options voyagent dans le message ; `text`/`reply_to`/`attachments`/
+   * `sticker` toujours ignorés côté nœud dès que `poll` est fourni. Rend
+   * l'identifiant du message et celui du sondage fraîchement généré côté nœud.
+   */
+  groupsSendPoll(
+    groupId: string,
+    channelId: string,
+    question: string,
+    options: string[],
+  ): Promise<{ msg_id: string; poll_id: string }> {
+    return this.rpc.call('groups.send', {
+      group_id: groupId,
+      channel_id: channelId,
+      poll: { question, options },
+    });
+  }
+
+  /**
+   * Vote (ou change son vote) sur un sondage — choix unique, un second vote
+   * du même membre remplace le précédent (pas d'accumulation, D-048 §6.1).
+   */
+  groupsPollVote(
+    groupId: string,
+    pollId: string,
+    optionIndex: number,
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.polls.vote', {
+      group_id: groupId,
+      poll_id: pollId,
+      option_index: optionIndex,
+    });
+  }
+
+  /**
+   * Clôture un sondage (auteur du sondage ou `MANAGE_CHANNELS`) — idempotent,
+   * clore un sondage déjà clos ne change rien.
+   */
+  groupsPollClose(groupId: string, pollId: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.polls.close', {
+      group_id: groupId,
+      poll_id: pollId,
     });
   }
 

@@ -24,7 +24,7 @@ import {
 } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
-import { serverAvatarOf, useGroups } from '../stores/groups';
+import { hasPerm, PERMISSIONS, pollOf, serverAvatarOf, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover, type View } from '../stores/ui';
 import { AttachmentRow } from './Attachments';
@@ -43,7 +43,9 @@ import {
 import { ForwardPicker } from './ForwardPicker';
 import { MarkdownText } from './MarkdownText';
 import { MessageActions } from './MessageActions';
+import { PollCard } from './PollCard';
 import { ReactionRow } from './Reactions';
+import { messageOf } from './server/controls';
 import { StickerImage } from './StickerImage';
 
 export interface DisplayMessage {
@@ -316,6 +318,12 @@ export function MessageList({
     }
     return map;
   }, [groupMembers]);
+  // État complet du groupe (sondages, permissions) : nécessaire à la carte de
+  // sondage — la question/les options viennent du corps du message, le
+  // dépouillement en direct de `groups.state.polls`.
+  const groupState = useGroups((s) => (groupId !== null ? s.states[groupId] : undefined));
+  const votePoll = useGroups((s) => s.votePoll);
+  const closePoll = useGroups((s) => s.closePoll);
   /** Message en cours de transfert (null : aucun). */
   const [forwarding, setForwarding] = useState<DisplayMessage | null>(null);
 
@@ -381,6 +389,7 @@ export function MessageList({
       m.deleted ||
       m.body.type === 'text' ||
       m.body.type === 'sticker' ||
+      m.body.type === 'poll' ||
       m.body.type === 'unknown',
   );
 
@@ -643,10 +652,11 @@ export function MessageList({
             actions !== undefined &&
             !isEditing &&
             !m.deleted &&
-            (m.body.type === 'text' || m.body.type === 'sticker');
+            (m.body.type === 'text' || m.body.type === 'sticker' || m.body.type === 'poll');
           // Message sans texte (pièces jointes seules) : pas de corps vide.
           const hasAttachments = !m.deleted && (m.attachments?.length ?? 0) > 0;
           const corpsVide = !m.deleted && hasAttachments && displayText(m) === '';
+          const pollBody = !m.deleted && m.body.type === 'poll' ? m.body : null;
           const isOwn = self !== null && m.author === self.pubkey;
           const pinned = pinnedIds?.has(m.msg_id) ?? false;
           const delivery = deliveryOf(m);
@@ -819,6 +829,30 @@ export function MessageList({
                         hint={m.author}
                       />
                     </div>
+                  ) : pollBody !== null ? (
+                    <PollCard
+                      question={pollBody.question}
+                      options={pollBody.options}
+                      poll={pollOf(groupState, pollBody.poll_id)}
+                      resultsAvailable={groupState?.polls !== undefined}
+                      canClose={
+                        groupState !== undefined &&
+                        (isOwn ||
+                          hasPerm(groupState.my_permissions, PERMISSIONS.MANAGE_CHANNELS))
+                      }
+                      onVote={(optionIndex) => {
+                        if (groupId === null) return;
+                        votePoll(groupId, pollBody.poll_id, optionIndex).catch(() =>
+                          toast('error', t.errors.actionFailed),
+                        );
+                      }}
+                      onClose={() => {
+                        if (groupId === null) return;
+                        closePoll(groupId, pollBody.poll_id).catch((e: unknown) =>
+                          toast('error', messageOf(e, t.errors.actionFailed)),
+                        );
+                      }}
+                    />
                   ) : (
                     !corpsVide && (
                       <div className="leading-6 text-norm">

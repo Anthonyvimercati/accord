@@ -13,7 +13,7 @@ import {
   type DisplayMessage,
   type MessageListActions,
 } from './MessageList';
-import type { Contact, GroupStateJson } from '../lib/api';
+import type { Contact, GroupPoll, GroupStateJson } from '../lib/api';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
@@ -22,9 +22,22 @@ import { useUi } from '../stores/ui';
 
 vi.mock('../lib/files', () => ({ lireFichier: vi.fn() }));
 
+vi.mock('../lib/client', () => ({
+  rpc: { call: vi.fn(), onEvent: vi.fn(() => () => {}), onStatus: vi.fn(() => () => {}) },
+  api: {
+    groupsPollVote: vi.fn(() => Promise.resolve({ ok: true })),
+    groupsPollClose: vi.fn(() => Promise.resolve({ ok: true })),
+    groupsState: vi.fn(() => Promise.resolve(undefined)),
+  },
+}));
+
 import { lireFichier } from '../lib/files';
+import { api } from '../lib/client';
 
 const lireMock = lireFichier as unknown as Mock;
+const pollVoteMock = api.groupsPollVote as unknown as Mock;
+const pollCloseMock = api.groupsPollClose as unknown as Mock;
+const pollStateMock = api.groupsState as unknown as Mock;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BASE_MS = new Date('2026-07-08T10:00:00').getTime();
@@ -74,6 +87,9 @@ beforeEach(() => {
   useFriends.setState({ contacts: [] });
   useGroups.setState({ ids: [], states: {} });
   lireMock.mockReset();
+  pollVoteMock.mockReset().mockResolvedValue({ ok: true });
+  pollCloseMock.mockReset().mockResolvedValue({ ok: true });
+  pollStateMock.mockReset().mockResolvedValue(undefined);
 });
 
 describe('messageLink', () => {
@@ -704,5 +720,149 @@ describe('MessageList — pseudos de serveur', () => {
     render(<MessageList messages={[textMsg('m1', BASE_MS, 'coucou')]} groupId="g1" />);
 
     expect(screen.getByText('GlobalAlice')).toBeInTheDocument();
+  });
+});
+
+describe('MessageList — sondage (MsgBody kind 7, D-048)', () => {
+  function pollGroupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
+    return {
+      group_id: 'g1',
+      name: 'G',
+      icon: null,
+      founder: null,
+      members: [{ pubkey: 'aabbccddee', roles: [] }],
+      bans: [],
+      channels: [],
+      categories: [],
+      roles: [],
+      invites: [],
+      my_permissions: 0,
+      ...over,
+    };
+  }
+
+  function pollTally(over: Partial<GroupPoll> = {}): GroupPoll {
+    return {
+      poll_id: 'p1',
+      author: 'aabbccddee',
+      closed: false,
+      counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      total_votes: 0,
+      my_vote: null,
+      ...over,
+    };
+  }
+
+  function pollMsg(id: string, sentMs: number, extra: Partial<DisplayMessage> = {}): DisplayMessage {
+    return {
+      msg_id: id,
+      author: 'aabbccddee',
+      sent_ms: sentMs,
+      deleted: false,
+      body: {
+        type: 'poll',
+        poll_id: 'p1',
+        question: 'Pizza ou sushis ?',
+        options: ['Pizza', 'Sushis'],
+      },
+      edited: null,
+      ...extra,
+    };
+  }
+
+  it('affiche la question et les options, votable à zéro sans entrée d’état encore convergée', () => {
+    useGroups.setState({ states: { g1: pollGroupState({ polls: [] }) } });
+
+    render(<MessageList messages={[pollMsg('m1', BASE_MS)]} groupId="g1" />);
+
+    expect(screen.getByText('Pizza ou sushis ?')).toBeInTheDocument();
+    expect(screen.getByLabelText('Voter pour Pizza')).toBeEnabled();
+    expect(screen.getByText('0 vote(s)')).toBeInTheDocument();
+  });
+
+  it('désactive le vote et affiche « Résultats indisponibles » quand `polls` est absent de l’état', () => {
+    useGroups.setState({ states: { g1: pollGroupState() } }); // pas de champ `polls`
+
+    render(<MessageList messages={[pollMsg('m1', BASE_MS)]} groupId="g1" />);
+
+    expect(screen.getByText('Résultats indisponibles')).toBeInTheDocument();
+    expect(screen.getByLabelText('Voter pour Pizza')).toBeDisabled();
+  });
+
+  it('un clic sur une option appelle groups.polls.vote (RPC) et met à jour l’affichage (optimiste)', async () => {
+    useGroups.setState({ states: { g1: pollGroupState({ polls: [pollTally()] }) } });
+
+    render(<MessageList messages={[pollMsg('m1', BASE_MS)]} groupId="g1" />);
+    fireEvent.click(screen.getByLabelText('Voter pour Sushis'));
+
+    expect(pollVoteMock).toHaveBeenCalledWith('g1', 'p1', 1);
+    await waitFor(() => {
+      expect(screen.getByText('1 vote(s)')).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Voter pour Sushis')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('un sondage clos désactive le vote et affiche « Sondage fermé »', () => {
+    useGroups.setState({
+      states: {
+        g1: pollGroupState({
+          polls: [pollTally({ closed: true, counts: [1, 0], total_votes: 1, my_vote: 0 })],
+        }),
+      },
+    });
+
+    render(<MessageList messages={[pollMsg('m1', BASE_MS)]} groupId="g1" />);
+
+    expect(screen.getByLabelText('Voter pour Pizza')).toBeDisabled();
+    expect(screen.getByText('Sondage fermé')).toBeInTheDocument();
+  });
+
+  it('propose la fermeture à l’auteur du sondage', () => {
+    useSession.setState({ self: { ...SELF, pubkey: 'aabbccddee' } });
+    useGroups.setState({
+      states: { g1: pollGroupState({ my_permissions: 0, polls: [pollTally()] }) },
+    });
+
+    render(<MessageList messages={[pollMsg('m1', BASE_MS)]} groupId="g1" />);
+
+    expect(screen.getByText('Fermer le sondage')).toBeInTheDocument();
+  });
+
+  it('propose la fermeture à un porteur de MANAGE_CHANNELS même sans être l’auteur', () => {
+    useSession.setState({ self: { ...SELF, pubkey: 'moderateur' } });
+    useGroups.setState({
+      states: { g1: pollGroupState({ my_permissions: 0x8, polls: [pollTally()] }) },
+    });
+
+    render(<MessageList messages={[pollMsg('m1', BASE_MS)]} groupId="g1" />);
+
+    expect(screen.getByText('Fermer le sondage')).toBeInTheDocument();
+  });
+
+  it('masque la fermeture pour un membre ni auteur ni MANAGE_CHANNELS', () => {
+    useSession.setState({ self: { ...SELF, pubkey: 'quelquun-dautre' } });
+    useGroups.setState({
+      states: { g1: pollGroupState({ my_permissions: 0, polls: [pollTally()] }) },
+    });
+
+    render(<MessageList messages={[pollMsg('m1', BASE_MS)]} groupId="g1" />);
+
+    expect(screen.queryByText('Fermer le sondage')).not.toBeInTheDocument();
+  });
+
+  it('confirme puis appelle groups.polls.close au clic sur Fermer', async () => {
+    useSession.setState({ self: { ...SELF, pubkey: 'aabbccddee' } });
+    useGroups.setState({
+      states: { g1: pollGroupState({ my_permissions: 0, polls: [pollTally()] }) },
+    });
+
+    render(<MessageList messages={[pollMsg('m1', BASE_MS)]} groupId="g1" />);
+    fireEvent.click(screen.getByText('Fermer le sondage'));
+    fireEvent.click(screen.getByText('Confirmer'));
+
+    await waitFor(() => expect(pollCloseMock).toHaveBeenCalledWith('g1', 'p1'));
   });
 });
