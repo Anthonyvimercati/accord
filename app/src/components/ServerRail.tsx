@@ -505,6 +505,28 @@ export function ServerRail() {
           <path d="M12 5v14" />
         </svg>
       </RailButton>
+
+      <RailButton
+        label={t.joinServer.railLabel}
+        active={false}
+        onClick={() => openModal({ kind: 'joinServer' })}
+      >
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+          <path d="M10 17l5-5-5-5" />
+          <path d="M15 12H3" />
+        </svg>
+      </RailButton>
     </nav>
   );
 }

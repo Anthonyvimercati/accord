@@ -27,6 +27,7 @@ export type Modal =
   | { kind: 'createGroup' }
   | { kind: 'createChannel'; groupId: string }
   | { kind: 'invite'; groupId: string }
+  | { kind: 'joinServer' }
   | { kind: 'settings' }
   | {
       kind: 'serverSettings';

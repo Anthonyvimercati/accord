@@ -1441,6 +1441,33 @@ export class Api {
     return this.rpc.call('groups.invite_create', { group_id: groupId, pubkey });
   }
 
+  /**
+   * Crée un lien d'invitation partageable (`accord://invite/…`) pour ce groupe.
+   * `maxUses` absent ou `0` = illimité ; `expiresH` absent = 7 jours, `0` =
+   * jamais. Rend le code à copier/partager.
+   */
+  groupsInviteLinkCreate(
+    groupId: string,
+    maxUses?: number,
+    expiresH?: number,
+  ): Promise<{ code: string }> {
+    return this.rpc.call('groups.invite_link_create', {
+      group_id: groupId,
+      ...(maxUses !== undefined ? { max_uses: maxUses } : {}),
+      ...(expiresH !== undefined ? { expires_h: expiresH } : {}),
+    });
+  }
+
+  /**
+   * Consomme un lien d'invitation partageable : rejoint le groupe si le code
+   * est valide. Rend l'identifiant et le nom du groupe rejoint.
+   */
+  groupsInviteLinkRedeem(
+    code: string,
+  ): Promise<{ ok: boolean; group_id: string; group_name: string }> {
+    return this.rpc.call('groups.invite_link_redeem', { code });
+  }
+
   /** Invitations entrantes en attente (reçues, ni acceptées ni refusées). */
   groupsInvitesList(): Promise<{ invites: PendingInvite[] }> {
     return this.rpc.call('groups.invites_list');

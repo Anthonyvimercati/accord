@@ -8,6 +8,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Dict } from '../i18n';
 import { interpolate } from '../i18n';
 import type { GroupChannelKind } from '../lib/api';
+import { api } from '../lib/client';
+import { copyToClipboard } from '../lib/clipboard';
 import {
   estOptionSondageValide,
   estQuestionSondageValide,
@@ -25,6 +27,7 @@ import { Avatar } from './Avatar';
 import { ChannelIcon } from './Sidebar';
 import { CloseIcon } from './ContextMenu';
 import { EventsModal } from './EventsModal';
+import { JoinServerModal } from './JoinServerModal';
 import { messageOf } from './server/controls';
 import { ServerSettingsModal } from './server/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
@@ -49,7 +52,33 @@ const QUICK_CHANNEL_KINDS: Array<{
   },
 ];
 
-function ModalFrame({
+/**
+ * Options du sélecteur « nombre d'utilisations » d'un lien partageable —
+ * `value` est le `max_uses` du contrat (`0` = illimité).
+ */
+const INVITE_LINK_USES: Array<{ value: number; label: (t: Dict) => string }> = [
+  { value: 1, label: (t) => t.inviteLink.uses1 },
+  { value: 5, label: (t) => t.inviteLink.uses5 },
+  { value: 10, label: (t) => t.inviteLink.uses10 },
+  { value: 25, label: (t) => t.inviteLink.uses25 },
+  { value: 0, label: (t) => t.inviteLink.usesUnlimited },
+];
+
+/**
+ * Options du sélecteur « durée de validité » — `value` est le `expires_h` du
+ * contrat en heures (`0` = jamais).
+ */
+const INVITE_LINK_DURATIONS: Array<{ value: number; label: (t: Dict) => string }> = [
+  { value: 0.5, label: (t) => t.inviteLink.dur30m },
+  { value: 1, label: (t) => t.inviteLink.dur1h },
+  { value: 6, label: (t) => t.inviteLink.dur6h },
+  { value: 12, label: (t) => t.inviteLink.dur12h },
+  { value: 24, label: (t) => t.inviteLink.dur1d },
+  { value: 168, label: (t) => t.inviteLink.dur7d },
+  { value: 0, label: (t) => t.inviteLink.durNever },
+];
+
+export function ModalFrame({
   title,
   hint,
   children,
@@ -294,6 +323,113 @@ function CreateChannelModal({ groupId }: { groupId: string }) {
   );
 }
 
+/**
+ * Section « lien d'invitation partageable » : deux sélecteurs (usages, durée)
+ * et un bouton qui crée un code `accord://invite/…` via `invite_link_create`,
+ * affiché en lecture seule avec un bouton « Copier ». Autonome (son propre
+ * état local), rendue sous la liste d'amis d'`InviteModal`.
+ */
+function ShareableLinkSection({ groupId }: { groupId: string }) {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+  const [maxUses, setMaxUses] = useState(0);
+  const [expiresH, setExpiresH] = useState(168);
+  const [code, setCode] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const createLink = (): void => {
+    setBusy(true);
+    api
+      .groupsInviteLinkCreate(groupId, maxUses, expiresH)
+      .then((res) => {
+        setCode(res.code);
+        setBusy(false);
+      })
+      .catch(() => {
+        toast('error', t.errors.actionFailed);
+        setBusy(false);
+      });
+  };
+
+  const copyCode = (): void => {
+    if (code === null) return;
+    copyToClipboard(
+      code,
+      () => toast('info', t.app.copied),
+      () => toast('error', t.errors.actionFailed),
+    );
+  };
+
+  const selectClass =
+    'w-full rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm outline-none transition-colors duration-fast focus:border-blurple/50';
+  const labelClass = 'mb-1 block text-xs font-medium uppercase tracking-wide text-faint';
+
+  return (
+    <div className="mt-4 border-t border-input/50 pt-4">
+      <h3 className="text-sm font-semibold text-header">{t.inviteLink.title}</h3>
+      <p className="mt-1 text-xs text-muted">{t.inviteLink.hint}</p>
+      <div className="mt-3 flex gap-2">
+        <label className="min-w-0 flex-1">
+          <span className={labelClass}>{t.inviteLink.usesLabel}</span>
+          <select
+            aria-label={t.inviteLink.usesLabel}
+            value={maxUses}
+            onChange={(e) => setMaxUses(Number(e.target.value))}
+            className={selectClass}
+          >
+            {INVITE_LINK_USES.map((u) => (
+              <option key={u.value} value={u.value}>
+                {u.label(t)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-0 flex-1">
+          <span className={labelClass}>{t.inviteLink.durationLabel}</span>
+          <select
+            aria-label={t.inviteLink.durationLabel}
+            value={expiresH}
+            onChange={(e) => setExpiresH(Number(e.target.value))}
+            className={selectClass}
+          >
+            {INVITE_LINK_DURATIONS.map((d) => (
+              <option key={d.value} value={d.value}>
+                {d.label(t)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={createLink}
+        className="mt-3 w-full rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50 active:scale-[0.98]"
+      >
+        {busy ? t.inviteLink.creating : t.inviteLink.create}
+      </button>
+      {code !== null && (
+        <div className="mt-3 flex gap-2">
+          <input
+            readOnly
+            aria-label={t.inviteLink.codeLabel}
+            value={code}
+            onFocus={(e) => e.currentTarget.select()}
+            className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm outline-none"
+          />
+          <button
+            type="button"
+            onClick={copyCode}
+            className="shrink-0 rounded-lg border border-blurple px-3 py-2 text-sm font-medium text-blurple transition-colors duration-fast hover:bg-blurple hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+          >
+            {t.app.copy}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InviteModal({ groupId }: { groupId: string }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
@@ -347,6 +483,7 @@ function InviteModal({ groupId }: { groupId: string }) {
           </div>
         ))}
       </div>
+      <ShareableLinkSection groupId={groupId} />
     </ModalFrame>
   );
 }
@@ -535,6 +672,8 @@ export function Modals() {
       return <CreateChannelModal groupId={modal.groupId} />;
     case 'invite':
       return <InviteModal groupId={modal.groupId} />;
+    case 'joinServer':
+      return <JoinServerModal />;
     case 'settings':
       return <SettingsModal />;
     case 'serverSettings':
