@@ -4,6 +4,7 @@ use super::*;
 use crate::hex;
 use crate::outbound::OutboundSink;
 use accord_core::db::Db;
+use accord_core::group::state::MAX_POLLS;
 use accord_crypto::Identity;
 use accord_proto::core_msg::{CoreMsg, MsgBody};
 use serde_json::json;
@@ -923,6 +924,7 @@ async fn group_state_enriched_exact_shape() {
             "my_permissions",
             "name",
             "overrides",
+            "polls",
             "roles",
             "stickers"
         ]
@@ -936,6 +938,7 @@ async fn group_state_enriched_exact_shape() {
     assert_eq!(state["emojis"], json!([]));
     assert_eq!(state["stickers"], json!([]));
     assert_eq!(state["events"], json!([]));
+    assert_eq!(state["polls"], json!([]));
     let me = s.call("identity.self", json!({})).await.unwrap();
     assert_eq!(
         state["members"],
@@ -2054,6 +2057,396 @@ async fn group_events_create_validates_at_boundary() {
         .await
         .unwrap();
     assert!(created["event_id"].as_str().is_some());
+}
+
+// ---- Sondages (D-048) ----
+
+#[tokio::test]
+async fn group_polls_send_vote_close_and_state_shape() {
+    let (s, gid) = service_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+
+    let sent = s
+        .call(
+            "groups.send",
+            json!({
+                "group_id": gid,
+                "channel_id": cid,
+                "poll": {
+                    "question": "Pizza ou sushis ?",
+                    "options": ["Pizza", "Sushis", "Les deux"],
+                },
+            }),
+        )
+        .await
+        .unwrap();
+    let msg_id = sent["msg_id"].as_str().unwrap().to_string();
+    let poll_id = sent["poll_id"].as_str().unwrap().to_string();
+    assert_eq!(msg_id.len(), 32);
+    assert_eq!(poll_id.len(), 32);
+
+    // The question/options travel in the message body, content-addressed
+    // to `poll_id`.
+    let hist = s
+        .call(
+            "groups.history",
+            json!({"group_id": gid, "channel_id": cid}),
+        )
+        .await
+        .unwrap();
+    let messages = hist["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["msg_id"], json!(msg_id));
+    assert_eq!(
+        messages[0]["body"],
+        json!({
+            "type": "poll",
+            "poll_id": poll_id,
+            "question": "Pizza ou sushis ?",
+            "options": ["Pizza", "Sushis", "Les deux"],
+        })
+    );
+
+    // The live tally is registered separately in `groups.state`.
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let polls = state["polls"].as_array().unwrap();
+    assert_eq!(polls.len(), 1);
+    let me = s.call("identity.self", json!({})).await.unwrap();
+    assert_eq!(polls[0]["poll_id"], json!(poll_id));
+    assert_eq!(polls[0]["author"], me["pubkey"]);
+    assert_eq!(polls[0]["closed"], json!(false));
+    assert_eq!(polls[0]["total_votes"], json!(0));
+    assert!(polls[0]["my_vote"].is_null());
+    assert_eq!(polls[0]["counts"], json!([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+
+    // Vote for option 1 ("Sushis").
+    s.call(
+        "groups.polls.vote",
+        json!({"group_id": gid, "poll_id": poll_id, "option_index": 1}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let poll = &state["polls"][0];
+    assert_eq!(poll["total_votes"], json!(1));
+    assert_eq!(poll["my_vote"], json!(1));
+    assert_eq!(poll["counts"], json!([0, 1, 0, 0, 0, 0, 0, 0, 0, 0]));
+
+    // Single choice: voting again for a different option replaces the
+    // earlier vote rather than accumulating.
+    s.call(
+        "groups.polls.vote",
+        json!({"group_id": gid, "poll_id": poll_id, "option_index": 2}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let poll = &state["polls"][0];
+    assert_eq!(poll["total_votes"], json!(1));
+    assert_eq!(poll["my_vote"], json!(2));
+    assert_eq!(poll["counts"], json!([0, 0, 1, 0, 0, 0, 0, 0, 0, 0]));
+
+    // Close: further votes are ignored once closed.
+    s.call(
+        "groups.polls.close",
+        json!({"group_id": gid, "poll_id": poll_id}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["polls"][0]["closed"], json!(true));
+
+    let err = s
+        .call(
+            "groups.polls.vote",
+            json!({"group_id": gid, "poll_id": poll_id, "option_index": 0}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
+    // The tally is unaffected by the rejected vote.
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(
+        state["polls"][0]["counts"],
+        json!([0, 0, 1, 0, 0, 0, 0, 0, 0, 0])
+    );
+}
+
+#[tokio::test]
+async fn group_polls_send_validates_at_boundary() {
+    let (s, gid) = service_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+
+    // Empty question.
+    let err = s
+        .call(
+            "groups.send",
+            json!({
+                "group_id": gid,
+                "channel_id": cid,
+                "poll": {"question": "", "options": ["A", "B"]},
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // Only one option (below the minimum of 2).
+    let err = s
+        .call(
+            "groups.send",
+            json!({
+                "group_id": gid,
+                "channel_id": cid,
+                "poll": {"question": "Une seule option ?", "options": ["A"]},
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // Eleven options (above the maximum of 10).
+    let too_many: Vec<String> = (0..11).map(|i| format!("Option {i}")).collect();
+    let err = s
+        .call(
+            "groups.send",
+            json!({
+                "group_id": gid,
+                "channel_id": cid,
+                "poll": {"question": "Trop d'options ?", "options": too_many},
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // An empty option among otherwise-valid ones.
+    let err = s
+        .call(
+            "groups.send",
+            json!({
+                "group_id": gid,
+                "channel_id": cid,
+                "poll": {"question": "Valide ?", "options": ["Valide", ""]},
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+#[tokio::test]
+async fn group_polls_vote_rejects_unknown_poll_and_out_of_range_option() {
+    let (s, gid) = service_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+    let sent = s
+        .call(
+            "groups.send",
+            json!({
+                "group_id": gid,
+                "channel_id": cid,
+                "poll": {"question": "Ça marche ?", "options": ["Oui", "Non"]},
+            }),
+        )
+        .await
+        .unwrap();
+    let poll_id = sent["poll_id"].as_str().unwrap().to_string();
+
+    // Unknown poll_id: rejected at fold, surfaced as an app error.
+    let err = s
+        .call(
+            "groups.polls.vote",
+            json!({"group_id": gid, "poll_id": "ee".repeat(16), "option_index": 0}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
+
+    // Structurally out-of-range option_index (>= MAX_POLL_OPTIONS = 10) is
+    // also rejected at fold, never silently clamped.
+    let err = s
+        .call(
+            "groups.polls.vote",
+            json!({"group_id": gid, "poll_id": poll_id, "option_index": 250}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
+
+    // Closing an unknown poll is likewise rejected.
+    let err = s
+        .call(
+            "groups.polls.close",
+            json!({"group_id": gid, "poll_id": "ee".repeat(16)}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
+}
+
+/// D-048 fix HIGH-1 : `groups.polls.delete` removes a poll from
+/// `groups.state`, deleting an unknown poll is an `APP_ERROR`, and deleting
+/// enough polls recovers exactly the `MAX_POLLS` slots consumed — end-to-end
+/// through the RPC layer (permission matrix itself is exhaustively covered
+/// at the fold level, `accord_core::group::state::tests`).
+#[tokio::test]
+async fn group_polls_delete_recovers_cap() {
+    let (s, gid) = service_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+
+    // Deleting an unknown poll is an app error.
+    let err = s
+        .call(
+            "groups.polls.delete",
+            json!({"group_id": gid, "poll_id": "ee".repeat(16)}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
+
+    // Fill the group up to MAX_POLLS.
+    let mut poll_ids = Vec::with_capacity(MAX_POLLS);
+    for i in 0..MAX_POLLS {
+        let sent = s
+            .call(
+                "groups.send",
+                json!({
+                    "group_id": gid,
+                    "channel_id": cid,
+                    "poll": {"question": format!("Sondage {i} ?"), "options": ["A", "B"]},
+                }),
+            )
+            .await
+            .unwrap();
+        poll_ids.push(sent["poll_id"].as_str().unwrap().to_string());
+    }
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["polls"].as_array().unwrap().len(), MAX_POLLS);
+
+    // At cap: one more send is refused, and it did not consume a slot nor
+    // post a message (op-first ordering — asserted via state, not sleeps).
+    let hist_before = s
+        .call(
+            "groups.history",
+            json!({"group_id": gid, "channel_id": cid}),
+        )
+        .await
+        .unwrap();
+    let count_before = hist_before["messages"].as_array().unwrap().len();
+    let err = s
+        .call(
+            "groups.send",
+            json!({
+                "group_id": gid,
+                "channel_id": cid,
+                "poll": {"question": "Un de trop ?", "options": ["A", "B"]},
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(
+        state["polls"].as_array().unwrap().len(),
+        MAX_POLLS,
+        "cap unchanged after a refused send"
+    );
+    let hist_after = s
+        .call(
+            "groups.history",
+            json!({"group_id": gid, "channel_id": cid}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        hist_after["messages"].as_array().unwrap().len(),
+        count_before,
+        "no message broadcast/persisted for the refused send"
+    );
+
+    // Delete one poll: the cap recovers exactly one slot.
+    s.call(
+        "groups.polls.delete",
+        json!({"group_id": gid, "poll_id": poll_ids[0]}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["polls"].as_array().unwrap().len(), MAX_POLLS - 1);
+    assert!(state["polls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["poll_id"] != json!(poll_ids[0])));
+
+    // The recovered slot can now be spent again.
+    s.call(
+        "groups.send",
+        json!({
+            "group_id": gid,
+            "channel_id": cid,
+            "poll": {"question": "Recyclé ?", "options": ["A", "B"]},
+        }),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["polls"].as_array().unwrap().len(), MAX_POLLS);
 }
 
 // ---- Avatar de serveur (D-047, self-service uniquement) ----

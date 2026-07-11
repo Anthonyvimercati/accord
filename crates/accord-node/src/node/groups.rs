@@ -858,6 +858,106 @@ impl Node {
         Ok(fired_count)
     }
 
+    // ---- Sondages (D-048) ----
+
+    /// Poste un sondage dans un salon : enregistre d'abord son dépouillement
+    /// dans l'op-log (`PollCreate`) pour que tous les pairs convergent sur
+    /// qui peut voter/clore et sur le message canonique auquel `poll_id` est
+    /// lié, PUIS compose et diffuse le message `MsgBody::Poll` (question/
+    /// options) qui l'accompagne. Gated sur `VIEW`+`SEND` effectifs dans le
+    /// salon, vérifié à l'émission de l'op comme à son rejeu (même porte que
+    /// [`accord_core::group::compose_group_poll`]/`require_send`). Rend
+    /// `(msg_id, poll_id)` en hexadécimal.
+    ///
+    /// Ordre op-first (D-048 fix MEDIUM) : `poll_id`/`msg_id` sont générés
+    /// d'abord, puis l'op `PollCreate { poll_id, channel_id, msg_id }` est
+    /// authored et confirmée avant toute composition ou diffusion du
+    /// message — si elle est refusée (plafond `MAX_POLLS` atteint, ou droit
+    /// d'écriture refusé au rejeu), **rien n'est composé ni envoyé** :
+    /// impossible d'obtenir un message posté qui référence un sondage
+    /// inconnu de l'op-log (c'était l'inverse avant ce correctif, le message
+    /// partait avant l'enregistrement). Dans le sens opposé — l'op réussit
+    /// mais la composition échoue ensuite (texte hors bornes, sourdine
+    /// entre-temps) — l'emplacement `MAX_POLLS` reste consommé sans message
+    /// visible ; récupérable via `group_poll_delete`.
+    pub fn group_send_poll(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        question: &str,
+        options: Vec<String>,
+    ) -> Result<(String, String), NodeError> {
+        let poll_id = group::new_id16();
+        let msg_id = group::new_id16();
+        self.group_author(
+            group_id,
+            GroupOpBody::PollCreate {
+                poll_id,
+                channel_id: *channel_id,
+                msg_id,
+            },
+        )?;
+        let msg = self.with_db(|db| {
+            Ok(group::compose_group_poll(
+                db,
+                &self.identity,
+                group_id,
+                channel_id,
+                poll_id,
+                msg_id,
+                question,
+                options,
+                now_ms(),
+            )?)
+        })?;
+        self.outbound.send(Outbound::GroupCast {
+            group_id: *group_id,
+            msg: Box::new(msg),
+        });
+        Ok((hex::encode(&msg_id), hex::encode(&poll_id)))
+    }
+
+    /// Supprime un sondage (auteur ou porteur de `MANAGE_CHANNELS`, vérifié
+    /// au rejeu — mirrors [`Node::group_event_delete`] exactement). Libère
+    /// l'emplacement compté par `MAX_POLLS` : seul moyen de récupérer un
+    /// emplacement une fois un sondage créé.
+    pub fn group_poll_delete(
+        &self,
+        group_id: &[u8; 16],
+        poll_id: &[u8; 16],
+    ) -> Result<(), NodeError> {
+        self.group_author(group_id, GroupOpBody::PollDelete { poll_id: *poll_id })
+    }
+
+    /// Vote (ou change son vote unique) sur un sondage connu et non clos —
+    /// n'importe quel membre peut voter sur n'importe quel sondage connu
+    /// (permission et bornes vérifiées au rejeu, comme un RSVP
+    /// d'événement).
+    pub fn group_poll_vote(
+        &self,
+        group_id: &[u8; 16],
+        poll_id: &[u8; 16],
+        option_index: u8,
+    ) -> Result<(), NodeError> {
+        self.group_author(
+            group_id,
+            GroupOpBody::PollVote {
+                poll_id: *poll_id,
+                option_index,
+            },
+        )
+    }
+
+    /// Clôture un sondage (auteur du sondage ou porteur de `MANAGE_CHANNELS`,
+    /// vérifié au rejeu) : les votes ultérieurs sont ignorés.
+    pub fn group_poll_close(
+        &self,
+        group_id: &[u8; 16],
+        poll_id: &[u8; 16],
+    ) -> Result<(), NodeError> {
+        self.group_author(group_id, GroupOpBody::PollClose { poll_id: *poll_id })
+    }
+
     // ---- Membres et modération ----
 
     /// Expulse un membre (hiérarchie de rôles vérifiée par l'op-log).

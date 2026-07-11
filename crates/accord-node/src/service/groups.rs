@@ -18,7 +18,7 @@ use crate::node::Node;
 use super::helpers::{
     b64_decode, group_msg_json, group_state_json, param_attachments, param_channel_kind,
     param_id16, param_limit, param_opt_color, param_opt_str, param_opt_u16, param_opt_u32,
-    param_pubkey, param_str, param_u32, param_u64,
+    param_pubkey, param_str, param_u32, param_u64, param_u8,
 };
 
 /// Identifiant de salon optionnel (catégorie parente d'un salon).
@@ -284,6 +284,31 @@ fn audit_entry_json(op: &GroupOp) -> Value {
                 "set_member_avatar",
                 json!({ "avatar": avatar.map(|h| hex::encode(&h)) }),
             ),
+            GroupOpBody::PollCreate {
+                poll_id,
+                channel_id,
+                msg_id,
+            } => (
+                "poll_create",
+                json!({
+                    "poll_id": hex::encode(&poll_id),
+                    "channel_id": hex::encode(&channel_id),
+                    "msg_id": hex::encode(&msg_id),
+                }),
+            ),
+            GroupOpBody::PollVote {
+                poll_id,
+                option_index,
+            } => (
+                "poll_vote",
+                json!({ "poll_id": hex::encode(&poll_id), "option_index": option_index }),
+            ),
+            GroupOpBody::PollClose { poll_id } => {
+                ("poll_close", json!({ "poll_id": hex::encode(&poll_id) }))
+            }
+            GroupOpBody::PollDelete { poll_id } => {
+                ("poll_delete", json!({ "poll_id": hex::encode(&poll_id) }))
+            }
         },
         Err(_) => ("unknown", json!({})),
     };
@@ -605,6 +630,29 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     "msg_id": node.group_send_sticker(&gid, &cid, sticker_name)?
                 }));
             }
+            // A `poll` param (`{ question, options: [...] }`) posts a poll
+            // instead of a text message (D-048): `text`/`reply_to`/
+            // `attachments`/`sticker` are ignored in that case. Absent
+            // `poll` preserves prior behavior.
+            if let Some(poll) = params.get("poll") {
+                let question = poll
+                    .get("question")
+                    .and_then(Value::as_str)
+                    .ok_or(NodeError::Invalid("poll.question manquant"))?;
+                let options: Vec<String> = poll
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .ok_or(NodeError::Invalid("poll.options manquant"))?
+                    .iter()
+                    .map(|v| {
+                        v.as_str()
+                            .map(str::to_string)
+                            .ok_or(NodeError::Invalid("poll.options : chaînes attendues"))
+                    })
+                    .collect::<Result<_, _>>()?;
+                let (msg_id, poll_id) = node.group_send_poll(&gid, &cid, question, options)?;
+                return Ok(json!({ "msg_id": msg_id, "poll_id": poll_id }));
+            }
             let text = param_str(params, "text")?;
             let reply_to = params
                 .get("reply_to")
@@ -768,6 +816,25 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
             node.group_event_rsvp(&gid, &eid, interested)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.polls.vote" => {
+            let gid = param_id16(params, "group_id")?;
+            let pid = param_id16(params, "poll_id")?;
+            let option_index = param_u8(params, "option_index")?;
+            node.group_poll_vote(&gid, &pid, option_index)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.polls.close" => {
+            let gid = param_id16(params, "group_id")?;
+            let pid = param_id16(params, "poll_id")?;
+            node.group_poll_close(&gid, &pid)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.polls.delete" => {
+            let gid = param_id16(params, "group_id")?;
+            let pid = param_id16(params, "poll_id")?;
+            node.group_poll_delete(&gid, &pid)?;
             Ok(json!({ "ok": true }))
         }
         "groups.typing" => {

@@ -298,6 +298,11 @@ fn msg_body_roundtrip() {
         },
         MsgBody::Typing,
         MsgBody::ReadReceipt { up_to: [6; 16] },
+        MsgBody::Poll {
+            poll_id: [8; 16],
+            question: "Pizza ou sushis ?".into(),
+            options: vec!["Pizza".into(), "Sushis".into()],
+        },
     ];
     for body in bodies {
         let enc = body.encode_body();
@@ -473,6 +478,17 @@ fn group_op_bodies_roundtrip() {
             avatar: Some([15; 32]),
         },
         GroupOpBody::SetMemberAvatar { avatar: None },
+        GroupOpBody::PollVote {
+            poll_id: [16; 16],
+            option_index: 2,
+        },
+        GroupOpBody::PollClose { poll_id: [16; 16] },
+        GroupOpBody::PollCreate {
+            poll_id: [16; 16],
+            channel_id: [17; 16],
+            msg_id: [18; 16],
+        },
+        GroupOpBody::PollDelete { poll_id: [16; 16] },
     ];
     for body in bodies {
         let enc = body.encode_body();

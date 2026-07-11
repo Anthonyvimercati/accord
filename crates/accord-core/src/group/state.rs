@@ -3,7 +3,7 @@
 //! tous les pairs honnêtes convergent vers le même état.
 
 use accord_crypto::identity::node_id_of;
-use accord_proto::core_msg::{perms, ChannelKind, GroupOp, GroupOpBody};
+use accord_proto::core_msg::{perms, ChannelKind, GroupOp, GroupOpBody, MAX_POLL_OPTIONS};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Permissions implicites de tout membre (D-015) ; les overrides de salon
@@ -39,6 +39,15 @@ pub const MAX_STICKERS: usize = 30;
 /// `EventCreate` supplémentaire est ignoré — les événements existants
 /// restent modifiables/supprimables sans limite).
 pub const MAX_EVENTS: usize = 25;
+
+/// Nombre maximal de sondages par groupe (D-048 ; même politique que
+/// [`MAX_EVENTS`] : au-delà, un nouveau `PollCreate` est ignoré, les sondages
+/// existants restent votables/clôturables sans limite). Nécessaire car,
+/// contrairement à un vote qui est naturellement borné par l'effectif du
+/// groupe (une entrée par membre dans `Poll::votes`), le *nombre de sondages*
+/// eux-mêmes n'a aucune borne organique — un membre malveillant pourrait sinon
+/// gonfler l'état répliqué sans limite via des `PollCreate` répétés.
+pub const MAX_POLLS: usize = 25;
 
 /// Bornes du titre d'un événement (caractères, après trim).
 const MIN_EVENT_TITLE_CHARS: usize = 2;
@@ -239,6 +248,37 @@ pub struct Event {
     pub rsvps: BTreeSet<[u8; 32]>,
 }
 
+/// Dépouillement d'un sondage (op 0x27-0x29, D-048). La question et les
+/// options n'y figurent volontairement pas : elles vivent dans le message
+/// `MsgBody::Poll` content-adressé à `poll_id`, jamais dans l'op-log — le
+/// repli n'a besoin que du décompte pour que tous les pairs convergent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Poll {
+    /// Auteur (membre qui a créé le sondage ; peut toujours le clôturer,
+    /// comme [`Event::author`]).
+    pub author: [u8; 32],
+    /// Salon où le sondage a été posté — l'auteur devait y détenir
+    /// `VIEW`+`SEND` effectifs au moment de la création (vérifié une seule
+    /// fois, à la création, comme l'écriture d'un message ordinaire).
+    pub channel_id: [u8; 16],
+    /// Message `MsgBody::Poll` canonique auquel ce `poll_id` est lié : seul
+    /// un message reçu de `author` portant exactement cet identifiant est
+    /// affiché comme la question/les options de ce sondage (anti-usurpation,
+    /// D-048 fix HIGH-2).
+    pub msg_id: [u8; 16],
+    /// Clos : les votes ultérieurs sont ignorés au repli.
+    pub closed: bool,
+    /// Vote courant par membre `membre → index d'option` (choix unique : un
+    /// nouveau vote du même membre remplace le précédent, dédoublonnage par
+    /// clé de `BTreeMap` — mêmes sémantiques que [`Event::rsvps`]).
+    /// `option_index` n'est borné qu'structurellement
+    /// ([`accord_proto::core_msg::MAX_POLL_OPTIONS`]) : le repli ne connaît
+    /// pas le nombre *réel* d'options du sondage (qui vit dans le message),
+    /// donc un index au-delà du nombre réel d'options est accepté ici et
+    /// simplement jamais affiché par une UI honnête (dégradation gracieuse).
+    pub votes: BTreeMap<[u8; 32], u8>,
+}
+
 /// État matérialisé d'un groupe après repli de l'op-log.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GroupState {
@@ -284,6 +324,10 @@ pub struct GroupState {
     /// Événements planifiés `id → détails` (D-047, bornés à [`MAX_EVENTS`]
     /// par groupe à la création).
     pub events: BTreeMap<[u8; 16], Event>,
+    /// Sondages `id → dépouillement` (D-048, bornés à [`MAX_POLLS`] par
+    /// groupe à la création via `PollCreate`). La question/les options
+    /// vivent dans le message, jamais ici.
+    pub polls: BTreeMap<[u8; 16], Poll>,
     /// Avatars par serveur `membre → racine Merkle` (op 0x26, self-service
     /// uniquement — aucun retrait par un modérateur).
     pub member_avatars: BTreeMap<[u8; 32], [u8; 32]>,
@@ -688,6 +732,12 @@ impl GroupState {
                 for ev in self.events.values_mut() {
                     ev.rsvps.remove(&member);
                 }
+                // Même hygiène pour ses votes de sondage (D-048) ; les
+                // sondages qu'il a AUTORÉS restent, clôturables par le
+                // fondateur ou tout MANAGE_CHANNELS (même découplage).
+                for poll in self.polls.values_mut() {
+                    poll.votes.remove(&member);
+                }
                 if op.kind == 0x09 {
                     self.banned.insert(member);
                 }
@@ -888,6 +938,10 @@ impl GroupState {
                 // autorés conservés (gérables par fondateur/MANAGE_CHANNELS).
                 for ev in self.events.values_mut() {
                     ev.rsvps.remove(&author);
+                }
+                // Idem pour les votes de sondage (D-048).
+                for poll in self.polls.values_mut() {
+                    poll.votes.remove(&author);
                 }
             }
             GroupOpBody::AddEmoji { name, file } => {
@@ -1150,6 +1204,98 @@ impl GroupState {
                     }
                 }
             }
+            GroupOpBody::PollCreate {
+                poll_id,
+                channel_id,
+                msg_id,
+            } => {
+                // Gated on effective VIEW+SEND in `channel_id`, like a plain
+                // message send (`GroupState::can_send_message` /
+                // `accord_core::group::msg::require_send`) — bare
+                // membership alone is *not* sufficient (D-048 fix HIGH-1):
+                // without this gate, any member could squat all `MAX_POLLS`
+                // slots via a channel they cannot even write to, permanently
+                // denying polls to the rest of the group. `PollDelete` is
+                // the recovery path once a slot is legitimately spent.
+                // Unlike `require_send`, the timeout check is intentionally
+                // NOT replicated here: no op-fold gate anywhere in this file
+                // checks `is_timed_out` (an op's own `wall_ms` is informative
+                // only, never trusted for security decisions) — timeout
+                // enforcement is a message-layer concern, checked against the
+                // receiver's local clock at compose/ingest time.
+                let Some(channel) = self.channels.get(&channel_id) else {
+                    return self.ignore("salon inconnu");
+                };
+                let eff = self.permissions_in(&author, &channel_id);
+                if eff & (perms::VIEW | perms::SEND) != (perms::VIEW | perms::SEND) {
+                    return self.ignore("POLL_CREATE refusé (droit d'écriture)");
+                }
+                if channel.kind == ChannelKind::Announcement && eff & perms::MANAGE_CHANNELS == 0 {
+                    return self.ignore("salon d'annonces en lecture seule");
+                }
+                // Dedup by id (like every other random-id-keyed create op)
+                // makes the *first* PollCreate for a given `poll_id` in
+                // Lamport order the one that wins, so a racing forgery from
+                // another member can never hijack an already-registered
+                // poll's authorship.
+                if self.polls.contains_key(&poll_id) {
+                    return self.ignore("identifiant de sondage déjà utilisé");
+                }
+                if self.polls.len() >= MAX_POLLS {
+                    return self.ignore("trop de sondages (25 max)");
+                }
+                self.polls.insert(
+                    poll_id,
+                    Poll {
+                        author,
+                        channel_id,
+                        msg_id,
+                        closed: false,
+                        votes: BTreeMap::new(),
+                    },
+                );
+            }
+            GroupOpBody::PollVote {
+                poll_id,
+                option_index,
+            } => {
+                // Any member may vote on any known poll (mirrors EventRsvp);
+                // structural bound only, see `Poll::votes` doc.
+                if option_index as usize >= MAX_POLL_OPTIONS {
+                    return self.ignore("option de sondage hors bornes");
+                }
+                let Some(poll) = self.polls.get_mut(&poll_id) else {
+                    return self.ignore("sondage inconnu");
+                };
+                if poll.closed {
+                    return self.ignore("sondage clos");
+                }
+                poll.votes.insert(author, option_index);
+            }
+            GroupOpBody::PollClose { poll_id } => {
+                let Some(poll) = self.polls.get_mut(&poll_id) else {
+                    return self.ignore("sondage inconnu");
+                };
+                // Author-owns-or-manager-overrides, exactly like
+                // EventEdit/EventDelete.
+                if !has(perms::MANAGE_CHANNELS) && poll.author != author {
+                    return self.ignore("POLL_CLOSE refusé");
+                }
+                poll.closed = true;
+            }
+            GroupOpBody::PollDelete { poll_id } => {
+                let Some(current) = self.polls.get(&poll_id) else {
+                    return self.ignore("sondage inconnu");
+                };
+                // Author-owns-or-manager-overrides, exactly like
+                // EventDelete — mirrors it so the same 25-slot cap can be
+                // recovered once a poll is no longer needed (D-048 fix
+                // HIGH-1).
+                if !has(perms::MANAGE_CHANNELS) && current.author != author {
+                    return self.ignore("POLL_DELETE refusé");
+                }
+                self.polls.remove(&poll_id);
+            }
         }
         self.applied_ops += 1;
         Applied::Ok
@@ -1198,6 +1344,25 @@ mod tests {
     const FOUNDER: [u8; 32] = [0xF0; 32];
     const ALICE: [u8; 32] = [0xA1; 32];
     const BOB: [u8; 32] = [0xB0; 32];
+    /// Salon textuel utilisé par les tests de sondage (D-048) : tout membre
+    /// y a VIEW+SEND par défaut (`DEFAULT_MEMBER_PERMS`), sauf override
+    /// explicite dans un test donné.
+    const POLL_CHAN: [u8; 16] = [0x70; 16];
+
+    /// Ajoute [`POLL_CHAN`] (salon textuel) aux ops fournies, à `lamport`.
+    fn add_poll_channel(ops: &mut Vec<GroupOp>, lamport: u64) {
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: POLL_CHAN,
+                name: "général".into(),
+                category: None,
+                kind: ChannelKind::Text,
+                position: 0,
+            },
+            FOUNDER,
+            lamport,
+        ));
+    }
 
     fn base_ops() -> Vec<GroupOp> {
         vec![
@@ -2952,5 +3117,568 @@ mod tests {
         let mut kicked = ops.clone();
         kicked.push(signed(GroupOpBody::Kick { member: BOB }, FOUNDER, 5));
         assert!(GroupState::fold(&kicked).member_avatars.is_empty());
+    }
+
+    /// D-048 : n'importe quel membre peut créer un sondage (mirrors sending
+    /// a message — no elevated permission, unlike events/stickers) **du
+    /// moment qu'il a VIEW+SEND effectifs dans le salon visé**. Dedup par
+    /// `poll_id` (id déjà pris = ignoré) et plafond `MAX_POLLS`.
+    #[test]
+    fn poll_create_is_self_service_and_enforces_dedup_and_cap() {
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 4);
+        // Bob (simple membre) crée un sondage : aucune permission élevée
+        // requise au-delà de VIEW+SEND (défaut de tout membre), contrairement
+        // à un événement ou un sticker qui exigent MANAGE_CHANNELS/
+        // MANAGE_EMOJIS.
+        ops.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [1; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [100; 16],
+            },
+            BOB,
+            5,
+        ));
+        let st = GroupState::fold(&ops);
+        let poll = st.polls.get(&[1; 16]).expect("sondage créé");
+        assert_eq!(poll.author, BOB);
+        assert_eq!(poll.channel_id, POLL_CHAN);
+        assert_eq!(poll.msg_id, [100; 16]);
+        assert!(!poll.closed);
+        assert!(poll.votes.is_empty());
+
+        // A second PollCreate with the same id is ignored — the first one
+        // in Lamport order wins deterministically, so a racing forgery from
+        // another member can never steal an already-registered poll_id.
+        let mut hijack = ops.clone();
+        hijack.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [1; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [101; 16],
+            },
+            ALICE,
+            6,
+        ));
+        let st2 = GroupState::fold(&hijack);
+        assert_eq!(st2.polls.get(&[1; 16]).unwrap().author, BOB, "unhijacked");
+        assert_eq!(st2.polls.len(), 1);
+
+        // Cap: MAX_POLLS distinct ids allowed, one more is ignored.
+        let mut capped = base_ops();
+        add_poll_channel(&mut capped, 4);
+        for i in 0..(MAX_POLLS as u64) {
+            let mut id = [0u8; 16];
+            id[0..8].copy_from_slice(&i.to_be_bytes());
+            capped.push(signed(
+                GroupOpBody::PollCreate {
+                    poll_id: id,
+                    channel_id: POLL_CHAN,
+                    msg_id: id,
+                },
+                FOUNDER,
+                10 + i,
+            ));
+        }
+        let mut one_too_many = [0xFFu8; 16];
+        one_too_many[15] = 1;
+        capped.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: one_too_many,
+                channel_id: POLL_CHAN,
+                msg_id: one_too_many,
+            },
+            FOUNDER,
+            100,
+        ));
+        let st_capped = GroupState::fold(&capped);
+        assert_eq!(st_capped.polls.len(), MAX_POLLS);
+        assert!(!st_capped.polls.contains_key(&one_too_many));
+    }
+
+    /// D-048 fix HIGH-1 : `PollCreate` sans VIEW+SEND effectifs dans
+    /// `channel_id` est ignoré au repli, exactement comme un message qui
+    /// serait refusé par `require_send`/`can_send_message` — la simple
+    /// appartenance au groupe ne suffit plus (avant ce correctif, n'importe
+    /// quel membre pouvait squatter les 25 emplacements de `MAX_POLLS` via
+    /// un salon où il n'avait même pas le droit d'écrire, DoS permanent sur
+    /// les sondages du reste du groupe).
+    #[test]
+    fn poll_create_requires_send_permission_in_channel() {
+        // Salon inconnu : ignoré, jamais de panique.
+        let mut unknown_channel = base_ops();
+        unknown_channel.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [1; 16],
+                channel_id: [0xEE; 16],
+                msg_id: [2; 16],
+            },
+            BOB,
+            4,
+        ));
+        assert!(GroupState::fold(&unknown_channel).polls.is_empty());
+
+        // Salon connu mais SEND explicitement refusé par override de rôle :
+        // Alice (porteuse du rôle "Muet") ne peut pas y créer de sondage.
+        let mut denied = base_ops();
+        add_poll_channel(&mut denied, 4);
+        denied.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [3; 16],
+                name: "Muet".into(),
+                color: 0,
+                position: 1,
+                permissions: 0,
+            },
+            FOUNDER,
+            5,
+        ));
+        denied.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [3; 16],
+            },
+            FOUNDER,
+            6,
+        ));
+        denied.push(signed(
+            GroupOpBody::SetChannelPerms {
+                channel_id: POLL_CHAN,
+                role_id: [3; 16],
+                allow: 0,
+                deny: perms::SEND,
+            },
+            FOUNDER,
+            7,
+        ));
+        denied.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [1; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [2; 16],
+            },
+            ALICE,
+            8,
+        ));
+        let st_denied = GroupState::fold(&denied);
+        assert!(
+            st_denied.polls.is_empty(),
+            "SEND refusé : aucun sondage créé, aucun emplacement consommé"
+        );
+
+        // Same channel, same op, but a member with the default VIEW+SEND
+        // (Bob, untouched by the override) succeeds — proves the gate is on
+        // capability, not on the channel/op shape itself.
+        let mut allowed = denied.clone();
+        allowed.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [9; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [10; 16],
+            },
+            BOB,
+            9,
+        ));
+        assert!(GroupState::fold(&allowed).polls.contains_key(&[9; 16]));
+    }
+
+    /// D-048 : choix unique dédoublonné par membre, order-independent au
+    /// repli, vote sur sondage inconnu ignoré, `option_index` hors bornes
+    /// (>= MAX_POLL_OPTIONS) ignoré sans jamais paniquer (mirrors
+    /// `event_rsvp_dedups_by_member_and_is_order_independent`).
+    #[test]
+    fn poll_vote_dedups_is_order_independent_and_rejects_unknown_or_out_of_range() {
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 4);
+        ops.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [1; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [50; 16],
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::PollVote {
+                poll_id: [1; 16],
+                option_index: 2,
+            },
+            ALICE,
+            6,
+        ));
+        ops.push(signed(
+            GroupOpBody::PollVote {
+                poll_id: [1; 16],
+                option_index: 0,
+            },
+            BOB,
+            7,
+        ));
+        let st = GroupState::fold(&ops);
+        let poll = st.polls.get(&[1; 16]).unwrap();
+        assert_eq!(poll.votes.len(), 2);
+        assert_eq!(poll.votes.get(&ALICE), Some(&2));
+        assert_eq!(poll.votes.get(&BOB), Some(&0));
+
+        // Alice changes her mind: single choice replaces the earlier vote,
+        // never accumulates.
+        let mut changed = ops.clone();
+        changed.push(signed(
+            GroupOpBody::PollVote {
+                poll_id: [1; 16],
+                option_index: 1,
+            },
+            ALICE,
+            8,
+        ));
+        let st2 = GroupState::fold(&changed);
+        let poll2 = st2.polls.get(&[1; 16]).unwrap();
+        assert_eq!(poll2.votes.len(), 2);
+        assert_eq!(poll2.votes.get(&ALICE), Some(&1));
+
+        // Order-independence: shuffled ops converge to the same state.
+        let mut shuffled = changed.clone();
+        shuffled.reverse();
+        assert_eq!(GroupState::fold(&changed), GroupState::fold(&shuffled));
+
+        // Vote on an unknown poll is ignored (no panic, no phantom entry).
+        let mut unknown = ops.clone();
+        unknown.push(signed(
+            GroupOpBody::PollVote {
+                poll_id: [0xEE; 16],
+                option_index: 0,
+            },
+            ALICE,
+            8,
+        ));
+        assert!(!GroupState::fold(&unknown).polls.contains_key(&[0xEE; 16]));
+
+        // Out-of-range option_index (structural bound, MAX_POLL_OPTIONS=10)
+        // is ignored: no vote recorded, no panic on the adversarial byte.
+        let mut forged = ops.clone();
+        forged.push(signed(
+            GroupOpBody::PollVote {
+                poll_id: [1; 16],
+                option_index: 250,
+            },
+            ALICE,
+            8,
+        ));
+        let st_forged = GroupState::fold(&forged);
+        // Alice's earlier, valid vote (option 2) is untouched by the forgery.
+        assert_eq!(
+            st_forged.polls.get(&[1; 16]).unwrap().votes.get(&ALICE),
+            Some(&2)
+        );
+    }
+
+    /// D-048 : clôture réservée à l'auteur du sondage ou `MANAGE_CHANNELS`
+    /// (comme `EventEdit`/`EventDelete`) ; une fois clos, les votes
+    /// ultérieurs sont ignorés — dépouillement figé.
+    #[test]
+    fn poll_close_requires_author_or_manage_channels_and_freezes_votes() {
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 4);
+        // Bob (simple membre) crée et vote sur son propre sondage.
+        ops.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [1; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [50; 16],
+            },
+            BOB,
+            5,
+        ));
+
+        // Alice (simple membre, ni auteur ni MANAGE_CHANNELS) ne peut pas
+        // clore le sondage de Bob.
+        let mut denied = ops.clone();
+        denied.push(signed(
+            GroupOpBody::PollClose { poll_id: [1; 16] },
+            ALICE,
+            6,
+        ));
+        assert!(
+            !GroupState::fold(&denied)
+                .polls
+                .get(&[1; 16])
+                .unwrap()
+                .closed
+        );
+
+        // Bob (auteur) peut clore son propre sondage.
+        let mut author_closes = ops.clone();
+        author_closes.push(signed(GroupOpBody::PollClose { poll_id: [1; 16] }, BOB, 6));
+        assert!(
+            GroupState::fold(&author_closes)
+                .polls
+                .get(&[1; 16])
+                .unwrap()
+                .closed
+        );
+
+        // Founder (MANAGE_CHANNELS via ALL_PERMS) can close someone else's
+        // poll too.
+        let mut manager_closes = ops.clone();
+        manager_closes.push(signed(
+            GroupOpBody::PollClose { poll_id: [1; 16] },
+            FOUNDER,
+            6,
+        ));
+        assert!(
+            GroupState::fold(&manager_closes)
+                .polls
+                .get(&[1; 16])
+                .unwrap()
+                .closed
+        );
+
+        // Closing an unknown poll is ignored without panic.
+        let mut unknown = base_ops();
+        unknown.push(signed(
+            GroupOpBody::PollClose {
+                poll_id: [0xEE; 16],
+            },
+            FOUNDER,
+            4,
+        ));
+        assert!(GroupState::fold(&unknown).polls.is_empty());
+
+        // Once closed, a subsequent vote (even from the poll's own author)
+        // is ignored — the tally stays frozen.
+        let mut then_vote = author_closes.clone();
+        then_vote.push(signed(
+            GroupOpBody::PollVote {
+                poll_id: [1; 16],
+                option_index: 3,
+            },
+            BOB,
+            7,
+        ));
+        let st = GroupState::fold(&then_vote);
+        assert!(st.polls.get(&[1; 16]).unwrap().votes.is_empty());
+
+        // Close is idempotent (closing twice stays closed, no panic).
+        let mut twice = author_closes.clone();
+        twice.push(signed(
+            GroupOpBody::PollClose { poll_id: [1; 16] },
+            FOUNDER,
+            7,
+        ));
+        assert!(GroupState::fold(&twice).polls.get(&[1; 16]).unwrap().closed);
+    }
+
+    /// D-048 fix HIGH-1 : `PollDelete` (0x2A) mirrors `EventDelete` exactly
+    /// (auteur ou `MANAGE_CHANNELS`), et sa suppression libère l'emplacement
+    /// compté par `MAX_POLLS` — seul moyen de récupérer un emplacement une
+    /// fois un sondage créé.
+    #[test]
+    fn poll_delete_requires_author_or_manage_channels_and_recovers_cap() {
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 4);
+        ops.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [1; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [50; 16],
+            },
+            BOB,
+            5,
+        ));
+
+        // Alice (ni auteur ni MANAGE_CHANNELS) ne peut pas supprimer le
+        // sondage de Bob.
+        let mut denied = ops.clone();
+        denied.push(signed(
+            GroupOpBody::PollDelete { poll_id: [1; 16] },
+            ALICE,
+            6,
+        ));
+        assert!(
+            GroupState::fold(&denied).polls.contains_key(&[1; 16]),
+            "refusé : le sondage doit survivre"
+        );
+
+        // Bob (auteur) peut supprimer son propre sondage.
+        let mut author_deletes = ops.clone();
+        author_deletes.push(signed(GroupOpBody::PollDelete { poll_id: [1; 16] }, BOB, 6));
+        assert!(!GroupState::fold(&author_deletes)
+            .polls
+            .contains_key(&[1; 16]));
+
+        // Founder (MANAGE_CHANNELS via ALL_PERMS) can delete someone else's
+        // poll too.
+        let mut manager_deletes = ops.clone();
+        manager_deletes.push(signed(
+            GroupOpBody::PollDelete { poll_id: [1; 16] },
+            FOUNDER,
+            6,
+        ));
+        assert!(!GroupState::fold(&manager_deletes)
+            .polls
+            .contains_key(&[1; 16]));
+
+        // Deleting an unknown poll is ignored without panic.
+        let mut unknown = base_ops();
+        unknown.push(signed(
+            GroupOpBody::PollDelete {
+                poll_id: [0xEE; 16],
+            },
+            FOUNDER,
+            4,
+        ));
+        assert!(GroupState::fold(&unknown).polls.is_empty());
+
+        // Cap recovery: fill MAX_POLLS, deleting one frees exactly one slot
+        // for a fresh PollCreate that would otherwise be ignored.
+        let mut capped = base_ops();
+        add_poll_channel(&mut capped, 4);
+        for i in 0..(MAX_POLLS as u64) {
+            let mut id = [0u8; 16];
+            id[0..8].copy_from_slice(&i.to_be_bytes());
+            capped.push(signed(
+                GroupOpBody::PollCreate {
+                    poll_id: id,
+                    channel_id: POLL_CHAN,
+                    msg_id: id,
+                },
+                FOUNDER,
+                10 + i,
+            ));
+        }
+        let st_full = GroupState::fold(&capped);
+        assert_eq!(st_full.polls.len(), MAX_POLLS);
+
+        // At cap: one more PollCreate is ignored.
+        let mut still_full = capped.clone();
+        let fresh_id = [0xAAu8; 16];
+        still_full.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: fresh_id,
+                channel_id: POLL_CHAN,
+                msg_id: fresh_id,
+            },
+            FOUNDER,
+            200,
+        ));
+        assert_eq!(GroupState::fold(&still_full).polls.len(), MAX_POLLS);
+        assert!(!GroupState::fold(&still_full).polls.contains_key(&fresh_id));
+
+        // Delete one existing poll, then the same fresh PollCreate succeeds
+        // — the cap recovered exactly one slot, no more, no less.
+        let mut recovered = capped.clone();
+        let first_id = [0u8; 16];
+        recovered.push(signed(
+            GroupOpBody::PollDelete { poll_id: first_id },
+            FOUNDER,
+            150,
+        ));
+        recovered.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: fresh_id,
+                channel_id: POLL_CHAN,
+                msg_id: fresh_id,
+            },
+            FOUNDER,
+            200,
+        ));
+        let st_recovered = GroupState::fold(&recovered);
+        assert_eq!(st_recovered.polls.len(), MAX_POLLS);
+        assert!(!st_recovered.polls.contains_key(&first_id));
+        assert!(st_recovered.polls.contains_key(&fresh_id));
+    }
+
+    /// Hygiène au départ d'un membre (D-048, mirrors
+    /// `kick_and_leave_clear_event_rsvps_but_keep_authored_events`) : ses
+    /// votes sont retirés de tous les sondages, tandis que les sondages
+    /// qu'il a AUTORÉS restent, clôturables par le fondateur ou tout
+    /// MANAGE_CHANNELS.
+    #[test]
+    fn kick_and_leave_clear_poll_votes_but_keep_authored_polls() {
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 4);
+        ops.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [1; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [50; 16],
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::PollVote {
+                poll_id: [1; 16],
+                option_index: 1,
+            },
+            BOB,
+            6,
+        ));
+
+        // Kick: Bob's vote disappears, the founder's poll survives.
+        let mut kicked = ops.clone();
+        kicked.push(signed(GroupOpBody::Kick { member: BOB }, FOUNDER, 7));
+        let st = GroupState::fold(&kicked);
+        let poll = st.polls.get(&[1; 16]).expect("sondage conservé");
+        assert!(!poll.votes.contains_key(&BOB));
+
+        // Leave: same hygiene when the member departs voluntarily.
+        let mut left = ops.clone();
+        left.push(signed(GroupOpBody::Leave, BOB, 7));
+        let st2 = GroupState::fold(&left);
+        assert!(!st2.polls.get(&[1; 16]).unwrap().votes.contains_key(&BOB));
+
+        // Polls authored by the departed member survive, still closable by
+        // the founder/MANAGE_CHANNELS afterwards.
+        let mut authored = base_ops();
+        add_poll_channel(&mut authored, 4);
+        authored.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [9; 16],
+                name: "Orga".into(),
+                color: 0x00FF00,
+                position: 10,
+                permissions: perms::MANAGE_CHANNELS,
+            },
+            FOUNDER,
+            5,
+        ));
+        authored.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [9; 16],
+            },
+            FOUNDER,
+            6,
+        ));
+        authored.push(signed(
+            GroupOpBody::PollCreate {
+                poll_id: [2; 16],
+                channel_id: POLL_CHAN,
+                msg_id: [51; 16],
+            },
+            ALICE,
+            7,
+        ));
+        authored.push(signed(GroupOpBody::Kick { member: ALICE }, FOUNDER, 8));
+        let st3 = GroupState::fold(&authored);
+        assert!(st3.polls.contains_key(&[2; 16]));
+        assert!(!st3.polls.get(&[2; 16]).unwrap().closed);
+        // …and the (now-departed) author's own poll is still closable by a
+        // MANAGE_CHANNELS holder.
+        authored.push(signed(
+            GroupOpBody::PollClose { poll_id: [2; 16] },
+            FOUNDER,
+            9,
+        ));
+        assert!(
+            GroupState::fold(&authored)
+                .polls
+                .get(&[2; 16])
+                .unwrap()
+                .closed
+        );
     }
 }

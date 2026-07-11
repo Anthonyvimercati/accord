@@ -328,6 +328,8 @@ pub fn ingest_dm(
         // carrying one is simply unsupported — ignored without error like
         // any other well-formed-but-inapplicable body.
         MsgBody::Sticker { .. } => Ok(DmEvent::Noop),
+        // Polls are a group-channel feature only (D-048), same reasoning.
+        MsgBody::Poll { .. } => Ok(DmEvent::Noop),
         MsgBody::Typing => Ok(DmEvent::Typing),
         MsgBody::ReadReceipt { up_to } => {
             db.set_read_mark(peer, &up_to)?;

@@ -26,6 +26,10 @@ Nouveaux discriminants d'op de groupe (`GroupOpBody`, prochain libre après
 | `0x24` | `StickerAdd` | `MANAGE_EMOJIS` |
 | `0x25` | `StickerRemove` | `MANAGE_EMOJIS` |
 | `0x26` | `SetMemberAvatar` | self-service uniquement (auteur = cible, aucun modérateur) |
+| `0x27` | `PollVote` | tout membre (sur son propre vote) |
+| `0x28` | `PollClose` | `MANAGE_CHANNELS` ou auteur du sondage |
+| `0x29` | `PollCreate` | `VIEW`+`SEND` effectifs dans `channel_id` (comme envoyer un message — **pas** la simple appartenance) |
+| `0x2A` | `PollDelete` | `MANAGE_CHANNELS` ou auteur du sondage |
 
 Aucun nouveau bit de permission n'a été introduit : les événements et
 l'édition de la bannière réutilisent `MANAGE_CHANNELS` (même famille que
@@ -46,6 +50,43 @@ jusqu'ici, entre `Reaction` = 3 et `Typing` = 5). Un pair qui ne connaît pas
 ce discriminant échoue à décoder ce message précis (comportement identique à
 tout autre corps futur non reconnu) sans affecter le reste du salon ni l'état
 répliqué du groupe.
+
+`MsgBody` gagne un second nouveau discriminant (D-048) : `Poll { poll_id,
+question, options }`, **kind = 7** (prochain libre après `ReadReceipt` = 6).
+Même dégradation gracieuse qu'un `Sticker` non reconnu chez un pair plus
+ancien.
+
+**Durcissement post-revue (D-048, avant tout déploiement)** : `PollCreate`
+(0x29) portait initialement le seul `poll_id` et n'était gated que sur la
+simple appartenance au groupe — deux failles corrigées avant que l'op ne
+soit jamais répliquée en production :
+
+- `PollCreate` gagne deux champs : `channel_id: [u8; 16]` (le salon où le
+  message `MsgBody::Poll` associé est posté) et `msg_id: [u8; 16]` (le
+  message canonique auquel `poll_id` est lié). Le repli exige désormais
+  `VIEW`+`SEND` effectifs de l'auteur dans `channel_id` — exactement la même
+  porte qu'un envoi de message ordinaire
+  (`GroupState::can_send_message`/`accord_core::group::msg::require_send`) —
+  au lieu de la simple appartenance : sans ce correctif, n'importe quel
+  membre pouvait squatter les 25 emplacements de `MAX_POLLS` via un salon où
+  il n'avait même pas le droit d'écrire, DoS permanent sur les sondages du
+  reste du groupe.
+- `msg_id` lie `poll_id` à un unique message canonique : à l'ingestion d'un
+  `MsgBody::Poll`, si l'op-log local connaît déjà ce `poll_id` (un
+  `PollCreate` a été replié), seul le message qui correspond exactement à
+  cet auteur ET ce `msg_id` est stocké — un pair qui rejoue ce `poll_id`
+  avec un autre auteur ou un autre `msg_id` (question/options forgées) ne
+  crée ni un second sondage visible, ni ne « rehéberge » le dépouillement
+  existant sur son propre contenu.
+- Nouvel op `PollDelete` (0x2A, voir le tableau ci-dessus) : mirrors
+  `EventDelete` exactement (auteur ou `MANAGE_CHANNELS`), c'est le seul
+  moyen de récupérer un emplacement `MAX_POLLS` une fois un sondage créé.
+  Exposé via `groups.polls.delete` (§6.1).
+- Ordre d'émission côté nœud (`Node::group_send_poll`) inversé : `poll_id`/
+  `msg_id` sont générés d'abord, puis `PollCreate` est authored et confirmé
+  **avant** toute composition/diffusion du message — si l'op est refusée
+  (plafond atteint, droit d'écriture refusé), rien n'est composé ni envoyé,
+  au lieu d'un message posté référençant un sondage jamais connu de l'op-log.
 
 ---
 
@@ -284,10 +325,131 @@ champs utiles à une description humaine) :
 | `sticker_add` | `{ name }` |
 | `sticker_remove` | `{ name }` |
 | `set_member_avatar` | `{ avatar }` (hex32 ou `null`) |
+| `poll_create` | `{ poll_id, channel_id, msg_id }` |
+| `poll_vote` | `{ poll_id, option_index }` |
+| `poll_close` | `{ poll_id }` |
+| `poll_delete` | `{ poll_id }` |
 
 ---
 
-## 6. Quotas et bornes (résumé)
+## 6. Sondages (`groups.polls.*`, D-048)
+
+Un sondage est posté **comme un message** de salon (`groups.send` avec un
+paramètre `poll`) : la question et les options y voyagent, content-adressées
+à un `poll_id` frais généré côté serveur. Les **votes**, eux, ne sont **pas**
+dans le message — ils vivent dans l'op-log de groupe
+(`PollCreate`/`PollVote`/`PollClose`/`PollDelete`) pour que tous les pairs
+convergent sur le même dépouillement, exposé en direct dans `groups.state`.
+
+**Choix d'implémentation** : quatre ops plutôt que deux. Le repli de l'op-log
+(`GroupState::fold`) est une fonction pure du journal signé — il n'a jamais
+accès au contenu des messages. Pour que « quel `poll_id` existe », « qui a
+le droit d'écrire dans quel salon » et « qui peut le clore » soient des
+faits **vérifiables cryptographiquement** (et non simplement déclarés par un
+vote non fiable — le premier votant n'est pas forcément l'auteur du sondage,
+et lui faire confiance permettrait à n'importe quel membre de « voler » le
+droit de clôture d'un sondage d'autrui), le nœud émetteur enregistre
+automatiquement une op `PollCreate`
+en même temps qu'il diffuse le message — jamais exposée comme méthode RPC à
+part entière, c'est un détail d'implémentation de `groups.send`.
+
+### 6.1 Méthodes RPC
+
+| Méthode | Paramètres | Résultat | Erreurs notables |
+|---|---|---|---|
+| `groups.send` (sondage) | `{ group_id, channel_id, poll: { question, options: [string, ...] } }` | `{ msg_id: hex16, poll_id: hex16 }` | `INVALID_PARAMS` (question/options hors bornes) ; `APP_ERROR` « refusé : … » (droit d'écriture, plafond de sondages atteint) |
+| `groups.polls.vote` | `{ group_id, poll_id, option_index }` | `{ ok: true }` | `APP_ERROR` « refusé : … » (sondage inconnu, clos, `option_index` hors bornes) |
+| `groups.polls.close` | `{ group_id, poll_id }` | `{ ok: true }` | `APP_ERROR` « refusé : … » (sondage inconnu, ni auteur ni `MANAGE_CHANNELS`) |
+| `groups.polls.delete` | `{ group_id, poll_id }` | `{ ok: true }` | `APP_ERROR` « refusé : … » (sondage inconnu, ni auteur ni `MANAGE_CHANNELS`) |
+
+- `question` : 1-300 octets UTF-8, non vide, sans caractère de contrôle
+  (hors `\n`/`\r`/`\t`) — bornes vérifiées **à la composition et au
+  décodage filaire**, pas seulement au repli (le message n'a pas d'étape de
+  repli comparable à l'op-log).
+- `options` : 2 à 10 entrées, chacune 1-100 octets UTF-8, non vide, mêmes
+  règles de caractères de contrôle que la question. Aucune vérification
+  anti-usurpation (bidi/zero-width) contrairement à un pseudo ou un nom de
+  sondage : un texte de sondage n'apparaît jamais dans une liste de membres.
+- Quand `poll` est présent, `text`/`reply_to`/`attachments`/`sticker` sont
+  **ignorés** — un appel ne peut pas mélanger texte, sticker et sondage.
+  Sans `poll`, le comportement historique de `groups.send` est inchangé.
+- `option_index` (vote) : choix unique — un second vote du même membre sur
+  le même sondage **remplace** le précédent (pas d'accumulation),
+  dédoublonné par `(poll_id, membre)` au repli, exactement comme un RSVP
+  d'événement.
+- N'importe quel membre peut créer, voir ou voter sur un sondage **du moment
+  qu'il a `VIEW`+`SEND` effectifs dans le salon visé** — aucune permission
+  élevée au-delà (contrairement aux événements/stickers qui exigent
+  `MANAGE_CHANNELS`/`MANAGE_EMOJIS`) : un sondage a exactement les mêmes
+  droits qu'un message ordinaire dans ce salon, vérifiés **à l'émission de
+  l'op ET à son rejeu** (avant le durcissement post-revue de D-048,
+  `PollCreate` n'exigeait que la simple appartenance au groupe — voir la
+  section « Durcissement post-revue » plus haut).
+- Clôture (`groups.polls.close`) et suppression (`groups.polls.delete`)
+  réservées à l'auteur du sondage ou à un porteur de `MANAGE_CHANNELS`,
+  comme l'édition/suppression d'un événement. Une fois clos, tout vote
+  ultérieur est ignoré au repli — le dépouillement reste figé. Idempotent
+  (clore un sondage déjà clos ne change rien). La suppression, elle, retire
+  le sondage de `groups.state.polls` et **libère l'emplacement compté par
+  `MAX_POLLS`** — seul moyen de le récupérer une fois un sondage créé.
+- Un vote dont `option_index` dépasse le nombre **réel** d'options du
+  sondage (connu seulement via le message, jamais de l'op-log) est accepté
+  structurellement au repli — borné uniquement à `MAX_POLL_OPTIONS` (10) —
+  mais n'est simplement jamais affiché par une UI honnête : dégradation
+  gracieuse, pas d'oracle réseau, même politique que la validation d'un nom
+  de sticker à l'ingestion.
+- Un membre expulsé, banni ou qui quitte volontairement perd son vote sur
+  tous les sondages (retiré de l'état, même hygiène que ses RSVP
+  d'événement) ; les sondages qu'il a **autorés** restent, clôturables et
+  supprimables par le fondateur ou tout `MANAGE_CHANNELS`.
+
+### 6.2 Forme du corps dans l'historique
+
+Forme du corps dans l'historique (`groups.history`, `groups.history_around`,
+`event.group_msg`) :
+
+```json
+{
+  "type": "poll",
+  "poll_id": "hex16",
+  "question": "Pizza ou sushis ?",
+  "options": ["Pizza", "Sushis", "Les deux"]
+}
+```
+
+### 6.3 Forme dans `groups.state`
+
+Chaque entrée du tableau `polls` (le dépouillement, jamais la question/les
+options — cf. `groups.history` ci-dessus) :
+
+```json
+{
+  "poll_id": "hex16",
+  "author": "hex32",
+  "channel_id": "hex16",
+  "msg_id": "hex16",
+  "closed": false,
+  "counts": [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+  "total_votes": 1,
+  "my_vote": 1
+}
+```
+
+- `channel_id`/`msg_id` (champs additifs du durcissement post-revue) :
+  reflètent directement `GroupOpBody::PollCreate` — le salon où le sondage a
+  été posté et le message canonique (`groups.history`) auquel `poll_id` est
+  lié.
+- `counts` : tableau **toujours large de `MAX_POLL_OPTIONS` (10)**, quel que
+  soit le nombre réel d'options du sondage — `counts[i]` est le nombre de
+  votes pour l'option `i` ; les cases au-delà du nombre réel d'options
+  restent à `0` en pratique (une UI honnête ne laisse jamais voter hors
+  bornes réelles).
+- `my_vote` : l'option choisie par l'appelant local, ou `null` s'il n'a pas
+  voté.
+
+---
+
+## 7. Quotas et bornes (résumé)
 
 | Élément | Borne | Enforcement |
 |---|---|---|
@@ -305,6 +467,13 @@ champs utiles à une description humaine) :
 | Nom de sticker sur le fil (`MsgBody::Sticker`) | ≤ 32 octets (`MAX_EMOJI_NAME`, partagé avec les émojis) | décodage filaire |
 | Titre d'événement sur le fil | ≤ 400 octets UTF-8 | décodage filaire |
 | Description d'événement sur le fil | ≤ 4096 octets UTF-8 | décodage filaire |
+| Sondages par groupe | 25 (`MAX_POLLS`) | fold, à la création (`PollCreate`) uniquement — récupérable via `PollDelete` (vote/clôture toujours possibles au-delà du plafond) |
+| Création de sondage (`PollCreate`) | `VIEW`+`SEND` effectifs de l'auteur dans `channel_id` (**pas** la simple appartenance) | fold, même porte qu'un envoi de message ordinaire |
+| Question de sondage | 1-300 octets UTF-8, non vide, sans caractère de contrôle hors `\n`/`\r`/`\t` | décodage filaire (bornes d'octets/vide/UTF-8) + composition/ingestion (caractères de contrôle) |
+| Options de sondage | 2-10 entrées, chacune 1-100 octets UTF-8, non vide | décodage filaire + composition/ingestion |
+| `option_index` d'un vote | borne **structurelle** ≤ `MAX_POLL_OPTIONS` (10) — le repli ignore ce qui dépasse, indépendamment du nombre réel d'options du sondage (connu seulement via le message) | fold |
+| Vote de sondage | dédoublonné par `(poll_id, membre)`, choix unique (remplace, n'accumule pas) | fold |
+| Liaison `poll_id` → message canonique | un seul `(auteur, msg_id)` par `poll_id`, fixé par le premier `PollCreate` replié — tout `MsgBody::Poll` ultérieur d'un autre auteur ou avec un autre `msg_id` est ignoré | ingestion du message (contre l'état replié de l'op-log) |
 
 Toute op au-delà d'une borne de **fold** est silencieusement ignorée
 (convergence déterministe entre pairs honnêtes, indépendante de l'ordre

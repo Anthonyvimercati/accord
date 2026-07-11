@@ -5,7 +5,7 @@ use accord_core::db::{Contact, ContactState, DmRecord, GroupMsgRecord};
 use accord_core::group::GroupState;
 use accord_core::messaging::MAX_ATTACHMENTS;
 use accord_crypto::FriendCode;
-use accord_proto::core_msg::{ChannelKind, FileRef};
+use accord_proto::core_msg::{ChannelKind, FileRef, MAX_POLL_OPTIONS};
 use serde_json::{json, Value};
 
 use crate::error::NodeError;
@@ -64,6 +64,18 @@ pub(super) fn param_u32(params: &Value, key: &str) -> Result<u32, NodeError> {
         .and_then(|v| u32::try_from(v).ok())
         .ok_or(NodeError::Invalid(
             "paramètre entier manquant ou hors bornes",
+        ))
+}
+
+/// Entier `u8` requis (borné par JSON à `u64`, revalidé ici) — utilisé pour
+/// `option_index` d'un vote de sondage (D-048).
+pub(super) fn param_u8(params: &Value, key: &str) -> Result<u8, NodeError> {
+    params
+        .get(key)
+        .and_then(Value::as_u64)
+        .and_then(|v| u8::try_from(v).ok())
+        .ok_or(NodeError::Invalid(
+            "paramètre entier manquant ou hors bornes (0-255)",
         ))
 }
 
@@ -270,6 +282,16 @@ fn body_json(kind: u8, body: &[u8]) -> Value {
             "name": name,
             "merkle_root": hex::encode(&merkle_root),
         }),
+        Ok(MsgBody::Poll {
+            poll_id,
+            question,
+            options,
+        }) => json!({
+            "type": "poll",
+            "poll_id": hex::encode(&poll_id),
+            "question": question,
+            "options": options,
+        }),
         Ok(MsgBody::Typing) | Ok(MsgBody::ReadReceipt { .. }) => json!({ "type": "meta" }),
         Err(_) => json!({ "type": "unknown" }),
     }
@@ -433,6 +455,34 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
             // True when the local user is in the RSVP list.
             "rsvped": ev.rsvps.contains(me),
         })).collect::<Vec<_>>(),
+        // Poll tallies (D-048). The question/options themselves are NOT
+        // here — they live in the originating `MsgBody::Poll` message
+        // (content-addressed to `poll_id`, fetched via `groups.history`);
+        // this is only the live, replicated vote count. `counts[i]` is the
+        // number of votes for option `i`; entries beyond a poll's *real*
+        // option count are always 0 in practice (an honest UI never lets a
+        // caller vote out of range) but the array is always
+        // `MAX_POLL_OPTIONS` wide regardless of the real option count.
+        "polls": s.polls.iter().map(|(id, p)| {
+            let mut counts = [0u64; MAX_POLL_OPTIONS];
+            for &opt in p.votes.values() {
+                if let Some(slot) = counts.get_mut(opt as usize) {
+                    *slot += 1;
+                }
+            }
+            json!({
+                "poll_id": hex::encode(id),
+                "author": hex::encode(&p.author),
+                "channel_id": hex::encode(&p.channel_id),
+                "msg_id": hex::encode(&p.msg_id),
+                "closed": p.closed,
+                "counts": counts,
+                "total_votes": p.votes.len(),
+                // The caller's own chosen option index, or null if they
+                // haven't voted.
+                "my_vote": p.votes.get(me),
+            })
+        }).collect::<Vec<_>>(),
         "my_permissions": s.base_permissions(me),
     })
 }

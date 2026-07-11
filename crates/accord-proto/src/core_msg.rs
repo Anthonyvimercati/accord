@@ -37,6 +37,24 @@ const MAX_EVENT_TITLE: usize = 400;
 /// UTF-8 au plus (validation sémantique au repli, mêmes règles que la bio —
 /// voir `accord_core::profile::validate_bio`).
 const MAX_EVENT_DESC: usize = 4096;
+/// Borne de la question d'un sondage (D-048) : 1-300 octets UTF-8. Contrairement
+/// à un titre d'événement, il n'y a pas de couche « caractères » séparée — la
+/// borne filaire est directement la borne sémantique (pas de marge ×4), et
+/// l'absence de question (0 octet) est rejetée au décodage, pas seulement au
+/// repli. `pub` : réutilisée telle quelle par `accord_core` (composition côté
+/// pair) pour ne pas dupliquer le nombre magique.
+pub const MAX_POLL_QUESTION_BYTES: usize = 300;
+/// Nombre minimal d'options d'un sondage (D-048), vérifié au décodage
+/// (`MsgBody::Poll`).
+pub const MIN_POLL_OPTIONS: usize = 2;
+/// Nombre maximal d'options d'un sondage (D-048), vérifié au décodage
+/// (`MsgBody::Poll`) et au repli (`GroupOpBody::PollVote.option_index`, borne
+/// structurelle — le repli ne connaît pas le nombre *réel* d'options du
+/// sondage, qui vit dans le message, jamais dans l'op-log).
+pub const MAX_POLL_OPTIONS: usize = 10;
+/// Borne d'une option de sondage (D-048) : 1-100 octets UTF-8, même politique
+/// que [`MAX_POLL_QUESTION_BYTES`] (pas de couche caractères séparée).
+pub const MAX_POLL_OPTION_BYTES: usize = 100;
 
 /// Bitfield de permissions de groupe (SPEC §6.2).
 pub mod perms {
@@ -166,6 +184,21 @@ pub enum MsgBody {
         /// Racine Merkle de l'image (publiée dans le magasin de fichiers).
         merkle_root: [u8; 32],
     },
+    /// Sondage posté dans un salon (D-048). La question et les options
+    /// voyagent ici, content-adressées à `poll_id` ; les votes eux-mêmes ne
+    /// sont **pas** dans le corps du message — ils vivent dans l'op-log de
+    /// groupe ([`crate::core_msg::GroupOpBody::PollVote`]) pour que tous les
+    /// pairs convergent sur le même dépouillement. Discriminant 7 (prochain
+    /// libre après `ReadReceipt` = 6).
+    Poll {
+        /// Identifiant du sondage, généré par le composeur
+        /// ([`crate::new_id16`]-style), référencé par les ops de vote/clôture.
+        poll_id: [u8; 16],
+        /// Question (1-300 octets UTF-8, non vide).
+        question: String,
+        /// Options (2-10, chacune 1-100 octets UTF-8, non vide).
+        options: Vec<String>,
+    },
 }
 
 impl MsgBody {
@@ -179,6 +212,7 @@ impl MsgBody {
             MsgBody::Sticker { .. } => 4,
             MsgBody::Typing => 5,
             MsgBody::ReadReceipt { .. } => 6,
+            MsgBody::Poll { .. } => 7,
         }
     }
 
@@ -211,6 +245,15 @@ impl MsgBody {
             }
             MsgBody::Typing => {}
             MsgBody::ReadReceipt { up_to } => w.put_arr(up_to),
+            MsgBody::Poll {
+                poll_id,
+                question,
+                options,
+            } => {
+                w.put_arr(poll_id);
+                w.put_str(question);
+                w.put_list(options, |w, o| w.put_str(o));
+            }
         }
         w.into_bytes()
     }
@@ -244,6 +287,28 @@ impl MsgBody {
             },
             5 => MsgBody::Typing,
             6 => MsgBody::ReadReceipt { up_to: r.arr()? },
+            7 => {
+                let poll_id = r.arr()?;
+                let question = r.str(MAX_POLL_QUESTION_BYTES, "msg.poll.question")?;
+                if question.is_empty() {
+                    return Err(DecodeError::InvalidValue("msg.poll.question"));
+                }
+                let options = r.list(MAX_POLL_OPTIONS, "msg.poll.options", |r| {
+                    let opt = r.str(MAX_POLL_OPTION_BYTES, "msg.poll.option")?;
+                    if opt.is_empty() {
+                        return Err(DecodeError::InvalidValue("msg.poll.option"));
+                    }
+                    Ok(opt)
+                })?;
+                if options.len() < MIN_POLL_OPTIONS {
+                    return Err(DecodeError::InvalidValue("msg.poll.options"));
+                }
+                MsgBody::Poll {
+                    poll_id,
+                    question,
+                    options,
+                }
+            }
             _ => return Err(DecodeError::InvalidValue("msg kind")),
         };
         r.finish()?;
@@ -656,6 +721,72 @@ pub enum GroupOpBody {
         /// Merkle root of the new avatar image, or `None` to clear it.
         avatar: Option<[u8; 32]>,
     },
+    /// 0x27 — Vote (or change one's single vote) on a poll (D-048). Single
+    /// choice: a later vote from the same member simply replaces the
+    /// earlier one at replay (plain map semantics, like
+    /// [`GroupOpBody::EventRsvp`]). Any member may vote on any *known* poll
+    /// (registered by a prior [`GroupOpBody::PollCreate`]); `option_index`
+    /// is bounded structurally ([`MAX_POLL_OPTIONS`]) since the op-log fold
+    /// never sees the poll's actual option count (that lives in the message
+    /// body, content-addressed to `poll_id`) — an index beyond the poll's
+    /// *real* option count is accepted here but simply never rendered by an
+    /// honest UI (graceful degradation, no network oracle, mirrors how a
+    /// forged sticker name/root is accepted verbatim at message ingestion).
+    PollVote {
+        /// Target poll.
+        poll_id: [u8; 16],
+        /// Chosen option (structural bound only, see above).
+        option_index: u8,
+    },
+    /// 0x28 — Close a poll: further votes are ignored at replay. Gated on
+    /// the poll's author (the member who created it, tracked by
+    /// [`GroupOpBody::PollCreate`]) or `MANAGE_CHANNELS`, exactly like
+    /// [`GroupOpBody::EventEdit`]/[`GroupOpBody::EventDelete`]'s
+    /// author-owns-or-manager-overrides gate. Idempotent.
+    PollClose {
+        /// Target poll.
+        poll_id: [u8; 16],
+    },
+    /// 0x29 — Register a new poll's tally entry (D-048). Authored
+    /// automatically by the node alongside the `MsgBody::Poll` message send
+    /// (never exposed as its own RPC): the op-log fold is a pure function of
+    /// signed ops, so "does this `poll_id` exist" and "who may close it"
+    /// must be established by a *signed* op rather than trusted from
+    /// unauthenticated message content — a `PollVote`/`PollClose` alone
+    /// cannot establish authorship (the first voter is not necessarily the
+    /// poll's author, and trusting it would let any member race to "steal"
+    /// closing rights on someone else's poll). Gated on effective `VIEW`+
+    /// `SEND` in `channel_id` at replay (and the announcement-channel
+    /// `MANAGE_CHANNELS` override), exactly like
+    /// `accord_core::group::msg::require_send`/`GroupState::can_send_message`
+    /// — bare membership alone is **not** sufficient (previously it was,
+    /// letting anyone squat all `MAX_POLLS` slots via a channel they
+    /// couldn't even write to). Capped at
+    /// `accord_core::group::state::MAX_POLLS` per group, like scheduled
+    /// events; see [`GroupOpBody::PollDelete`] to recover a slot.
+    PollCreate {
+        /// New poll identifier, minted by the caller (random, like
+        /// [`crate::new_id16`]).
+        poll_id: [u8; 16],
+        /// Channel the poll's `MsgBody::Poll` message was (or will be)
+        /// posted to — the author must hold effective `VIEW`+`SEND` there,
+        /// checked at replay just like a plain message send.
+        channel_id: [u8; 16],
+        /// The `MsgBody::Poll` message this bookkeeping entry canonically
+        /// binds `poll_id` to. Lets ingestion reject a forged/rehomed
+        /// `Poll` message body that reuses this `poll_id` under a
+        /// different author or a different message
+        /// (see `accord_core::group::msg::ingest_group_message`).
+        msg_id: [u8; 16],
+    },
+    /// 0x2A — Delete a poll (author or `MANAGE_CHANNELS` at replay,
+    /// mirrors [`GroupOpBody::EventDelete`] exactly). Frees the slot
+    /// recovered against `MAX_POLLS` — the only way to reclaim a poll slot
+    /// once created.
+    PollDelete {
+        /// Target poll.
+        poll_id: [u8; 16],
+    },
 }
 
 impl GroupOpBody {
@@ -700,6 +831,10 @@ impl GroupOpBody {
             Self::StickerAdd { .. } => 0x24,
             Self::StickerRemove { .. } => 0x25,
             Self::SetMemberAvatar { .. } => 0x26,
+            Self::PollVote { .. } => 0x27,
+            Self::PollClose { .. } => 0x28,
+            Self::PollCreate { .. } => 0x29,
+            Self::PollDelete { .. } => 0x2A,
         }
     }
 
@@ -890,6 +1025,23 @@ impl GroupOpBody {
             Self::SetMemberAvatar { avatar } => {
                 w.put_opt(avatar.as_ref(), |w, h| w.put_arr(h));
             }
+            Self::PollVote {
+                poll_id,
+                option_index,
+            } => {
+                w.put_arr(poll_id);
+                w.put_u8(*option_index);
+            }
+            Self::PollClose { poll_id } | Self::PollDelete { poll_id } => w.put_arr(poll_id),
+            Self::PollCreate {
+                poll_id,
+                channel_id,
+                msg_id,
+            } => {
+                w.put_arr(poll_id);
+                w.put_arr(channel_id);
+                w.put_arr(msg_id);
+            }
         }
         w.into_bytes()
     }
@@ -1050,6 +1202,17 @@ impl GroupOpBody {
             0x26 => Self::SetMemberAvatar {
                 avatar: r.opt(|r| r.arr())?,
             },
+            0x27 => Self::PollVote {
+                poll_id: r.arr()?,
+                option_index: r.u8()?,
+            },
+            0x28 => Self::PollClose { poll_id: r.arr()? },
+            0x29 => Self::PollCreate {
+                poll_id: r.arr()?,
+                channel_id: r.arr()?,
+                msg_id: r.arr()?,
+            },
+            0x2A => Self::PollDelete { poll_id: r.arr()? },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
         r.finish()?;
@@ -2011,5 +2174,162 @@ mod tests {
     /// Round-trips a `MsgBody` through its wire discriminant + encoding.
     fn roundtrip_msg_body(body: &MsgBody) -> MsgBody {
         MsgBody::decode_body(body.kind(), &body.encode_body()).expect("decode")
+    }
+
+    #[test]
+    fn poll_op_bodies_roundtrip() {
+        let vote = GroupOpBody::PollVote {
+            poll_id: [1; 16],
+            option_index: 3,
+        };
+        assert_eq!(vote.kind(), 0x27);
+        assert_eq!(roundtrip(&vote), vote);
+        // The structural bound is on the wire's `u8` domain, not on the
+        // op's semantic validity (that lives in the fold) — 255 still
+        // round-trips at the wire layer.
+        let edge = GroupOpBody::PollVote {
+            poll_id: [1; 16],
+            option_index: 255,
+        };
+        assert_eq!(roundtrip(&edge), edge);
+
+        let close = GroupOpBody::PollClose { poll_id: [1; 16] };
+        assert_eq!(close.kind(), 0x28);
+        assert_eq!(roundtrip(&close), close);
+
+        let create = GroupOpBody::PollCreate {
+            poll_id: [1; 16],
+            channel_id: [2; 16],
+            msg_id: [3; 16],
+        };
+        assert_eq!(create.kind(), 0x29);
+        assert_eq!(roundtrip(&create), create);
+
+        let delete = GroupOpBody::PollDelete { poll_id: [1; 16] };
+        assert_eq!(delete.kind(), 0x2A);
+        assert_eq!(roundtrip(&delete), delete);
+    }
+
+    #[test]
+    fn poll_vote_rejects_truncation_and_trailing_bytes() {
+        // Truncated: poll_id present, option_index missing.
+        assert!(GroupOpBody::decode_body(0x27, &[0u8; 16]).is_err());
+        // Trailing garbage after a complete PollVote body.
+        let mut over = GroupOpBody::PollVote {
+            poll_id: [2; 16],
+            option_index: 1,
+        }
+        .encode_body();
+        over.push(0xFF);
+        assert!(GroupOpBody::decode_body(0x27, &over).is_err());
+        // PollClose/PollDelete: truncated poll_id.
+        assert!(GroupOpBody::decode_body(0x28, &[0u8; 8]).is_err());
+        assert!(GroupOpBody::decode_body(0x2A, &[0u8; 8]).is_err());
+        // PollCreate: truncated after poll_id, and after poll_id+channel_id.
+        assert!(GroupOpBody::decode_body(0x29, &[0u8; 16]).is_err());
+        assert!(GroupOpBody::decode_body(0x29, &[0u8; 32]).is_err());
+        // PollClose with trailing bytes.
+        let mut over_close = GroupOpBody::PollClose { poll_id: [2; 16] }.encode_body();
+        over_close.push(0);
+        assert!(GroupOpBody::decode_body(0x28, &over_close).is_err());
+        // PollCreate with trailing bytes.
+        let mut over_create = GroupOpBody::PollCreate {
+            poll_id: [2; 16],
+            channel_id: [3; 16],
+            msg_id: [4; 16],
+        }
+        .encode_body();
+        over_create.push(0);
+        assert!(GroupOpBody::decode_body(0x29, &over_create).is_err());
+        // PollDelete with trailing bytes.
+        let mut over_delete = GroupOpBody::PollDelete { poll_id: [2; 16] }.encode_body();
+        over_delete.push(0);
+        assert!(GroupOpBody::decode_body(0x2A, &over_delete).is_err());
+    }
+
+    /// Round-trips a `MsgBody::Poll` and fuzzes the wire bounds mandated by
+    /// D-048: 1-300 byte question, 2-10 options of 1-100 bytes each, no
+    /// panic on any truncation of an otherwise-valid encoding.
+    #[test]
+    fn poll_msg_body_roundtrips_and_enforces_bounds() {
+        let body = MsgBody::Poll {
+            poll_id: [9; 16],
+            question: "Pizza ou sushis ?".into(),
+            options: vec!["Pizza".into(), "Sushis".into(), "Les deux".into()],
+        };
+        assert_eq!(body.kind(), 7);
+        assert_eq!(roundtrip_msg_body(&body), body);
+
+        // Truncation fuzz: every prefix of a valid encoding must fail to
+        // decode cleanly (never panic) rather than silently succeed with
+        // partial data.
+        let encoded = body.encode_body();
+        for cut in 0..encoded.len() {
+            assert!(
+                MsgBody::decode_body(7, &encoded[..cut]).is_err(),
+                "cut={cut}"
+            );
+        }
+
+        // Empty question is rejected at decode, not just at compose.
+        let mut w = Writer::new();
+        w.put_arr(&[9u8; 16]);
+        w.put_str("");
+        w.put_list(&["A".to_string(), "B".to_string()], |w, o| w.put_str(o));
+        assert!(MsgBody::decode_body(7, &w.into_bytes()).is_err());
+
+        // Question beyond MAX_POLL_QUESTION_BYTES (300) is rejected.
+        let mut w2 = Writer::new();
+        w2.put_arr(&[9u8; 16]);
+        w2.put_str(&"x".repeat(MAX_POLL_QUESTION_BYTES + 1));
+        w2.put_list(&["A".to_string(), "B".to_string()], |w, o| w.put_str(o));
+        assert!(MsgBody::decode_body(7, &w2.into_bytes()).is_err());
+
+        // A single option (below MIN_POLL_OPTIONS = 2) is rejected.
+        let mut w3 = Writer::new();
+        w3.put_arr(&[9u8; 16]);
+        w3.put_str("Question ?");
+        w3.put_list(&["Seule option".to_string()], |w, o| w.put_str(o));
+        assert!(MsgBody::decode_body(7, &w3.into_bytes()).is_err());
+
+        // 11 options (above MAX_POLL_OPTIONS = 10) is rejected.
+        let mut w4 = Writer::new();
+        w4.put_arr(&[9u8; 16]);
+        w4.put_str("Question ?");
+        let too_many: Vec<String> = (0..11).map(|i| format!("Option {i}")).collect();
+        w4.put_list(&too_many, |w, o| w.put_str(o));
+        assert!(MsgBody::decode_body(7, &w4.into_bytes()).is_err());
+
+        // An empty option among otherwise-valid ones is rejected.
+        let mut w5 = Writer::new();
+        w5.put_arr(&[9u8; 16]);
+        w5.put_str("Question ?");
+        w5.put_list(&["Valide".to_string(), String::new()], |w, o| w.put_str(o));
+        assert!(MsgBody::decode_body(7, &w5.into_bytes()).is_err());
+
+        // An option beyond MAX_POLL_OPTION_BYTES (100) is rejected.
+        let mut w6 = Writer::new();
+        w6.put_arr(&[9u8; 16]);
+        w6.put_str("Question ?");
+        let bad_opts = vec!["x".repeat(MAX_POLL_OPTION_BYTES + 1), "ok".to_string()];
+        w6.put_list(&bad_opts, |w, o| w.put_str(o));
+        assert!(MsgBody::decode_body(7, &w6.into_bytes()).is_err());
+
+        // Non-UTF-8 bytes in the question length-prefixed slot are rejected
+        // (never panic — mirrors every other `str` field on this channel).
+        let mut w7 = Writer::new();
+        w7.put_arr(&[9u8; 16]);
+        // Raw vbytes write: 1-byte length prefix wouldn't match `put_str`'s
+        // u16 prefix, so hand-roll the length + invalid UTF-8 payload.
+        let invalid = [0xFFu8, 0xFE, 0xFD];
+        w7.put_u16(invalid.len() as u16);
+        w7.put_raw(&invalid);
+        w7.put_list(&["A".to_string(), "B".to_string()], |w, o| w.put_str(o));
+        assert!(MsgBody::decode_body(7, &w7.into_bytes()).is_err());
+
+        // Trailing garbage after an otherwise-complete, valid encoding.
+        let mut over = body.encode_body();
+        over.push(0xAB);
+        assert!(MsgBody::decode_body(7, &over).is_err());
     }
 }

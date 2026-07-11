@@ -9,7 +9,10 @@
 //! et ne peut rien usurper.
 
 use accord_crypto::Identity;
-use accord_proto::core_msg::{ChannelKind, CoreMsg, FileRef, MsgBody};
+use accord_proto::core_msg::{
+    ChannelKind, CoreMsg, FileRef, MsgBody, MAX_POLL_OPTIONS, MAX_POLL_OPTION_BYTES,
+    MAX_POLL_QUESTION_BYTES, MIN_POLL_OPTIONS,
+};
 use accord_proto::limits::MAX_TEXT_BYTES;
 
 use crate::db::{Db, GroupMsgRecord};
@@ -24,6 +27,16 @@ use super::{crypt, group_state, new_id16};
 
 /// Borne d'un emoji de réaction (grappe de graphèmes UTF-8, en octets).
 const MAX_EMOJI_BYTES: usize = 64;
+
+/// Vrai si `s` ne contient aucun caractère de contrôle hormis
+/// tabulation/retour/saut de ligne — même politique que
+/// [`super::state`]'s `is_valid_event_description` (D-048 : pas
+/// d'anti-usurpation par caractères de format, contrairement aux pseudos —
+/// un texte de sondage n'apparaît jamais dans une liste de membres).
+fn poll_text_ok(s: &str) -> bool {
+    !s.chars()
+        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+}
 
 /// Issue de l'ingestion d'un message de groupe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +94,8 @@ fn require_send(
 }
 
 /// Chiffre un corps par la clé de groupe courante et rend le `CoreMsg` à
-/// diffuser (l'horloge de Lamport locale est avancée).
+/// diffuser (l'horloge de Lamport locale est avancée). `msg_id` frais généré
+/// localement ([`new_id16`]).
 fn seal_body(
     db: &Db,
     group_id: &[u8; 16],
@@ -89,10 +103,26 @@ fn seal_body(
     body: &MsgBody,
     now_ms: u64,
 ) -> Result<CoreMsg, CoreError> {
+    seal_body_with_id(db, group_id, channel_id, new_id16(), body, now_ms)
+}
+
+/// Comme [`seal_body`], mais avec un `msg_id` fourni par l'appelant plutôt
+/// que généré ici. Utilisé quand le `msg_id` doit être connu *avant* le
+/// scellement — par exemple pour qu'un sondage (D-048 fix HIGH-2) puisse
+/// enregistrer son `GroupOpBody::PollCreate { msg_id, .. }` en amont de la
+/// composition du message, afin de lier `poll_id` au message canonique qui
+/// l'accompagne.
+fn seal_body_with_id(
+    db: &Db,
+    group_id: &[u8; 16],
+    channel_id: &[u8; 16],
+    msg_id: [u8; 16],
+    body: &MsgBody,
+    now_ms: u64,
+) -> Result<CoreMsg, CoreError> {
     let stored = db
         .latest_group_key(group_id)?
         .ok_or(CoreError::Invalid("clé de groupe absente"))?;
-    let msg_id = new_id16();
     let lamport = db.bump_lamport(0)?;
     let encoded = body.encode_body();
     let mut plain = Vec::with_capacity(1 + encoded.len());
@@ -276,6 +306,76 @@ pub fn compose_group_sticker(
     Ok(msg)
 }
 
+/// Compose un sondage pour un salon (D-048) : question + options 1-10,
+/// mêmes bornes que le filaire ([`MAX_POLL_QUESTION_BYTES`],
+/// [`MIN_POLL_OPTIONS`]-[`MAX_POLL_OPTIONS`], [`MAX_POLL_OPTION_BYTES`]),
+/// revalidées ici puisque rien d'autre ne les revérifie côté composeur (à la
+/// différence du décodage, jamais invoqué en local). Persisté comme tout
+/// message de salon (voir [`compose_group_message`]).
+///
+/// `poll_id`/`msg_id` sont fournis par l'appelant plutôt que générés ici
+/// (D-048 fix MEDIUM) : le nœud doit les connaître *avant* d'appeler cette
+/// fonction pour pouvoir enregistrer `GroupOpBody::PollCreate { poll_id,
+/// channel_id, msg_id }` dans l'op-log **avant** de composer/diffuser le
+/// message — si l'enregistrement échoue (p. ex. plafond `MAX_POLLS`
+/// atteint), rien n'est composé ni envoyé, au lieu d'un message posté dont
+/// le dépouillement ne serait jamais connu de l'op-log.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_group_poll(
+    db: &Db,
+    identity: &Identity,
+    group_id: &[u8; 16],
+    channel_id: &[u8; 16],
+    poll_id: [u8; 16],
+    msg_id: [u8; 16],
+    question: &str,
+    options: Vec<String>,
+    now_ms: u64,
+) -> Result<CoreMsg, CoreError> {
+    let question = question.trim();
+    if question.is_empty() || question.len() > MAX_POLL_QUESTION_BYTES || !poll_text_ok(question) {
+        return Err(CoreError::Invalid("question de sondage invalide"));
+    }
+    if !(MIN_POLL_OPTIONS..=MAX_POLL_OPTIONS).contains(&options.len()) {
+        return Err(CoreError::Invalid(
+            "nombre d'options de sondage invalide (2-10)",
+        ));
+    }
+    let options: Vec<String> = options.iter().map(|o| o.trim().to_string()).collect();
+    if options
+        .iter()
+        .any(|o| o.is_empty() || o.len() > MAX_POLL_OPTION_BYTES || !poll_text_ok(o))
+    {
+        return Err(CoreError::Invalid("option de sondage invalide"));
+    }
+    // Unlike `compose_group_sticker`, no further state is needed beyond the
+    // write-permission gate: the poll's tally is registered separately by
+    // the caller via `GroupOpBody::PollCreate` (already authored by now).
+    require_send(db, identity, group_id, channel_id, now_ms)?;
+    let body = MsgBody::Poll {
+        poll_id,
+        question: question.to_string(),
+        options,
+    };
+    let msg = seal_body_with_id(db, group_id, channel_id, msg_id, &body, now_ms)?;
+    let CoreMsg::GroupMsg { lamport, .. } = &msg else {
+        return Err(CoreError::Invalid("enveloppe de groupe inattendue"));
+    };
+    db.insert_group_msg(&GroupMsgRecord {
+        msg_id,
+        group_id: *group_id,
+        channel_id: *channel_id,
+        author: identity.public_key(),
+        lamport: *lamport,
+        sent_ms: now_ms,
+        kind: body.kind(),
+        body: body.encode_body(),
+        deleted: false,
+        edited: None,
+    })?;
+    Ok(msg)
+}
+
 /// Compose l'ajout ou le retrait d'une réaction (appliquée localement).
 #[allow(clippy::too_many_arguments)]
 pub fn compose_group_reaction(
@@ -442,6 +542,61 @@ pub fn ingest_group_message(
             }
             Ok(GroupMsgEvent::Stored)
         }
+        // Sondage (D-048) : bornes d'octets/vide/UTF-8 déjà vérifiées au
+        // décodage ; on revalide ici l'absence de caractères de contrôle
+        // (même politique que l'édition de texte ci-dessus) avant
+        // persistance. Le dépouillement (qui a le droit de voter/clore) vit
+        // séparément dans `GroupState::polls`, alimenté par l'op-log
+        // (`PollCreate`/`PollVote`/`PollClose`) — jamais recalculé depuis ce
+        // message, exactement comme un sticker n'est pas revalidé contre le
+        // registre de stickers à l'ingestion (dégradation gracieuse, pas
+        // d'oracle réseau).
+        MsgBody::Poll {
+            poll_id,
+            ref question,
+            ref options,
+        } => {
+            if !poll_text_ok(question) || !options.iter().all(|o| poll_text_ok(o)) {
+                return Err(CoreError::Invalid("texte de sondage invalide"));
+            }
+            // Anti-usurpation (D-048 fix HIGH-2) : `GroupOpBody::PollCreate`
+            // lie `poll_id` à un unique (auteur, `msg_id`) canonique. Si
+            // l'op-log local connaît déjà ce `poll_id` (un `PollCreate` a
+            // été replié), seul le message qui correspond exactement à cet
+            // auteur ET ce `msg_id` est stocké — un pair qui rejoue ce
+            // `poll_id` avec un autre auteur (vol d'un sondage existant) ou
+            // un autre `msg_id` (question/options forgées sous le même
+            // identifiant) ne crée ni un second sondage visible, ni ne
+            // « rehéberge » le dépouillement existant sur son propre
+            // contenu — premier message canonique gagnant. Si l'op-log
+            // local ne connaît pas encore ce `poll_id` (le `PollCreate`
+            // correspondant n'est pas encore arrivé — livraison
+            // message/op non ordonnée entre elles), aucune contrainte
+            // n'est appliquée ici : dégradation gracieuse identique à un
+            // sticker non enregistré, l'établissement canonique se fait
+            // au repli de l'op-log.
+            if let Some(existing) = state.polls.get(&poll_id) {
+                if existing.author != *sender || existing.msg_id != *msg_id {
+                    return Ok(GroupMsgEvent::Ignored);
+                }
+            }
+            let inserted = db.insert_group_msg(&GroupMsgRecord {
+                msg_id: *msg_id,
+                group_id: *group_id,
+                channel_id: *channel_id,
+                author: *sender,
+                lamport,
+                sent_ms,
+                kind: *kind,
+                body: encoded.to_vec(),
+                deleted: false,
+                edited: None,
+            })?;
+            if !inserted {
+                return Ok(GroupMsgEvent::Duplicate);
+            }
+            Ok(GroupMsgEvent::Stored)
+        }
         // Saisie : éphémère, signalée à l'UI mais jamais persistée.
         MsgBody::Typing => Ok(GroupMsgEvent::Typing),
         // Accusés de lecture : sans objet dans un salon (marque locale).
@@ -515,6 +670,184 @@ mod tests {
                 .expect("clé copiée");
         }
         (created.group_id, channel_id)
+    }
+
+    /// D-048 fix HIGH-2 : un `Poll` forgé qui rejoue un `poll_id` déjà
+    /// enregistré (par un `PollCreate` connu localement) sous un AUTRE
+    /// auteur ou un AUTRE `msg_id` est ignoré à l'ingestion — il ne crée
+    /// jamais une seconde carte de sondage visible, et ne « rehéberge »
+    /// jamais le dépouillement existant sur son propre contenu (question/
+    /// options forgées).
+    #[test]
+    fn poll_message_reusing_existing_poll_id_from_different_author_is_ignored() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        // Alice crée un sondage réel : l'op PollCreate d'abord (ordre
+        // op-first, D-048 fix MEDIUM), puis le message qui l'accompagne,
+        // tous deux liés au même (poll_id, msg_id).
+        let poll_id = new_id16();
+        let msg_id = new_id16();
+        let create_op = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::PollCreate {
+                poll_id,
+                channel_id: chan,
+                msg_id,
+            },
+            2_000,
+        )
+        .expect("PollCreate");
+        ingest_op(&db_b, &create_op).expect("réplication PollCreate");
+
+        let real_msg = compose_group_poll(
+            &db_a,
+            &alice,
+            &gid,
+            &chan,
+            poll_id,
+            msg_id,
+            "Vrai sondage ?",
+            vec!["Oui".into(), "Non".into()],
+            2_001,
+        )
+        .expect("composition sondage réel");
+        let CoreMsg::GroupMsg {
+            lamport,
+            sent_ms,
+            key_epoch,
+            body_enc,
+            ..
+        } = &real_msg
+        else {
+            panic!("GroupMsg attendu");
+        };
+        assert_eq!(
+            ingest_group_message(
+                &db_b,
+                &[9; 32],
+                &alice.public_key(),
+                &gid,
+                &chan,
+                &msg_id,
+                *lamport,
+                *sent_ms,
+                *sent_ms,
+                *key_epoch,
+                body_enc,
+            )
+            .expect("ingestion sondage réel"),
+            GroupMsgEvent::Stored
+        );
+
+        // Bob forge un message concurrent qui rejoue le `poll_id` d'Alice,
+        // sous un `msg_id` frais et une question/options différentes — un
+        // ingest naïf qui ne vérifierait que les bornes filaires stockerait
+        // ceci comme une seconde carte de sondage pour le MÊME poll_id,
+        // trompant les votants sur ce pour quoi ils votent.
+        let forged_msg_id = new_id16();
+        let forged_body = MsgBody::Poll {
+            poll_id,
+            question: "FAUX sondage (piraté) ?".into(),
+            options: vec!["Piège A".into(), "Piège B".into()],
+        };
+        let forged = seal_body_with_id(&db_b, &gid, &chan, forged_msg_id, &forged_body, 2_002)
+            .expect("scellement forgé");
+        let CoreMsg::GroupMsg {
+            lamport: f_lamport,
+            sent_ms: f_sent_ms,
+            key_epoch: f_key_epoch,
+            body_enc: f_body_enc,
+            ..
+        } = &forged
+        else {
+            panic!("GroupMsg attendu");
+        };
+        let event = ingest_group_message(
+            &db_a,
+            &[10; 32],
+            &bob.public_key(),
+            &gid,
+            &chan,
+            &forged_msg_id,
+            *f_lamport,
+            *f_sent_ms,
+            *f_sent_ms,
+            *f_key_epoch,
+            f_body_enc,
+        )
+        .expect("ingestion sondage forgé");
+        assert_eq!(
+            event,
+            GroupMsgEvent::Ignored,
+            "un message d'un autre auteur pour un poll_id déjà connu doit être ignoré"
+        );
+
+        // Aucun second message n'atterrit chez Alice, et le dépouillement
+        // reste lié à Alice — jamais « rehébergé » vers Bob.
+        let history = db_a
+            .group_history(&gid, &chan, u64::MAX, 10)
+            .expect("historique");
+        assert_eq!(history.len(), 1, "pas de second message stocké");
+        assert_eq!(history[0].msg_id, msg_id);
+        let state = group_state(&db_a, &gid).expect("état");
+        let poll = state.polls.get(&poll_id).expect("sondage connu");
+        assert_eq!(poll.author, alice.public_key());
+        assert_eq!(poll.msg_id, msg_id);
+
+        // Défense en profondeur : même le VRAI auteur (Alice) ne peut pas
+        // faire glisser le sondage vers un second message sous le même
+        // poll_id — seul le `msg_id` canonique enregistré par PollCreate
+        // est accepté.
+        let alice_second_msg_id = new_id16();
+        let alice_second_body = MsgBody::Poll {
+            poll_id,
+            question: "Deuxième message, même poll_id ?".into(),
+            options: vec!["A".into(), "B".into()],
+        };
+        let alice_second = seal_body_with_id(
+            &db_a,
+            &gid,
+            &chan,
+            alice_second_msg_id,
+            &alice_second_body,
+            2_003,
+        )
+        .expect("scellement second message");
+        let CoreMsg::GroupMsg {
+            lamport: s_lamport,
+            sent_ms: s_sent_ms,
+            key_epoch: s_key_epoch,
+            body_enc: s_body_enc,
+            ..
+        } = &alice_second
+        else {
+            panic!("GroupMsg attendu");
+        };
+        let event2 = ingest_group_message(
+            &db_b,
+            &[11; 32],
+            &alice.public_key(),
+            &gid,
+            &chan,
+            &alice_second_msg_id,
+            *s_lamport,
+            *s_sent_ms,
+            *s_sent_ms,
+            *s_key_epoch,
+            s_body_enc,
+        )
+        .expect("ingestion second message");
+        assert_eq!(
+            event2,
+            GroupMsgEvent::Ignored,
+            "même le vrai auteur ne peut pas rejouer poll_id sous un second msg_id"
+        );
     }
 
     #[test]
