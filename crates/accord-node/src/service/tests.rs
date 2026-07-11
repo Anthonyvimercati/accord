@@ -910,6 +910,7 @@ async fn group_state_enriched_exact_shape() {
     assert_eq!(
         sorted_keys(&state),
         [
+            "automod_words",
             "banner_color",
             "bans",
             "categories",
@@ -939,6 +940,7 @@ async fn group_state_enriched_exact_shape() {
     assert_eq!(state["stickers"], json!([]));
     assert_eq!(state["events"], json!([]));
     assert_eq!(state["polls"], json!([]));
+    assert_eq!(state["automod_words"], json!([]));
     let me = s.call("identity.self", json!({})).await.unwrap();
     assert_eq!(
         state["members"],
@@ -2546,6 +2548,130 @@ async fn group_set_banner_color_set_clear_and_bounds() {
         .await
         .unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+#[tokio::test]
+async fn group_automod_set_get_normalizes_case_and_reflects_in_state() {
+    let (s, gid) = service_with_group().await;
+    // Mixed-case, duplicated (case-insensitively) input is normalized to a
+    // deduplicated, lowercased set.
+    s.call(
+        "groups.automod.set",
+        json!({"group_id": gid, "words": ["Spam", "SCAM", "scam"]}),
+    )
+    .await
+    .unwrap();
+
+    let got = s
+        .call("groups.automod.get", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let mut words: Vec<String> = got["words"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    words.sort();
+    assert_eq!(words, vec!["scam".to_string(), "spam".to_string()]);
+
+    // Reflected in groups.state too (no separate round-trip needed).
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let mut state_words: Vec<String> = state["automod_words"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    state_words.sort();
+    assert_eq!(state_words, vec!["scam".to_string(), "spam".to_string()]);
+
+    // A later call wholesale REPLACES the list (not a merge).
+    s.call(
+        "groups.automod.set",
+        json!({"group_id": gid, "words": ["only-this"]}),
+    )
+    .await
+    .unwrap();
+    let got2 = s
+        .call("groups.automod.get", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(got2["words"], json!(["only-this"]));
+
+    // Empty list clears the filter.
+    s.call("groups.automod.set", json!({"group_id": gid, "words": []}))
+        .await
+        .unwrap();
+    let got3 = s
+        .call("groups.automod.get", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(got3["words"], json!([]));
+}
+
+#[tokio::test]
+async fn group_automod_set_validates_at_boundary() {
+    let (s, gid) = service_with_group().await;
+    // `words` missing entirely.
+    let err = s
+        .call("groups.automod.set", json!({"group_id": gid}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // `words` not a list of strings.
+    let err = s
+        .call(
+            "groups.automod.set",
+            json!({"group_id": gid, "words": [1, 2, 3]}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // More than MAX_AUTOMOD_WORDS (50) entries is rejected.
+    let too_many: Vec<String> = (0..51).map(|i| format!("w{i}")).collect();
+    let err = s
+        .call(
+            "groups.automod.set",
+            json!({"group_id": gid, "words": too_many}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // A single word beyond 32 characters is rejected.
+    let err = s
+        .call(
+            "groups.automod.set",
+            json!({"group_id": gid, "words": ["x".repeat(33)]}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // Empty-string word is rejected (1-char floor).
+    let err = s
+        .call(
+            "groups.automod.set",
+            json!({"group_id": gid, "words": [""]}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // Exactly at the caps (50 words, 32 chars) is accepted.
+    let at_cap: Vec<String> = (0..50).map(|i| format!("w{i}")).collect();
+    s.call(
+        "groups.automod.set",
+        json!({"group_id": gid, "words": at_cap}),
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

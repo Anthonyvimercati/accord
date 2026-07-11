@@ -30,13 +30,15 @@ Nouveaux discriminants d'op de groupe (`GroupOpBody`, prochain libre après
 | `0x28` | `PollClose` | `MANAGE_CHANNELS` ou auteur du sondage |
 | `0x29` | `PollCreate` | `VIEW`+`SEND` effectifs dans `channel_id` (comme envoyer un message — **pas** la simple appartenance) |
 | `0x2A` | `PollDelete` | `MANAGE_CHANNELS` ou auteur du sondage |
+| `0x2B` | `SetAutoModWords` | `MANAGE_CHANNELS` |
 
-Aucun nouveau bit de permission n'a été introduit : les événements et
-l'édition de la bannière réutilisent `MANAGE_CHANNELS` (même famille que
-`SetMeta`/salons/catégories), les stickers réutilisent `MANAGE_EMOJIS` (même
-famille que les émojis de serveur). L'avatar de serveur ne dépend d'aucune
-permission — il est strictement self-service, comme un pseudo qu'on se
-fixerait à soi-même sans jamais pouvoir agir sur celui d'autrui.
+Aucun nouveau bit de permission n'a été introduit : les événements,
+l'édition de la bannière et AutoMod réutilisent `MANAGE_CHANNELS` (même
+famille que `SetMeta`/salons/catégories), les stickers réutilisent
+`MANAGE_EMOJIS` (même famille que les émojis de serveur). L'avatar de
+serveur ne dépend d'aucune permission — il est strictement self-service,
+comme un pseudo qu'on se fixerait à soi-même sans jamais pouvoir agir sur
+celui d'autrui.
 
 `GroupOpBody::SetMeta` (0x02, inchangée dans son usage historique — nom +
 icône) gagne un champ **additif** de fin de variant : `banner_color:
@@ -329,6 +331,7 @@ champs utiles à une description humaine) :
 | `poll_vote` | `{ poll_id, option_index }` |
 | `poll_close` | `{ poll_id }` |
 | `poll_delete` | `{ poll_id }` |
+| `automod_set` | `{ word_count }` (nombre de mots dans la liste de remplacement, pas les mots eux-mêmes — voir §7) |
 
 ---
 
@@ -449,7 +452,115 @@ options — cf. `groups.history` ci-dessus) :
 
 ---
 
-## 7. Quotas et bornes (résumé)
+## 7. AutoMod : liste de mots bloqués (`groups.automod.*`)
+
+### 7.1 Modèle honnête P2P — ce que cette op fait et NE fait PAS
+
+**Accord n'a pas de serveur.** Un AutoMod « à la Discord » bloque les
+messages *côté serveur*, avant qu'ils n'atteignent qui que ce soit — c'est
+impossible à répliquer ici : un client modifié peut toujours signer et
+diffuser n'importe quel texte à ses pairs, quel que soit le contenu de
+`automod_words`. Prétendre le contraire serait mentir sur la garantie de
+sécurité offerte.
+
+Le modèle réaliste, et donc celui implémenté, est :
+
+- La liste de mots bloqués est une **configuration de serveur signée et
+  répliquée** par l'op-log de groupe, exactement comme le nom du serveur ou
+  ses salons — tous les pairs honnêtes convergent vers la même liste.
+- Un **client honnête** est responsable de deux choses, toutes deux hors du
+  périmètre de cette vague backend (vague frontend suivante,
+  `app/`) :
+  1. **À la composition** : avertir (ou bloquer) l'expéditeur *localement*
+     avant l'envoi si son message contient un mot de la liste.
+  2. **Au rendu** : masquer les mots correspondants dans les messages
+     **reçus**, pour se protéger des pairs qui ignorent délibérément
+     l'avertissement local (client modifié, ou tout simplement un pair qui
+     n'a pas encore synchronisé la liste courante).
+- Un pair qui ignore la liste (client modifié, ou ancien client qui ne
+  connaît pas encore `SetAutoModWords`) envoie son message normalement ;
+  ce backend ne peut ni le refuser ni le censurer a posteriori — il n'y a
+  personne au milieu pour le faire. C'est la même limite fondamentale que
+  n'importe quelle modération dans un système sans serveur de confiance :
+  la seule application *garantie* est celle que chaque pair honnête fait
+  sur ses propres réception/composition.
+
+En résumé : ce backend **stocke et réplique la règle** ; il ne
+**l'applique** jamais lui-même, faute d'avoir un point de passage obligé
+par lequel les messages transiteraient.
+
+### 7.2 Méthodes RPC
+
+| Méthode | Paramètres | Résultat | Erreurs notables |
+|---|---|---|---|
+| `groups.automod.set` | `{ group_id, words: [string, ...] }` | `{ ok: true }` | `INVALID_PARAMS` (`words` absent/non-liste, plus de 50 entrées, un mot hors bornes) ; `APP_ERROR` « refusé : … » (pas `MANAGE_CHANNELS`) |
+| `groups.automod.get` | `{ group_id }` | `{ words: [string, ...] }` | — |
+
+- `groups.automod.set` **remplace intégralement** la liste (comme
+  `groups.rename` remplace le nom) — ce n'est jamais un ajout/retrait
+  incrémental. Envoyer une liste vide efface le filtre.
+- Chaque mot est normalisé en minuscules côté frontière **et** au repli
+  (comparaison insensible à la casse) ; des doublons différant seulement
+  par la casse (`"Spam"`, `"SPAM"`) fusionnent silencieusement en une seule
+  entrée.
+- `groups.automod.get` est un raccourci de confort : la même information
+  est déjà exposée dans `groups.state.automod_words` (voir §7.3) — inutile
+  d'appeler `groups.state` en entier juste pour lire la liste courante.
+
+### 7.3 Forme dans `groups.state`
+
+Nouveau champ racine, tableau de chaînes déjà normalisées (minuscules) et
+triées (ordre du `BTreeSet`, déterministe) :
+
+```json
+{
+  "automod_words": ["scam", "spam"],
+  "...": "reste du contrat groups.state inchangé"
+}
+```
+
+### 7.4 Choix d'implémentation et durcissement adversarial
+
+**Pourquoi `MANAGE_CHANNELS` plutôt qu'un nouveau bit de permission** :
+même famille que `SetMeta`/salons/catégories — la liste AutoMod est une
+propriété du serveur au même titre que son nom ou ses salons, pas une
+ressource à part qui justifierait un bit dédié (contrairement aux émojis/
+stickers, qui ont leur propre `MANAGE_EMOJIS` parce qu'un serveur peut
+vouloir déléguer *seulement* la gestion des émojis sans donner accès aux
+salons/rôles).
+
+**Pourquoi une op de remplacement intégral plutôt que
+`AutomodWordAdd`/`AutomodWordRemove`** : une liste de mots bloqués est
+consultée comme un tout (« quels mots filtre-t-on en ce moment ? »), jamais
+un mot à la fois ; un remplacement intégral est strictement plus simple à
+raisonner et à répliquer de façon déterministe (pas de sémantique
+d'ensemble à définir pour des ajouts/retraits concurrents), au prix
+assumé de devoir renvoyer la liste complète à chaque modification — un coût
+négligeable vu la borne de 50 mots.
+
+**Passe adversariale (bornée, sans panique)** :
+
+- Décodage filaire (`accord-proto`) : liste tronquée à tout point rejetée
+  intégralement (pas de dépouillement partiel), un mot au-delà de la borne
+  filaire (128 octets, marge UTF-8 de 32 caractères) rejeté intégralement,
+  octets excédentaires en fin de structure rejetés, fuzz de troncature sur
+  tous les préfixes d'un encodage valide.
+- Repli (`accord-core`) : permission `MANAGE_CHANNELS` refusée pour un
+  simple membre ; plus de 50 mots rejeté (défense en profondeur — le
+  décodage filaire l'empêche déjà, le repli ne doit jamais en dépendre
+  seul) ; un seul mot invalide (vide, > 32 caractères, caractère de
+  contrôle, caractère de format trompeur bidi/zero-width via
+  `is_valid_display_label`) **rejette l'op entière** — jamais de
+  remplacement partiel avec les mots valides d'une liste par ailleurs
+  invalide ; repli prouvé indépendant de l'ordre d'arrivée des ops
+  (`fold_is_order_independent`, même méthode que pour les autres ops).
+- Aucun nettoyage nécessaire au départ d'un membre : c'est une config de
+  serveur, pas un état par membre (contrairement à un pseudo, un avatar ou
+  une modération vocale).
+
+---
+
+## 8. Quotas et bornes (résumé)
 
 | Élément | Borne | Enforcement |
 |---|---|---|
@@ -474,6 +585,10 @@ options — cf. `groups.history` ci-dessus) :
 | `option_index` d'un vote | borne **structurelle** ≤ `MAX_POLL_OPTIONS` (10) — le repli ignore ce qui dépasse, indépendamment du nombre réel d'options du sondage (connu seulement via le message) | fold |
 | Vote de sondage | dédoublonné par `(poll_id, membre)`, choix unique (remplace, n'accumule pas) | fold |
 | Liaison `poll_id` → message canonique | un seul `(auteur, msg_id)` par `poll_id`, fixé par le premier `PollCreate` replié — tout `MsgBody::Poll` ultérieur d'un autre auteur ou avec un autre `msg_id` est ignoré | ingestion du message (contre l'état replié de l'op-log) |
+| Mots AutoMod par groupe | 50 (`MAX_AUTOMOD_WORDS`) | décodage filaire **et** fold (défense en profondeur) — `SetAutoModWords` remplace toujours la liste entière, jamais d'accumulation |
+| Mot AutoMod | 1-32 caractères après normalisation minuscule, sans caractère de contrôle ni de format trompeur (bidi/zero-width) | frontière (bornes structurelles) + fold (`is_valid_display_label`, rejet complet de l'op sur un seul mot invalide) |
+| Mot AutoMod sur le fil (`SetAutoModWords`) | ≤ 128 octets UTF-8 (marge ×4 sur 32 caractères, même politique que `MAX_NICKNAME`) | décodage filaire |
+| `SetAutoModWords` | `MANAGE_CHANNELS` requis | fold, à l'émission **et** au rejeu |
 
 Toute op au-delà d'une borne de **fold** est silencieusement ignorée
 (convergence déterministe entre pairs honnêtes, indépendante de l'ordre

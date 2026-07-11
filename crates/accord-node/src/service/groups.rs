@@ -309,6 +309,9 @@ fn audit_entry_json(op: &GroupOp) -> Value {
             GroupOpBody::PollDelete { poll_id } => {
                 ("poll_delete", json!({ "poll_id": hex::encode(&poll_id) }))
             }
+            GroupOpBody::SetAutoModWords { words } => {
+                ("automod_set", json!({ "word_count": words.len() }))
+            }
         },
         Err(_) => ("unknown", json!({})),
     };
@@ -781,6 +784,29 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 .ok_or(NodeError::Invalid("color requis (entier 0xRRGGBB ou null)"))?;
             node.group_set_banner_color(&gid, color)?;
             Ok(json!({ "ok": true }))
+        }
+        "groups.automod.set" => {
+            let gid = param_id16(params, "group_id")?;
+            let words = params
+                .get("words")
+                .and_then(Value::as_array)
+                .ok_or(NodeError::Invalid("words : liste attendue"))?
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(str::to_string)
+                        .ok_or(NodeError::Invalid("words : chaînes attendues"))
+                })
+                .collect::<Result<Vec<String>, NodeError>>()?;
+            node.group_automod_set(&gid, words)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.automod.get" => {
+            let gid = param_id16(params, "group_id")?;
+            let state = node.group_state(&gid)?;
+            Ok(json!({
+                "words": state.automod_words.iter().collect::<Vec<_>>()
+            }))
         }
         "groups.events.create" => {
             let gid = param_id16(params, "group_id")?;

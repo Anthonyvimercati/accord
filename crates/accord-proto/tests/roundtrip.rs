@@ -489,6 +489,10 @@ fn group_op_bodies_roundtrip() {
             msg_id: [18; 16],
         },
         GroupOpBody::PollDelete { poll_id: [16; 16] },
+        GroupOpBody::SetAutoModWords {
+            words: vec!["spam".into(), "vilain-mot".into()],
+        },
+        GroupOpBody::SetAutoModWords { words: vec![] },
     ];
     for body in bodies {
         let enc = body.encode_body();

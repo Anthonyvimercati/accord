@@ -148,6 +148,35 @@ fn validate_event_start_ms(start_ms: u64) -> Result<(), NodeError> {
     Ok(())
 }
 
+/// Valide et normalise (minuscules) la liste de mots AutoMod à la frontière
+/// : au plus `MAX_AUTOMOD_WORDS` mots, chacun 1-32 caractères une fois
+/// normalisé, sans caractère de contrôle — message d'erreur explicite.
+/// L'anti-usurpation complète (bidi/zero-width, `is_spoofing_char`) n'est
+/// vérifiée qu'au repli (`accord_core::group::state::apply`, même politique
+/// que les autres libellés) : cette frontière ne fait que couper court aux
+/// entrées manifestement invalides avant de signer/diffuser une op qui
+/// serait de toute façon rejetée au rejeu.
+fn validate_automod_words(words: &[String]) -> Result<Vec<String>, NodeError> {
+    if words.len() > accord_proto::core_msg::MAX_AUTOMOD_WORDS {
+        return Err(NodeError::Invalid("trop de mots AutoMod (50 max)"));
+    }
+    words
+        .iter()
+        .map(|w| {
+            let lower = w.to_lowercase();
+            let len = lower.chars().count();
+            if !(1..=accord_core::group::state::MAX_AUTOMOD_WORD_CHARS).contains(&len)
+                || lower.chars().any(|c| c.is_control())
+            {
+                return Err(NodeError::Invalid(
+                    "mot AutoMod invalide (1-32 caractères, sans caractère de contrôle)",
+                ));
+            }
+            Ok(lower)
+        })
+        .collect()
+}
+
 /// Clé de métadonnée locale du suivi des événements déjà signalés d'un
 /// groupe (`event.group_event_started`) : liste compacte d'identifiants 16
 /// octets concaténés, réélaguée à chaque passe pour ne garder que les
@@ -298,6 +327,29 @@ impl Node {
                 banner_color: color,
             },
         )
+    }
+
+    // ---- AutoMod (mots bloqués, config serveur répliquée) ----
+
+    /// Remplace intégralement la liste des mots bloqués AutoMod du groupe
+    /// (op `SetAutoModWords`, `MANAGE_CHANNELS` requis, vérifié à
+    /// l'émission et au rejeu). La liste courante se lit dans
+    /// `groups.state.automod_words` — aucune méthode `get` dédiée n'est
+    /// nécessaire.
+    ///
+    /// **Portée strictement backend** — voir `docs/COMMUNITY.md` : Accord
+    /// est serverless, donc rien n'empêche un pair modifié d'envoyer
+    /// n'importe quel texte. Cette op ne fait que stocker/répliquer la
+    /// règle signée ; un client honnête l'utilise pour avertir/bloquer
+    /// l'expéditeur à la composition et masquer les mots reçus au rendu
+    /// (vague frontend suivante).
+    pub fn group_automod_set(
+        &self,
+        group_id: &[u8; 16],
+        words: Vec<String>,
+    ) -> Result<(), NodeError> {
+        let normalized = validate_automod_words(&words)?;
+        self.group_author(group_id, GroupOpBody::SetAutoModWords { words: normalized })
     }
 
     // ---- Salons ----

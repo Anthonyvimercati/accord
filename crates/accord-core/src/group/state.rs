@@ -3,7 +3,9 @@
 //! tous les pairs honnêtes convergent vers le même état.
 
 use accord_crypto::identity::node_id_of;
-use accord_proto::core_msg::{perms, ChannelKind, GroupOp, GroupOpBody, MAX_POLL_OPTIONS};
+use accord_proto::core_msg::{
+    perms, ChannelKind, GroupOp, GroupOpBody, MAX_AUTOMOD_WORDS, MAX_POLL_OPTIONS,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Permissions implicites de tout membre (D-015) ; les overrides de salon
@@ -58,6 +60,14 @@ pub const MAX_EVENT_DESC_CHARS: usize = 1024;
 
 /// Longueur maximale d'un pseudo de serveur (en caractères, après trim).
 pub const MAX_NICKNAME_CHARS: usize = 32;
+
+/// Longueur maximale d'un mot AutoMod (en caractères, après normalisation
+/// en minuscules) — même politique que [`MAX_NICKNAME_CHARS`]. Le nombre de
+/// mots lui-même est borné par
+/// [`accord_proto::core_msg::MAX_AUTOMOD_WORDS`] (revérifié ici au repli en
+/// défense en profondeur — le décodage filaire la fait déjà respecter, mais
+/// le repli ne doit jamais dépendre de cette seule garde amont).
+pub const MAX_AUTOMOD_WORD_CHARS: usize = 32;
 
 /// Plafond de l'échéance d'une sourdine (`until_ms`, ms murales). ~an 2248,
 /// très en deçà de 2^53 : garde une date exploitable côté UI (JS `number`).
@@ -122,6 +132,19 @@ fn is_valid_emoji_name(name: &str) -> bool {
 /// d'émoji ([`is_valid_emoji_name`], D-047).
 fn is_valid_sticker_name(name: &str) -> bool {
     is_valid_emoji_name(name)
+}
+
+/// Vrai si `word` est un mot AutoMod valide : 1 à [`MAX_AUTOMOD_WORD_CHARS`]
+/// caractères, sans caractère de contrôle ni caractère de format trompeur
+/// ([`is_spoofing_char`]) — même garde anti-usurpation qu'un pseudo
+/// ([`is_valid_display_label`]). L'appelant doit passer un mot **déjà**
+/// normalisé en minuscules (`str::to_lowercase`) : ce validateur ne
+/// normalise pas la casse lui-même, il ne fait que rejeter les entrées
+/// hostiles — la forme canonique stockée dans
+/// [`GroupState::automod_words`] est toujours en minuscules puisque la
+/// comparaison à la composition/au rendu est insensible à la casse.
+fn is_valid_automod_word(word: &str) -> bool {
+    is_valid_display_label(word, MAX_AUTOMOD_WORD_CHARS)
 }
 
 /// Vrai si `title` est un titre d'événement valide : 2 à 100 caractères,
@@ -334,6 +357,20 @@ pub struct GroupState {
     /// Couleur de bannière du serveur `0xRRGGBB`, le cas échéant (D-047,
     /// champ additif de [`GroupOpBody::SetMeta`]).
     pub banner_color: Option<u32>,
+    /// Liste des mots bloqués AutoMod du groupe, normalisés en minuscules
+    /// (`GroupOpBody::SetAutoModWords`, remplacement intégral à chaque op —
+    /// jamais d'accumulation). `BTreeSet` : ordre déterministe et
+    /// dédoublonnage gratuit, cohérent avec le fait qu'il n'y a aucune
+    /// notion d'ordre d'ajout à préserver (c'est une config, pas un
+    /// historique).
+    ///
+    /// **Portée strictement backend** : Accord est serverless, donc rien
+    /// ici n'empêche un pair modifié d'envoyer n'importe quel texte — cette
+    /// liste ne fait que stocker/répliquer la règle signée. L'application
+    /// (avertir/bloquer l'expéditeur à la composition, masquer les mots
+    /// reçus au rendu) est un choix du client honnête, jamais garanti
+    /// contre un pair modifié — voir `docs/COMMUNITY.md`.
+    pub automod_words: BTreeSet<String>,
     /// Nombre d'ops appliquées (dont ignorées : non).
     pub applied_ops: u64,
 }
@@ -1295,6 +1332,33 @@ impl GroupState {
                     return self.ignore("POLL_DELETE refusé");
                 }
                 self.polls.remove(&poll_id);
+            }
+            GroupOpBody::SetAutoModWords { words } => {
+                // Same permission family as SetMeta/channels/categories —
+                // AutoMod's rule list is server config, not per-member
+                // state (see GroupState::automod_words doc + honest-P2P
+                // caveat).
+                if !has(perms::MANAGE_CHANNELS) {
+                    return self.ignore("AUTOMOD_SET refusé");
+                }
+                // Defense in depth: the wire decode already caps the list
+                // at MAX_AUTOMOD_WORDS, but the fold must never rely on
+                // that alone (see MAX_AUTOMOD_WORD_CHARS doc).
+                if words.len() > MAX_AUTOMOD_WORDS {
+                    return self.ignore("trop de mots AutoMod (50 max)");
+                }
+                // Build the normalized replacement set in a local first —
+                // any single malformed/spoofed word rejects the *whole* op
+                // atomically, never a partial replacement of the list.
+                let mut normalized = BTreeSet::new();
+                for word in &words {
+                    let lower = word.to_lowercase();
+                    if !is_valid_automod_word(&lower) {
+                        return self.ignore("mot AutoMod invalide");
+                    }
+                    normalized.insert(lower);
+                }
+                self.automod_words = normalized;
             }
         }
         self.applied_ops += 1;
@@ -3680,5 +3744,159 @@ mod tests {
                 .unwrap()
                 .closed
         );
+    }
+
+    #[test]
+    fn automod_set_words_replaces_wholesale_normalizes_case_and_requires_manage_channels() {
+        let mut ops = base_ops();
+        // A plain member (no MANAGE_CHANNELS) cannot set the list.
+        ops.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec!["spam".into()],
+            },
+            ALICE,
+            4,
+        ));
+        assert!(GroupState::fold(&ops).automod_words.is_empty());
+
+        // The founder (MANAGE_CHANNELS via ALL_PERMS) can set it — words
+        // are normalized to lowercase and deduplicated case-insensitively.
+        ops.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec!["Spam".into(), "SCAM".into(), "scam".into()],
+            },
+            FOUNDER,
+            5,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.automod_words.len(), 2);
+        assert!(st.automod_words.contains("spam"));
+        assert!(st.automod_words.contains("scam"));
+
+        // A later SetAutoModWords wholesale REPLACES the list, it does not
+        // merge with the previous one.
+        ops.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec!["only-this".into()],
+            },
+            FOUNDER,
+            6,
+        ));
+        let st2 = GroupState::fold(&ops);
+        assert_eq!(st2.automod_words.len(), 1);
+        assert!(st2.automod_words.contains("only-this"));
+
+        // The empty list is a valid replacement: it clears the filter.
+        ops.push(signed(
+            GroupOpBody::SetAutoModWords { words: vec![] },
+            FOUNDER,
+            7,
+        ));
+        assert!(GroupState::fold(&ops).automod_words.is_empty());
+    }
+
+    /// Adversarial pass (server config, hostile bytes): oversized list
+    /// rejected wholesale, oversized/spoofed word rejected wholesale (no
+    /// partial application), order-independent fold.
+    #[test]
+    fn automod_set_words_rejects_oversized_list_and_spoofed_words_atomically() {
+        // Oversized list (structural bound, defense in depth — the wire
+        // decoder already caps this, but the fold must not rely on it
+        // alone): entirely ignored, not truncated to the first 50.
+        let mut oversized = base_ops();
+        oversized.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: (0..(MAX_AUTOMOD_WORDS + 1))
+                    .map(|i| format!("w{i}"))
+                    .collect(),
+            },
+            FOUNDER,
+            4,
+        ));
+        assert!(GroupState::fold(&oversized).automod_words.is_empty());
+
+        // Exactly MAX_AUTOMOD_WORDS is accepted.
+        let mut at_cap = base_ops();
+        at_cap.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: (0..MAX_AUTOMOD_WORDS).map(|i| format!("w{i}")).collect(),
+            },
+            FOUNDER,
+            4,
+        ));
+        assert_eq!(
+            GroupState::fold(&at_cap).automod_words.len(),
+            MAX_AUTOMOD_WORDS
+        );
+
+        // A single overlong word (33 characters) poisons the whole op: the
+        // list stays exactly as it was before (atomic rejection, no
+        // partial replacement with the other, valid words).
+        let mut overlong = base_ops();
+        overlong.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec!["ok".into()],
+            },
+            FOUNDER,
+            4,
+        ));
+        overlong.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec!["fine".into(), "x".repeat(33)],
+            },
+            FOUNDER,
+            5,
+        ));
+        let st_overlong = GroupState::fold(&overlong);
+        assert_eq!(st_overlong.automod_words.len(), 1);
+        assert!(st_overlong.automod_words.contains("ok"));
+
+        // A spoofed word (zero-width space, anti-spoofing) also poisons
+        // the whole op, same as a control character.
+        let mut spoofed = base_ops();
+        spoofed.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec!["ok".into()],
+            },
+            FOUNDER,
+            4,
+        ));
+        spoofed.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec!["fine".into(), "spa\u{200B}m".into()],
+            },
+            FOUNDER,
+            5,
+        ));
+        let st_spoofed = GroupState::fold(&spoofed);
+        assert_eq!(st_spoofed.automod_words.len(), 1);
+        assert!(st_spoofed.automod_words.contains("ok"));
+
+        // An empty-string word (0 characters) is also rejected — the
+        // 1-char floor of is_valid_display_label applies here too.
+        let mut empty_word = base_ops();
+        empty_word.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec!["ok".into()],
+            },
+            FOUNDER,
+            4,
+        ));
+        empty_word.push(signed(
+            GroupOpBody::SetAutoModWords {
+                words: vec![String::new()],
+            },
+            FOUNDER,
+            5,
+        ));
+        let st_empty = GroupState::fold(&empty_word);
+        assert_eq!(st_empty.automod_words.len(), 1);
+        assert!(st_empty.automod_words.contains("ok"));
+
+        // Order-independence: shuffled ops converge to the same state
+        // (mirrors `fold_is_order_independent`).
+        let mut shuffled = at_cap.clone();
+        shuffled.reverse();
+        assert_eq!(GroupState::fold(&at_cap), GroupState::fold(&shuffled));
     }
 }

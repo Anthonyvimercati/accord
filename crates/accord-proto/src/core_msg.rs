@@ -55,6 +55,19 @@ pub const MAX_POLL_OPTIONS: usize = 10;
 /// Borne d'une option de sondage (D-048) : 1-100 octets UTF-8, même politique
 /// que [`MAX_POLL_QUESTION_BYTES`] (pas de couche caractères séparée).
 pub const MAX_POLL_OPTION_BYTES: usize = 100;
+/// Nombre maximal de mots dans la liste AutoMod d'un groupe
+/// (`GroupOpBody::SetAutoModWords`) : chaque appel **remplace** la liste
+/// entière plutôt que de l'accumuler, mais un client hostile pourrait
+/// toujours envoyer une liste unique gigantesque — bornée ici comme au
+/// repli (`accord_core::group::state`), même politique que
+/// [`MAX_POLL_OPTIONS`]. `pub` : réutilisée telle quelle côté cœur pour ne
+/// pas dupliquer le nombre magique.
+pub const MAX_AUTOMOD_WORDS: usize = 50;
+/// Borne filaire d'un mot AutoMod : 32 caractères × 4 octets UTF-8 au plus
+/// (même politique que `MAX_NICKNAME`) — la borne sémantique 1-32
+/// caractères normalisés (minuscules, anti-usurpation) est vérifiée au
+/// repli, pas ici.
+const MAX_AUTOMOD_WORD_BYTES: usize = 128;
 
 /// Bitfield de permissions de groupe (SPEC §6.2).
 pub mod perms {
@@ -787,6 +800,26 @@ pub enum GroupOpBody {
         /// Target poll.
         poll_id: [u8; 16],
     },
+    /// 0x2B — Replace the group's AutoMod blocked-word list wholesale (a
+    /// config set, not an incremental add/remove — mirrors how
+    /// [`GroupOpBody::SetMeta`] replaces the whole name/icon/banner tuple).
+    /// Gated on `MANAGE_CHANNELS`, same family as `SetMeta`/channels/
+    /// categories.
+    ///
+    /// **Honest P2P model**: Accord has no server able to block a hostile
+    /// client from sending anything it wants — this op only stores and
+    /// replicates the signed rule list. Enforcement (warning/blocking the
+    /// sender at compose time, masking matching words in received
+    /// messages) is entirely the responsibility of an *honest* client at
+    /// render/compose time; see `docs/COMMUNITY.md`.
+    SetAutoModWords {
+        /// Full replacement word list (never incremental). Each word is
+        /// normalized to lowercase and validated (1-32 characters, no
+        /// control character, no bidi/zero-width spoofing character) at
+        /// fold; the whole op is rejected if any entry is invalid or the
+        /// list exceeds [`MAX_AUTOMOD_WORDS`].
+        words: Vec<String>,
+    },
 }
 
 impl GroupOpBody {
@@ -835,6 +868,7 @@ impl GroupOpBody {
             Self::PollClose { .. } => 0x28,
             Self::PollCreate { .. } => 0x29,
             Self::PollDelete { .. } => 0x2A,
+            Self::SetAutoModWords { .. } => 0x2B,
         }
     }
 
@@ -1042,6 +1076,9 @@ impl GroupOpBody {
                 w.put_arr(channel_id);
                 w.put_arr(msg_id);
             }
+            Self::SetAutoModWords { words } => {
+                w.put_list(words, |w, word| w.put_str(word));
+            }
         }
         w.into_bytes()
     }
@@ -1213,6 +1250,11 @@ impl GroupOpBody {
                 msg_id: r.arr()?,
             },
             0x2A => Self::PollDelete { poll_id: r.arr()? },
+            0x2B => Self::SetAutoModWords {
+                words: r.list(MAX_AUTOMOD_WORDS, "op.automod.words", |r| {
+                    r.str(MAX_AUTOMOD_WORD_BYTES, "op.automod.word")
+                })?,
+            },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
         r.finish()?;
@@ -2245,6 +2287,65 @@ mod tests {
         let mut over_delete = GroupOpBody::PollDelete { poll_id: [2; 16] }.encode_body();
         over_delete.push(0);
         assert!(GroupOpBody::decode_body(0x2A, &over_delete).is_err());
+    }
+
+    #[test]
+    fn automod_set_words_roundtrips() {
+        let empty = GroupOpBody::SetAutoModWords { words: vec![] };
+        assert_eq!(empty.kind(), 0x2B);
+        assert_eq!(roundtrip(&empty), empty);
+
+        let some = GroupOpBody::SetAutoModWords {
+            words: vec!["spam".into(), "vilain-mot".into()],
+        };
+        assert_eq!(roundtrip(&some), some);
+
+        // Exactly MAX_AUTOMOD_WORDS entries still round-trips at the wire
+        // layer (the wire only bounds *count* and per-word *bytes*; the
+        // 1-32 *character* semantic bound is enforced at fold, not here).
+        let at_cap = GroupOpBody::SetAutoModWords {
+            words: (0..MAX_AUTOMOD_WORDS).map(|i| format!("w{i}")).collect(),
+        };
+        assert_eq!(roundtrip(&at_cap), at_cap);
+    }
+
+    #[test]
+    fn automod_set_words_rejects_oversized_list_oversized_word_and_truncation() {
+        // Adversarial: one more word than MAX_AUTOMOD_WORDS is rejected
+        // wholesale at decode (not just the excess entries dropped).
+        let mut w = Writer::new();
+        w.put_list(
+            &(0..(MAX_AUTOMOD_WORDS + 1))
+                .map(|i| format!("w{i}"))
+                .collect::<Vec<_>>(),
+            |w, word| w.put_str(word),
+        );
+        assert!(GroupOpBody::decode_body(0x2B, &w.into_bytes()).is_err());
+
+        // Adversarial: a single word beyond the wire byte bound (128 bytes,
+        // 32 chars worth of UTF-8 headroom) is rejected wholesale, not
+        // truncated.
+        let mut w2 = Writer::new();
+        w2.put_list(&["x".repeat(129)], |w, word| w.put_str(word));
+        assert!(GroupOpBody::decode_body(0x2B, &w2.into_bytes()).is_err());
+
+        // Truncation fuzz: every prefix of a valid encoding is rejected,
+        // never panics.
+        let encoded = GroupOpBody::SetAutoModWords {
+            words: vec!["spam".into(), "scam".into()],
+        }
+        .encode_body();
+        for cut in 0..encoded.len() {
+            assert!(
+                GroupOpBody::decode_body(0x2B, &encoded[..cut]).is_err(),
+                "cut={cut}"
+            );
+        }
+
+        // Trailing garbage after an otherwise-complete body is rejected.
+        let mut over = encoded.clone();
+        over.push(0xFF);
+        assert!(GroupOpBody::decode_body(0x2B, &over).is_err());
     }
 
     /// Round-trips a `MsgBody::Poll` and fuzzes the wire bounds mandated by
