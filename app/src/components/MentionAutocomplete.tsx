@@ -32,7 +32,7 @@ function MentionIcon({ candidate }: { candidate: MentionCandidate }) {
     return (
       <span
         aria-hidden
-        className="h-2.5 w-2.5 shrink-0 rounded-full"
+        className="h-3 w-3 shrink-0 rounded-full"
         style={{ backgroundColor: color }}
       />
     );
@@ -42,7 +42,7 @@ function MentionIcon({ candidate }: { candidate: MentionCandidate }) {
     return (
       <span
         aria-hidden
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rail text-[10px] font-semibold uppercase text-muted"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rail text-xs font-semibold uppercase text-muted"
       >
         {initial}
       </span>
@@ -51,7 +51,7 @@ function MentionIcon({ candidate }: { candidate: MentionCandidate }) {
   return (
     <span
       aria-hidden
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blurple/20 text-xs font-bold text-blurple"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blurple/20 text-sm font-bold text-blurple"
     >
       @
     </span>
@@ -78,7 +78,7 @@ export function MentionAutocomplete({
     <div
       role="listbox"
       aria-label={t.mentions.autocompleteLabel}
-      className="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-lg border border-rail bg-modal p-1 shadow-elevation"
+      className="popover-enter glass-strong absolute bottom-full left-0 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-lg p-1"
     >
       {candidates.map((candidate, i) => {
         const selected = i === activeIndex;
@@ -96,8 +96,8 @@ export function MentionAutocomplete({
               onSelect(candidate);
             }}
             onMouseEnter={() => onHover(i)}
-            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left ${
-              selected ? 'bg-chat-hover text-header' : 'text-muted'
+            className={`flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-fast ${
+              selected ? 'bg-blurple/15 text-header' : 'text-muted'
             }`}
           >
             <MentionIcon candidate={candidate} />

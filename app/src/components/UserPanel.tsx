@@ -69,8 +69,11 @@ function VoiceBanner() {
   const muteLabel = active.muted ? t.voice.unmute : t.voice.mute;
   const deafenLabel = selfDeafened ? t.voice.undeafen : t.voice.deafen;
 
+  const iconButton =
+    'flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95';
+
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-rail bg-rail/60 px-2 py-2">
+    <div className="flex items-center justify-between gap-2 border-b border-[color:var(--glass-border)] bg-rail/60 px-2 py-2">
       <div className="min-w-0">
         <div className="truncate text-sm font-semibold text-green">
           {t.voice.connected}
@@ -84,9 +87,7 @@ function VoiceBanner() {
           title={muteLabel}
           aria-pressed={active.muted}
           onClick={() => toggleMute().catch(onActionError)}
-          className={`rounded p-1.5 hover:bg-chat-hover ${
-            active.muted ? 'text-red' : 'text-muted hover:text-norm'
-          }`}
+          className={`${iconButton} ${active.muted ? 'text-red' : 'text-muted hover:text-norm'}`}
         >
           <MicIcon muted={active.muted} />
         </button>
@@ -96,9 +97,7 @@ function VoiceBanner() {
           title={deafenLabel}
           aria-pressed={selfDeafened}
           onClick={() => toggleDeafen().catch(onActionError)}
-          className={`rounded p-1.5 hover:bg-chat-hover ${
-            selfDeafened ? 'text-red' : 'text-muted hover:text-norm'
-          }`}
+          className={`${iconButton} ${selfDeafened ? 'text-red' : 'text-muted hover:text-norm'}`}
         >
           <HeadphonesIcon deafened={selfDeafened} />
         </button>
@@ -107,7 +106,7 @@ function VoiceBanner() {
           aria-label={t.voice.disconnect}
           title={t.voice.disconnect}
           onClick={() => leave().catch(onActionError)}
-          className="rounded p-1.5 text-red hover:bg-chat-hover"
+          className={`${iconButton} text-red`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M12 9c-3.9 0-7.5 1.5-10 3.9a2 2 0 0 0-.2 2.7l1.5 1.9a2 2 0 0 0 2.4.6l2.7-1.3a2 2 0 0 0 1.1-1.8v-1.3a10.3 10.3 0 0 1 5 0V15a2 2 0 0 0 1.1 1.8l2.7 1.3a2 2 0 0 0 2.4-.6l1.5-1.9a2 2 0 0 0-.2-2.7A14.6 14.6 0 0 0 12 9Z" />
@@ -141,7 +140,7 @@ export function UserPanel() {
     phase === 'ready' ? ownDotStatus(ownStatus) : 'offline';
 
   return (
-    <div className="relative">
+    <div className="relative border-t border-[color:var(--glass-border)]">
       <VoiceBanner />
       {userMenuOpen && <UserMenu onClose={() => setUserMenuOpen(false)} />}
       <div className="flex items-center gap-2 bg-rail/60 px-2 py-2">
@@ -152,7 +151,7 @@ export function UserPanel() {
           aria-label={t.profil.userMenu}
           aria-haspopup="menu"
           aria-expanded={userMenuOpen}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail"
         >
           <span className="relative shrink-0 rounded-full">
             <Avatar
@@ -180,7 +179,7 @@ export function UserPanel() {
           aria-label={t.settings.title}
           title={t.settings.title}
           onClick={() => openModal({ kind: 'settings' })}
-          className="rounded p-1.5 text-muted hover:bg-chat-hover hover:text-norm"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.6 1a2 2 0 0 0 2.2.9l1.1-.3a2 2 0 0 1 2.4 2.4l-.3 1.1a2 2 0 0 0 .9 2.2l1 .6a2 2 0 0 1 0 3.4l-1 .6a2 2 0 0 0-.9 2.2l.3 1.1a2 2 0 0 1-2.4 2.4l-1.1-.3a2 2 0 0 0-2.2.9l-.6 1a2 2 0 0 1-3.4 0l-.6-1a2 2 0 0 0-2.2-.9l-1.1.3a2 2 0 0 1-2.4-2.4l.3-1.1a2 2 0 0 0-.9-2.2l-1-.6a2 2 0 0 1 0-3.4l1-.6a2 2 0 0 0 .9-2.2l-.3-1.1a2 2 0 0 1 2.4-2.4l1.1.3a2 2 0 0 0 2.2-.9l.6-1ZM12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />

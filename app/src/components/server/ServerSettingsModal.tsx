@@ -13,6 +13,7 @@ import type { Dict } from '../../i18n';
 import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useSession } from '../../stores/session';
 import { useUi, useT } from '../../stores/ui';
+import { CloseIcon } from '../ContextMenu';
 import { ConfirmButton, messageOf } from './controls';
 import { ServerAuditTab } from './ServerAuditTab';
 import { ServerBansTab } from './ServerBansTab';
@@ -23,13 +24,7 @@ import { ServerProfileTab } from './ServerProfileTab';
 import { ServerRolesTab } from './ServerRolesTab';
 
 type ServerTabId =
-  | 'profile'
-  | 'channels'
-  | 'roles'
-  | 'emojis'
-  | 'members'
-  | 'bans'
-  | 'audit';
+  'profile' | 'channels' | 'roles' | 'emojis' | 'members' | 'bans' | 'audit';
 
 interface ServerTab {
   id: ServerTabId;
@@ -111,7 +106,7 @@ export function ServerSettingsModal({ groupId }: { groupId: string }) {
     >
       <nav
         aria-label={t.serveur.settingsTitle}
-        className="flex w-1/3 min-w-[232px] shrink-0 justify-end overflow-y-auto bg-sidebar pb-10 pl-4 pr-2 pt-14"
+        className="flex w-1/3 min-w-[232px] shrink-0 justify-end overflow-y-auto border-r border-rail/60 bg-sidebar pb-10 pl-4 pr-2 pt-14"
       >
         <div className="flex w-[212px] flex-col">
           <div className="truncate px-2.5 pb-1.5 text-xs font-bold uppercase tracking-wide text-faint">
@@ -123,7 +118,7 @@ export function ServerSettingsModal({ groupId }: { groupId: string }) {
               type="button"
               aria-current={tabId === tab.id ? 'page' : undefined}
               onClick={() => setTabId(tab.id)}
-              className={`mb-0.5 block w-full rounded px-2.5 py-1.5 text-left font-medium transition-colors duration-150 ${
+              className={`mb-0.5 block w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                 tabId === tab.id
                   ? 'bg-chat-hover text-header'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
@@ -132,7 +127,7 @@ export function ServerSettingsModal({ groupId }: { groupId: string }) {
               {tab.label(t)}
             </button>
           ))}
-          <div className="mx-2.5 my-2 h-px bg-input" role="separator" />
+          <div className="mx-2.5 my-2 h-px bg-input/60" role="separator" />
           <div className="px-2.5">
             <ConfirmButton
               action={t.serveur.leave}
@@ -160,18 +155,10 @@ export function ServerSettingsModal({ groupId }: { groupId: string }) {
             type="button"
             aria-label={t.app.close}
             onClick={closeModal}
-            className="group flex flex-col items-center"
+            className="group flex flex-col items-center focus-visible:outline-none"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-150 group-hover:border-norm group-hover:text-norm">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden
-              >
-                <path d="M6.3 5 12 10.6 17.7 5 19 6.3 13.4 12l5.6 5.7-1.3 1.3-5.7-5.6L6.3 19 5 17.7l5.6-5.7L5 6.3 6.3 5Z" />
-              </svg>
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-fast group-hover:border-norm group-hover:text-norm group-focus-visible:ring-2 group-focus-visible:ring-blurple group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-chat">
+              <CloseIcon size={18} />
             </span>
             <span className="mt-1.5 text-xs font-semibold uppercase text-faint">
               {t.settings.escKey}

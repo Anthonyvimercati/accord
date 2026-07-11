@@ -91,7 +91,8 @@ export function EmojiPicker({
   const q = query.trim().toLowerCase();
   const customsFiltres = customs.filter((e) => q === '' || e.name.includes(q));
   // MP : les customs viennent de plusieurs serveurs, le libellé le précise.
-  const customSectionLabel = groupId != null ? t.emoji.customSection : t.emoji.customSectionDm;
+  const customSectionLabel =
+    groupId != null ? t.emoji.customSection : t.emoji.customSectionDm;
   const categories = EMOJIS_UNICODE.map((cat) => ({
     id: cat.id,
     emojis: cat.emojis.filter((e) => correspond(e, q)),
@@ -104,9 +105,9 @@ export function EmojiPicker({
       ref={ref}
       role="dialog"
       aria-label={t.emoji.pickerLabel}
-      className={`popover-enter absolute z-30 flex max-h-80 w-72 max-w-[90vw] flex-col rounded-lg border border-rail bg-modal shadow-elevation ${positionClass}`}
+      className={`glass-strong popover-enter absolute z-30 flex max-h-80 w-72 max-w-[90vw] flex-col rounded-lg ${positionClass}`}
     >
-      <div className="border-b border-rail p-2">
+      <div className="border-b border-input/50 p-2">
         <input
           type="text"
           autoFocus
@@ -114,7 +115,7 @@ export function EmojiPicker({
           placeholder={t.emoji.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full rounded bg-rail px-2.5 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+          className="w-full rounded-xl bg-input px-2.5 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -141,7 +142,7 @@ export function EmojiPicker({
                       merkleRoot: emoji.merkle_root,
                     })
                   }
-                  className="flex h-9 w-9 items-center justify-center rounded transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
+                  className="flex h-9 w-9 items-center justify-center rounded-md transition-transform duration-fast ease-spring hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
                 >
                   <CustomEmoji
                     name={emoji.name}
@@ -168,7 +169,7 @@ export function EmojiPicker({
                   aria-label={interpolate(t.emoji.insert, { emoji: emoji.char })}
                   title={emoji.char}
                   onClick={() => onSelect({ kind: 'unicode', char: emoji.char })}
-                  className="flex h-9 w-9 items-center justify-center rounded text-xl leading-none transition-transform duration-fast ease-spring hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
+                  className="flex h-9 w-9 items-center justify-center rounded-md text-xl leading-none transition-transform duration-fast ease-spring hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
                 >
                   {emoji.char}
                 </button>

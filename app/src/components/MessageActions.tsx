@@ -54,7 +54,7 @@ function ActionButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`p-1.5 transition-colors first:rounded-l-md last:rounded-r-md hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none ${
+      className={`flex h-8 w-8 items-center justify-center transition-colors hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none ${
         danger
           ? 'text-muted hover:text-red focus-visible:text-red'
           : 'text-muted hover:text-norm focus-visible:text-norm'
@@ -94,8 +94,15 @@ export function MessageActions({
 
   return (
     <div
-      className={`absolute -top-4 right-4 z-10 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
-        revealed ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+      // La barre reste montée en permanence (révélation CSS par group-hover) :
+      // `.popover-enter` seule ne jouerait qu'au montage. On déclenche donc les
+      // mêmes keyframes/tokens (`scale-fade-in`, durées/courbes de global.css)
+      // sur les variantes de survol/focus — hors état `revealed`, pour ne pas
+      // rejouer l'animation sur une barre déjà visible (volet ouvert).
+      className={`absolute -top-4 right-4 z-10 focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
+        revealed
+          ? 'pointer-events-auto opacity-100'
+          : 'pointer-events-none opacity-0 focus-within:animate-[scale-fade-in_var(--duration-fast)_var(--ease-out)] group-hover:animate-[scale-fade-in_var(--duration-fast)_var(--ease-out)]'
       }`}
       onKeyDown={(e) => {
         if (e.key === 'Escape') closePanels();
@@ -105,7 +112,7 @@ export function MessageActions({
         <div
           role="menu"
           aria-label={t.dm.addReaction}
-          className="absolute bottom-full right-0 mb-1.5 flex gap-0.5 rounded-full border border-rail bg-sidebar p-1 shadow-elevation"
+          className="glass-strong popover-enter absolute bottom-full right-0 mb-1.5 flex gap-0.5 rounded-lg p-1"
         >
           {QUICK_EMOJIS.map((emoji) => (
             <button
@@ -161,7 +168,7 @@ export function MessageActions({
         <div
           role="alertdialog"
           aria-label={t.dm.deleteConfirm}
-          className="absolute bottom-full right-0 mb-1.5 flex items-center gap-2 whitespace-nowrap rounded-md border border-rail bg-sidebar px-3 py-2 shadow-elevation"
+          className="glass-strong popover-enter absolute bottom-full right-0 mb-1.5 flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2"
         >
           <span className="text-sm text-norm">{t.dm.deleteConfirm}</span>
           <button
@@ -183,7 +190,7 @@ export function MessageActions({
           </button>
         </div>
       )}
-      <div className="flex items-center rounded-md border border-rail bg-sidebar shadow-elevation">
+      <div className="glass-strong flex items-center overflow-hidden rounded-lg">
         <ActionButton
           label={t.dm.addReaction}
           onClick={() => {

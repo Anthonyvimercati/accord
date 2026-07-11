@@ -15,6 +15,7 @@ import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { api } from '../lib/client';
 import { lireFichier } from '../lib/files';
 import { Avatar } from './Avatar';
+import { EnvelopeMenuIcon } from './ContextMenu';
 import { PresenceDot } from './PresenceDot';
 
 /** Largeur de la carte (px, façon Discord) ; sert au calcul de position initial. */
@@ -46,8 +47,61 @@ function BanniereProfil({ hash, hint }: { hash: string | null; hint: string }) {
     };
   }, [hash, hint]);
 
-  if (url === null) return <div className="h-20 bg-rail" aria-hidden />;
-  return <img src={url} alt="" aria-hidden className="h-20 w-full object-cover" />;
+  return (
+    <div className="relative h-20 overflow-hidden">
+      {url === null ? (
+        <div className="h-full bg-rail" aria-hidden />
+      ) : (
+        <img src={url} alt="" aria-hidden className="h-full w-full object-cover" />
+      )}
+      {/* Fondu bas de bannière vers la surface de verre du panneau. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-modal/70"
+      />
+    </div>
+  );
+}
+
+/** Icône « retirer cet ami » (voir ICON SPEC, styles/global.css). */
+function RemoveFriendIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="22" x2="16" y1="11" y2="11" />
+    </svg>
+  );
+}
+
+/** Icône « bloquer » (voir ICON SPEC, styles/global.css). */
+function BlockUserIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="m4.9 4.9 14.2 14.2" />
+    </svg>
+  );
 }
 
 /** Position `fixed` (px) de la carte, calée près de l'ancre et bornée à l'écran. */
@@ -244,12 +298,12 @@ export function ProfilePopover() {
         width: CARD_WIDTH,
         visibility: pos === null ? 'hidden' : 'visible',
       }}
-      className="popover-enter z-50 origin-top overflow-hidden rounded-lg bg-modal shadow-modal"
+      className="glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl"
     >
       <BanniereProfil hash={bannerHash} hint={pubkey} />
       <div className="-mt-8 px-4 pb-4">
         <div className="mb-2 flex items-end justify-between">
-          <div className="rounded-full border-4 border-modal">
+          <div className="rounded-full ring-4 ring-modal">
             <Avatar
               id={pubkey}
               name={name}
@@ -266,7 +320,7 @@ export function ProfilePopover() {
           )}
         </div>
 
-        <div className="rounded-lg bg-sidebar p-3">
+        <div className="rounded-lg bg-sidebar/90 p-3">
           <div className="flex items-center gap-2">
             <span className="truncate text-lg font-bold text-header">{name}</span>
             {isFounder && (
@@ -281,7 +335,7 @@ export function ProfilePopover() {
 
           {bio !== null && bio !== '' && (
             <>
-              <div className="mt-3 h-px bg-input" role="separator" />
+              <div className="mt-3 h-px bg-input/60" role="separator" />
               <p className="mt-2 whitespace-pre-wrap break-words text-sm text-norm">
                 {bio}
               </p>
@@ -290,7 +344,7 @@ export function ProfilePopover() {
 
           {roles.length > 0 && (
             <>
-              <div className="mt-3 h-px bg-input" role="separator" />
+              <div className="mt-3 h-px bg-input/60" role="separator" />
               <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-faint">
                 {t.profil.rolesLabel}
               </div>
@@ -300,7 +354,7 @@ export function ProfilePopover() {
                   return (
                     <span
                       key={role.role_id}
-                      className="flex items-center gap-1 rounded bg-rail px-2 py-0.5 text-xs text-norm"
+                      className="flex items-center gap-1 rounded-xs bg-rail px-2 py-0.5 text-xs text-norm"
                     >
                       <span
                         aria-hidden
@@ -317,7 +371,7 @@ export function ProfilePopover() {
 
           {isSelf && state !== undefined && (
             <>
-              <div className="mt-3 h-px bg-input" role="separator" />
+              <div className="mt-3 h-px bg-input/60" role="separator" />
               <label
                 htmlFor="profil-nickname"
                 className="mt-2 block text-xs font-semibold uppercase tracking-wide text-faint"
@@ -337,14 +391,14 @@ export function ProfilePopover() {
                 }}
                 maxLength={32}
                 placeholder={t.profil.nicknamePlaceholder}
-                className="mt-1 w-full rounded bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-blurple"
+                className="mt-1 w-full rounded-md bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint focus:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
               />
             </>
           )}
 
           {canNote && (
             <>
-              <div className="mt-3 h-px bg-input" role="separator" />
+              <div className="mt-3 h-px bg-input/60" role="separator" />
               <label
                 htmlFor="profil-note"
                 className="mt-2 block text-xs font-semibold uppercase tracking-wide text-faint"
@@ -359,7 +413,7 @@ export function ProfilePopover() {
                 maxLength={4096}
                 rows={2}
                 placeholder={t.profil.notePlaceholder}
-                className="mt-1 w-full resize-none rounded bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-blurple"
+                className="mt-1 w-full resize-none rounded-md bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint focus:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
               />
             </>
           )}
@@ -368,7 +422,7 @@ export function ProfilePopover() {
             <button
               type="button"
               onClick={modifierProfil}
-              className="mt-3 w-full rounded bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-[0.98]"
+              className="mt-3 w-full rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98]"
             >
               {t.profil.editProfile}
             </button>
@@ -380,17 +434,14 @@ export function ProfilePopover() {
                 <button
                   type="button"
                   onClick={envoyerMessage}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.97]"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.97]"
                 >
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
+                  <span
                     aria-hidden
+                    className="flex h-4 w-4 shrink-0 items-center justify-center"
                   >
-                    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v9a2.5 2.5 0 0 1-2.5 2.5H9.4l-4 3a.9.9 0 0 1-1.4-.7V5.5Z" />
-                  </svg>
+                    <EnvelopeMenuIcon size={16} />
+                  </span>
                   {t.friends.sendDm}
                 </button>
               )}
@@ -400,17 +451,9 @@ export function ProfilePopover() {
                   title={t.friends.remove}
                   aria-label={t.friends.remove}
                   onClick={() => setConfirmRemove(true)}
-                  className="shrink-0 rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden
-                  >
-                    <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-7 1.7-7 4v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2c0-2.3-3.7-4-7-4Zm13-5a1 1 0 0 1-1 1h-6a1 1 0 1 1 0-2h6a1 1 0 0 1 1 1Z" />
-                  </svg>
+                  <RemoveFriendIcon />
                 </button>
               )}
               {canBlock && (
@@ -419,17 +462,9 @@ export function ProfilePopover() {
                   title={t.friends.block}
                   aria-label={t.friends.block}
                   onClick={bloquer}
-                  className="shrink-0 rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden
-                  >
-                    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM4.5 12a7.5 7.5 0 0 1 12-6L6 16.5A7.4 7.4 0 0 1 4.5 12Zm7.5 7.5A7.4 7.4 0 0 1 7.5 18L18 7.5A7.5 7.5 0 0 1 12 19.5Z" />
-                  </svg>
+                  <BlockUserIcon />
                 </button>
               )}
             </div>
@@ -443,14 +478,14 @@ export function ProfilePopover() {
                 <button
                   type="button"
                   onClick={retirer}
-                  className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red"
+                  className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                 >
                   {t.friends.remove}
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmRemove(false)}
-                  className="rounded-full bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                  className="rounded-full bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                 >
                   {t.app.cancel}
                 </button>

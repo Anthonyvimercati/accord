@@ -2,6 +2,48 @@
 
 import { useUi } from '../stores/ui';
 
+/** Icône d'alerte (toast d'erreur) — voir ICON SPEC, styles/global.css. */
+function ErrorToastIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" x2="12" y1="8" y2="12" />
+      <line x1="12" x2="12.01" y1="16" y2="16" />
+    </svg>
+  );
+}
+
+/** Icône d'information (toast neutre) — voir ICON SPEC, styles/global.css. */
+function InfoToastIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" x2="12" y1="16" y2="12" />
+      <line x1="12" x2="12.01" y1="8" y2="8" />
+    </svg>
+  );
+}
+
 export function Toasts() {
   const toasts = useUi((s) => s.toasts);
   const dismiss = useUi((s) => s.dismissToast);
@@ -19,10 +61,16 @@ export function Toasts() {
           key={toast.id}
           type="button"
           onClick={() => dismiss(toast.id)}
-          className={`toast-enter pointer-events-auto rounded-lg px-4 py-2.5 text-sm font-medium text-white shadow-elevation transition-transform duration-fast active:scale-95 ${
-            toast.kind === 'error' ? 'bg-red' : 'bg-blurple'
-          }`}
+          className="glass-strong toast-enter pointer-events-auto flex items-center gap-2.5 rounded-lg px-4 py-2.5 text-sm font-medium text-norm shadow-2 transition-transform duration-fast active:scale-95"
         >
+          <span
+            aria-hidden
+            className={`flex h-4 w-4 shrink-0 items-center justify-center ${
+              toast.kind === 'error' ? 'text-red' : 'text-blurple'
+            }`}
+          >
+            {toast.kind === 'error' ? <ErrorToastIcon /> : <InfoToastIcon />}
+          </span>
           {toast.text}
         </button>
       ))}

@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
-import type { Contact, SelfProfile } from '../lib/api';
+import type { Contact, PresenceStatus, SelfProfile } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatTimestamp } from '../lib/format';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
-import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
+import { useFriends, avatarOf, displayNameOf, presenceOf } from '../stores/friends';
 import {
   useGroups,
   aggregateEmojiMap,
@@ -25,7 +25,9 @@ import { Avatar } from './Avatar';
 import { CopyMenuIcon, EnvelopeMenuIcon, MentionMenuIcon, ProfileMenuIcon } from './ContextMenu';
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
+import { PresenceDot } from './PresenceDot';
 import { TypingIndicator } from './TypingIndicator';
+import { ownDotStatus } from './UserMenu';
 
 /**
  * Traite la demande de saut de l'UI qui vise la vue courante : charge la
@@ -92,6 +94,36 @@ function mentionSet(contacts: Contact[], self: SelfProfile | null): Set<string> 
   }
   if (self !== null) noms.add(selfDisplayName(self).toLowerCase());
   return noms;
+}
+
+/** Bouton d'action de l'en-tête de conversation : conteneur carré fixe (icon spec). */
+function HeaderIconButton({
+  label,
+  active,
+  onClick,
+  ariaExpanded,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  ariaExpanded?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-expanded={ariaExpanded}
+      onClick={onClick}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95 ${
+        active ? 'text-header' : 'text-muted hover:text-norm'
+      }`}
+    >
+      {children}
+    </button>
+  );
 }
 
 /** Bandeau « Répondre à … » au-dessus de la zone de saisie, annulable. */
@@ -209,12 +241,12 @@ export function DmView({ peer }: { peer: string }) {
 
   return (
     <div className="relative flex h-full flex-col">
-      <header className="flex h-12 items-center gap-3 border-b border-rail px-4 shadow-sm">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
         <button
           type="button"
           aria-label={interpolate(t.profil.openProfile, { name })}
           onClick={(e) => ouvrirProfil(e.currentTarget)}
-          className="flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+          className="flex items-center gap-3 rounded-md px-1 py-0.5 transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
         >
           <Avatar
             id={peer}
@@ -231,20 +263,16 @@ export function DmView({ peer }: { peer: string }) {
           <span className="font-semibold text-header">{name}</span>
         </button>
         <div className="ml-auto">
-          <button
-            type="button"
-            aria-label={t.serveur.pinnedTitle}
-            title={t.serveur.pinnedTitle}
-            aria-expanded={pinsOpen}
+          <HeaderIconButton
+            label={t.serveur.pinnedTitle}
+            active={pinsOpen}
+            ariaExpanded={pinsOpen}
             onClick={() => setPinsOpen((open) => !open)}
-            className={`rounded p-1.5 transition-colors duration-fast hover:bg-chat-hover active:scale-95 ${
-              pinsOpen ? 'text-header' : 'text-muted hover:text-norm'
-            }`}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
               <path d="M14.6 2.6a1 1 0 0 1 1.4 0l5.4 5.4a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1 .3l-.7-.2-3.7 3.7.4 2.7a1 1 0 0 1-.3.9l-.9.9a1 1 0 0 1-1.4 0l-3.2-3.2-4.7 4.7a1 1 0 0 1-1.5-1.5l4.8-4.7-3.3-3.2a1 1 0 0 1 0-1.4l1-.9a1 1 0 0 1 .8-.3l2.7.4 3.7-3.7-.2-.7a1 1 0 0 1 .3-1l1.6-.8Z" />
             </svg>
-          </button>
+          </HeaderIconButton>
         </div>
       </header>
       {pinsOpen && (
@@ -321,11 +349,21 @@ function MemberList({ groupId }: { groupId: string }) {
   const t = useT();
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
+  const phase = useSession((s) => s.phase);
+  const ownStatus = useFriends((s) => s.ownStatus);
   const state = useGroups((s) => s.states[groupId]);
   const openProfile = useUi((s) => s.openProfile);
   const requestMentionInsert = useUi((s) => s.requestMentionInsert);
   const toast = useUi((s) => s.toast);
   if (!state) return null;
+
+  /** Statut de présence d'un membre — le sien (fiable), sinon celui du contact ami connu. */
+  const statusOf = (pubkey: string): PresenceStatus => {
+    if (self && pubkey === self.pubkey) {
+      return phase === 'ready' ? ownDotStatus(ownStatus) : 'offline';
+    }
+    return presenceOf(contacts.find((c) => c.pubkey === pubkey));
+  };
 
   const nameOf = (pubkey: string): string => {
     const nick = nicknameOf(state, pubkey);
@@ -392,71 +430,110 @@ function MemberList({ groupId }: { groupId: string }) {
       .map((r) => r.name);
   };
 
+  /**
+   * Regroupe les membres par rôle le plus haut détenu (façon Discord) : une
+   * section par rôle occupé, dans l'ordre de priorité, puis un groupe final
+   * pour les membres sans rôle (libellé générique réutilisé du titre du
+   * panneau — pas de nouvelle chaîne i18n).
+   */
+  const sortedRoles = sortRoles(state.roles);
+  const sections: { key: string; label: string; members: typeof state.members }[] =
+    sortedRoles.map((role) => ({ key: role.role_id, label: role.name, members: [] }));
+  const withoutRole: { key: string; label: string; members: typeof state.members } = {
+    key: '__sans_role__',
+    label: t.groups.members,
+    members: [],
+  };
+  for (const member of state.members) {
+    const owned = new Set(member.roles);
+    const top = sortedRoles.find((r) => owned.has(r.role_id));
+    const bucket = top === undefined ? withoutRole : sections.find((s) => s.key === top.role_id);
+    (bucket ?? withoutRole).members.push(member);
+  }
+  const populatedSections = [...sections, withoutRole]
+    .filter((section) => section.members.length > 0)
+    .map((section) => ({
+      ...section,
+      members: [...section.members].sort((a, b) => nameOf(a.pubkey).localeCompare(nameOf(b.pubkey))),
+    }));
+
   return (
-    <aside className="w-60 overflow-y-auto bg-sidebar p-3" aria-label={t.groups.members}>
-      <div className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-faint">
-        {t.groups.members} — {state.members.length}
-      </div>
-      {state.members.map((member) => {
-        const color = memberColor(member, state.roles);
-        const roleNames = roleNamesOf(member.roles);
-        // Avatar d'un membre : le sien, sinon celui du contact ami connu —
-        // les avatars des non-amis ne circulent pas (limite du protocole).
-        const avatarHash =
-          self && member.pubkey === self.pubkey
-            ? self.avatar
-            : avatarOf(contacts, member.pubkey);
-        return (
-          <button
-            key={member.pubkey}
-            type="button"
-            aria-label={interpolate(t.profil.openProfile, {
-              name: nameOf(member.pubkey),
-            })}
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              openProfile(
-                member.pubkey,
-                { top: r.top, left: r.left, bottom: r.bottom, right: r.right },
-                groupId,
-              );
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              useContextMenu
-                .getState()
-                .openMenu(e.clientX, e.clientY, buildMemberItems(member.pubkey, e.currentTarget));
-            }}
-            className="flex w-full items-center gap-2.5 rounded px-1.5 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
-          >
-            <Avatar
-              id={member.pubkey}
-              name={nameOf(member.pubkey)}
-              size={32}
-              avatarHash={avatarHash}
-              hint={member.pubkey}
-            />
-            <div className="min-w-0">
-              <div
-                className="truncate text-sm font-medium text-muted"
-                style={color !== null ? { color } : undefined}
+    <aside className="w-60 shrink-0 overflow-y-auto bg-sidebar p-2" aria-label={t.groups.members}>
+      {populatedSections.map((section) => (
+        <div key={section.key}>
+          <div className="px-1.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted first:pt-1">
+            {section.label} — {section.members.length}
+          </div>
+          {section.members.map((member) => {
+            const color = memberColor(member, state.roles);
+            const roleNames = roleNamesOf(member.roles);
+            // Avatar d'un membre : le sien, sinon celui du contact ami connu —
+            // les avatars des non-amis ne circulent pas (limite du protocole).
+            const avatarHash =
+              self && member.pubkey === self.pubkey
+                ? self.avatar
+                : avatarOf(contacts, member.pubkey);
+            const status = statusOf(member.pubkey);
+            return (
+              <button
+                key={member.pubkey}
+                type="button"
+                aria-label={interpolate(t.profil.openProfile, {
+                  name: nameOf(member.pubkey),
+                })}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  openProfile(
+                    member.pubkey,
+                    { top: r.top, left: r.left, bottom: r.bottom, right: r.right },
+                    groupId,
+                  );
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  useContextMenu
+                    .getState()
+                    .openMenu(e.clientX, e.clientY, buildMemberItems(member.pubkey, e.currentTarget));
+                }}
+                className="flex min-h-9 w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
-                {nameOf(member.pubkey)}
-              </div>
-              {state.founder === member.pubkey && (
-                <div className="text-[10px] uppercase text-yellow">
-                  {t.groups.founder}
+                <span className="relative shrink-0">
+                  <Avatar
+                    id={member.pubkey}
+                    name={nameOf(member.pubkey)}
+                    size={32}
+                    avatarHash={avatarHash}
+                    hint={member.pubkey}
+                  />
+                  <PresenceDot
+                    status={status}
+                    label={t.profil[status]}
+                    className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-sidebar"
+                  />
+                </span>
+                <div className="min-w-0">
+                  <div
+                    className="truncate text-sm font-medium text-muted"
+                    style={color !== null ? { color } : undefined}
+                  >
+                    {nameOf(member.pubkey)}
+                  </div>
+                  {state.founder === member.pubkey && (
+                    <div className="text-[10px] uppercase text-yellow">
+                      {t.groups.founder}
+                    </div>
+                  )}
+                  {roleNames.length > 0 && (
+                    <div className="truncate text-[11px] text-faint">
+                      {roleNames.join(' · ')}
+                    </div>
+                  )}
                 </div>
-              )}
-              {roleNames.length > 0 && (
-                <div className="truncate text-[11px] text-faint">
-                  {roleNames.join(' · ')}
-                </div>
-              )}
-            </div>
-          </button>
-        );
-      })}
+              </button>
+            );
+          })}
+        </div>
+      ))}
     </aside>
   );
 }
@@ -663,8 +740,8 @@ export function GroupView({
   return (
     <div className="flex h-full">
       <div className="relative flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 items-center gap-2 border-b border-rail px-4 shadow-sm">
-          <span aria-hidden className="text-2xl font-light text-faint">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
+          <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center text-[19px] font-medium leading-none text-faint">
             #
           </span>
           <span className="shrink-0 font-semibold text-header">{channel.name}</span>
@@ -677,15 +754,11 @@ export function GroupView({
             </>
           )}
           <div className="ml-auto">
-            <button
-              type="button"
-              aria-label={t.serveur.pinnedTitle}
-              title={t.serveur.pinnedTitle}
-              aria-expanded={pinsOpen}
+            <HeaderIconButton
+              label={t.serveur.pinnedTitle}
+              active={pinsOpen}
+              ariaExpanded={pinsOpen}
               onClick={() => setPinsOpen((open) => !open)}
-              className={`rounded p-1.5 transition-colors duration-fast hover:bg-chat-hover active:scale-95 ${
-                pinsOpen ? 'text-header' : 'text-muted hover:text-norm'
-              }`}
             >
               <svg
                 width="18"
@@ -696,7 +769,7 @@ export function GroupView({
               >
                 <path d="M14.6 2.6a1 1 0 0 1 1.4 0l5.4 5.4a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1 .3l-.7-.2-3.7 3.7.4 2.7a1 1 0 0 1-.3.9l-.9.9a1 1 0 0 1-1.4 0l-3.2-3.2-4.7 4.7a1 1 0 0 1-1.5-1.5l4.8-4.7-3.3-3.2a1 1 0 0 1 0-1.4l1-.9a1 1 0 0 1 .8-.3l2.7.4 3.7-3.7-.2-.7a1 1 0 0 1 .3-1l1.6-.8Z" />
               </svg>
-            </button>
+            </HeaderIconButton>
           </div>
         </header>
         {pinsOpen && (

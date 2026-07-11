@@ -260,7 +260,7 @@ export function MessageInput({
       <div className="px-4 pb-6">
         <div
           role="status"
-          className="flex items-center gap-2.5 rounded-lg bg-input px-4 py-3 text-sm text-muted"
+          className="flex items-center gap-2.5 rounded-xl bg-input px-4 py-3 text-sm text-muted"
         >
           <svg
             width="18"
@@ -281,7 +281,7 @@ export function MessageInput({
   return (
     <div className="px-4 pb-6">
       {pieces.length > 0 && (
-        <div className="mb-1 flex flex-wrap gap-2 rounded-t-lg bg-sidebar px-3 py-2">
+        <div className="flex flex-wrap gap-2 rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-3 py-2.5">
           {pieces.map((piece) => (
             <div
               key={piece.id}
@@ -293,7 +293,7 @@ export function MessageInput({
                   alt={piece.file.name}
                   width={40}
                   height={40}
-                  className="h-10 w-10 rounded object-cover"
+                  className="h-10 w-10 rounded-md object-cover"
                 />
               ) : (
                 <svg
@@ -350,8 +350,10 @@ export function MessageInput({
         </p>
       )}
       <div
-        className={`relative flex items-end rounded-lg bg-input ${
-          survol ? 'ring-2 ring-blurple' : ''
+        className={`relative flex items-end gap-0.5 rounded-xl border bg-input px-1.5 py-1 shadow-1 transition-colors duration-fast focus-within:border-blurple/60 focus-within:ring-2 focus-within:ring-blurple focus-within:ring-offset-2 focus-within:ring-offset-chat ${
+          pieces.length > 0 ? 'rounded-t-none' : ''
+        } ${
+          survol ? 'border-blurple/60 ring-2 ring-blurple ring-offset-2 ring-offset-chat' : 'border-rail/60'
         }`}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes('Files')) return;
@@ -392,9 +394,9 @@ export function MessageInput({
           title={t.fichiers.joindre}
           disabled={sending}
           onClick={() => fileRef.current?.click()}
-          className="m-1.5 rounded-md p-2 text-muted transition-colors enabled:hover:text-norm disabled:opacity-40"
+          className="m-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M12 2a5 5 0 0 1 5 5v9a3.5 3.5 0 1 1-7 0V8a2 2 0 1 1 4 0v8a1 1 0 1 1-2 0V8a.5.5 0 0 0-.5.5V16a2 2 0 1 0 3.5 1.3V7a3 3 0 0 0-6 0v9.5a1 1 0 1 1-2 0V7a5 5 0 0 1 5-5Z" />
           </svg>
         </button>
@@ -453,7 +455,7 @@ export function MessageInput({
               void submit();
             }
           }}
-          className="max-h-48 min-h-[44px] flex-1 resize-none bg-transparent py-2.5 text-norm placeholder-faint outline-none"
+          className="max-h-48 min-h-[40px] flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
         />
         <div className="relative">
           <button
@@ -463,13 +465,15 @@ export function MessageInput({
             aria-expanded={emojiOpen}
             disabled={sending}
             onClick={() => setEmojiOpen((open) => !open)}
-            className={`m-1.5 rounded-md p-2 transition-colors disabled:opacity-40 ${
-              emojiOpen ? 'text-blurple' : 'text-muted enabled:hover:text-norm'
+            className={`m-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-fast disabled:opacity-40 ${
+              emojiOpen
+                ? 'bg-blurple/15 text-blurple'
+                : 'text-muted enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95'
             }`}
           >
             <svg
-              width="20"
-              height="20"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="currentColor"
               aria-hidden
@@ -494,9 +498,9 @@ export function MessageInput({
           title={t.app.send}
           disabled={(text.trim() === '' && pieces.length === 0) || sending}
           onClick={() => void submit()}
-          className="m-1.5 rounded-md p-2 text-muted transition-colors enabled:hover:text-blurple disabled:opacity-40"
+          className="m-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M3.4 20.4 20.9 12 3.4 3.6a.7.7 0 0 0-1 .8L4.5 12 2.4 19.6a.7.7 0 0 0 1 .8ZM6.2 13l9.2-1-9.2-1-1.2-4.4L18 12 5 17.4 6.2 13Z" />
           </svg>
         </button>

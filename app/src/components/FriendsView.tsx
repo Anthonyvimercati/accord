@@ -35,11 +35,12 @@ function FriendRow({ contact }: { contact: Contact }) {
   const statusText = contact.status_text ?? null;
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-fast hover:bg-chat-hover">
+    <div className="group flex h-11 items-center gap-3 rounded-lg px-3 transition-colors duration-fast hover:bg-chat-hover">
       <div className="relative shrink-0">
         <Avatar
           id={contact.pubkey}
           name={contact.display_name || contact.friend_code}
+          size={32}
           avatarHash={contact.avatar}
           hint={contact.pubkey}
         />
@@ -77,14 +78,14 @@ function FriendRow({ contact }: { contact: Contact }) {
                 setConfirmRemove(false);
                 act(() => remove(contact.pubkey));
               }}
-              className="rounded bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
+              className="rounded-sm bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
             >
               {t.friends.remove}
             </button>
             <button
               type="button"
               onClick={() => setConfirmRemove(false)}
-              className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
+              className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
             >
               {t.app.cancel}
             </button>
@@ -97,7 +98,7 @@ function FriendRow({ contact }: { contact: Contact }) {
               title={t.friends.sendDm}
               aria-label={t.friends.sendDm}
               onClick={() => setView({ kind: 'dm', peer: contact.pubkey })}
-              className="rounded-full bg-sidebar p-2.5 text-muted transition-colors duration-fast hover:text-header active:scale-95"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar text-muted transition-colors duration-fast hover:text-header active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
             >
               <svg
                 width="18"
@@ -114,7 +115,7 @@ function FriendRow({ contact }: { contact: Contact }) {
               title={t.friends.remove}
               aria-label={t.friends.remove}
               onClick={() => setConfirmRemove(true)}
-              className="rounded-full bg-sidebar p-2.5 text-muted transition-colors duration-fast hover:text-red active:scale-95"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar text-muted transition-colors duration-fast hover:text-red active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
             >
               <svg
                 width="18"
@@ -131,7 +132,7 @@ function FriendRow({ contact }: { contact: Contact }) {
               title={t.friends.block}
               aria-label={t.friends.block}
               onClick={() => act(() => block(contact.pubkey))}
-              className="rounded-full bg-sidebar p-2.5 text-muted transition-colors duration-fast hover:text-red active:scale-95"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar text-muted transition-colors duration-fast hover:text-red active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
             >
               <svg
                 width="18"
@@ -150,14 +151,14 @@ function FriendRow({ contact }: { contact: Contact }) {
             <button
               type="button"
               onClick={() => act(() => respond(contact.pubkey, true))}
-              className="rounded bg-green px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
+              className="rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-95"
             >
               {t.friends.accept}
             </button>
             <button
               type="button"
               onClick={() => act(() => respond(contact.pubkey, false))}
-              className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
+              className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
             >
               {t.friends.decline}
             </button>
@@ -167,7 +168,7 @@ function FriendRow({ contact }: { contact: Contact }) {
           <button
             type="button"
             onClick={() => act(() => unblock(contact.pubkey))}
-            className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
+            className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
           >
             {t.friends.unblock}
           </button>
@@ -218,7 +219,7 @@ function AddFriend() {
           type="button"
           disabled={code.trim() === '' || status === 'busy'}
           onClick={() => void submit()}
-          className="rounded bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover disabled:opacity-50 active:scale-95"
+          className="rounded-sm bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover disabled:opacity-50 active:scale-95"
         >
           {t.friends.addSend}
         </button>
@@ -239,6 +240,20 @@ function AddFriend() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** État vide d'un onglet de la liste d'amis : icône muette centrée + libellé. */
+function EmptyFriends({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-12 text-center text-muted">
+      <span aria-hidden className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-7 1.7-7 4v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2c0-2.3-3.7-4-7-4Zm7.5-2.2a3.6 3.6 0 0 0 0-6.6 5.5 5.5 0 0 1 0 6.6ZM19 13.3c1.8.8 3 2 3 3.7v2a1 1 0 0 1-1 1h-3.3c.2-.3.3-.6.3-1v-2c0-1.5-.6-2.7-1.6-3.7.9 0 1.8 0 2.6.1Z" />
+        </svg>
+      </span>
+      <p>{label}</p>
     </div>
   );
 }
@@ -276,7 +291,7 @@ export function FriendsView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 items-center gap-4 border-b border-rail px-4 shadow-sm">
+      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-rail px-4 shadow-1">
         <div className="flex items-center gap-2 font-semibold text-header">
           <svg
             width="20"
@@ -291,7 +306,7 @@ export function FriendsView() {
           {t.friends.title}
         </div>
         <div className="h-6 w-px bg-input" role="separator" />
-        <nav className="flex gap-2" aria-label={t.friends.title}>
+        <nav className="flex gap-1.5" aria-label={t.friends.title}>
           {tabs.map(({ id, label, badge }) => (
             <button
               key={id}
@@ -302,7 +317,7 @@ export function FriendsView() {
                   ? `${label} — ${interpolate(t.invitations.badge, { count: String(badge) })}`
                   : undefined
               }
-              className={`flex items-center rounded px-2.5 py-0.5 text-sm font-medium transition-colors duration-fast ${
+              className={`flex h-7 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
                 tab === id
                   ? 'bg-chat-hover text-header'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
@@ -322,8 +337,8 @@ export function FriendsView() {
           <button
             type="button"
             onClick={() => setTab('add')}
-            className={`rounded px-2.5 py-0.5 text-sm font-medium ${
-              tab === 'add' ? 'bg-green/20 text-green' : 'bg-green text-white'
+            className={`flex h-7 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
+              tab === 'add' ? 'bg-green/20 text-green' : 'bg-green text-white hover:brightness-110'
             }`}
           >
             {t.friends.add}
@@ -334,19 +349,17 @@ export function FriendsView() {
         <AddFriend />
       ) : tab === 'invitations' ? (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-2 text-xs font-semibold uppercase text-faint">
+          <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
             {t.invitations.tabLabel} — {pendingInvites.length}
           </div>
           <PendingInvites />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-2 text-xs font-semibold uppercase text-faint">
+          <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
             {tabs.find((x) => x.id === tab)?.label} — {byTab[tab].length}
           </div>
-          {byTab[tab].length === 0 && (
-            <p className="py-8 text-center text-muted">{emptyLabel[tab]}</p>
-          )}
+          {byTab[tab].length === 0 && <EmptyFriends label={emptyLabel[tab]} />}
           {byTab[tab].map((c) => (
             <FriendRow key={c.pubkey} contact={c} />
           ))}

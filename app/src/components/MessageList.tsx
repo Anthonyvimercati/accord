@@ -238,7 +238,7 @@ function MessageEditor({
             onCancel();
           }
         }}
-        className="max-h-48 min-h-[40px] w-full resize-none rounded-lg bg-input px-3 py-2 text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        className="max-h-48 min-h-[40px] w-full resize-none rounded-lg border border-rail/60 bg-input px-3 py-2 text-[15px] text-norm outline-none transition-colors duration-fast focus-visible:border-blurple/60 focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
       />
       <div className="mt-0.5 text-[11px] text-faint">{t.dm.editHint}</div>
     </div>
@@ -626,7 +626,7 @@ export function MessageList({
             {newDay && (
               <div className="mx-4 mb-1 mt-4 flex items-center gap-3" role="separator">
                 <div className="h-px flex-1 bg-input" />
-                <span className="text-xs font-semibold text-faint">
+                <span className="rounded-full bg-chat-hover px-2.5 py-1 text-[11px] font-semibold text-faint">
                   {formatDay(m.sent_ms, lang)}
                 </span>
                 <div className="h-px flex-1 bg-input" />
@@ -639,7 +639,7 @@ export function MessageList({
                 else rowRefs.current.set(m.msg_id, el);
               }}
               data-msg-id={m.msg_id}
-              className={`group relative flex gap-4 px-4 hover:bg-chat-hover ${
+              className={`group relative mx-2 flex gap-4 rounded-md px-2 transition-colors duration-fast hover:bg-chat-hover ${
                 grouped
                   ? 'py-[var(--message-pad-y-grouped)]'
                   : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
@@ -693,7 +693,7 @@ export function MessageList({
                       .getState()
                       .openMenu(e.clientX, e.clientY, buildUserItems(m.author, e.currentTarget));
                   }}
-                  className="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                  className="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
                 >
                   <Avatar
                     id={m.author}
@@ -729,7 +729,7 @@ export function MessageList({
                             .getState()
                             .openMenu(e.clientX, e.clientY, buildUserItems(m.author, e.currentTarget));
                         }}
-                        className="font-medium text-header hover:underline focus-visible:underline focus-visible:outline-none"
+                        className="font-semibold text-header hover:underline focus-visible:underline focus-visible:outline-none"
                         style={nameColor !== null ? { color: nameColor } : undefined}
                       >
                         {name}
@@ -737,6 +737,18 @@ export function MessageList({
                       <span className="text-xs text-faint">
                         {formatTimestamp(m.sent_ms, lang)}
                       </span>
+                      {pinned && (
+                        <svg
+                          aria-hidden
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          className="shrink-0 text-yellow/80"
+                        >
+                          <path d="M14.6 2.6a1 1 0 0 1 1.4 0l5.4 5.4a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1 .3l-.7-.2-3.7 3.7.4 2.7a1 1 0 0 1-.3.9l-.9.9a1 1 0 0 1-1.4 0l-3.2-3.2-4.7 4.7a1 1 0 0 1-1.5-1.5l4.8-4.7-3.3-3.2a1 1 0 0 1 0-1.4l1-.9a1 1 0 0 1 .8-.3l2.7.4 3.7-3.7-.2-.7a1 1 0 0 1 .3-1l1.6-.8Z" />
+                        </svg>
+                      )}
                       {isOwn && delivery === 'pending' && (
                         <span className="text-xs italic text-faint">{t.dm.pending}</span>
                       )}

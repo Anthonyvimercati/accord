@@ -61,7 +61,7 @@ export function ReactionRow({
   if (pills.length === 0) return null;
 
   return (
-    <div className="mt-1 flex flex-wrap gap-1">
+    <div className="mt-1 flex flex-wrap gap-1.5">
       {pills.map((pill) => {
         // Réaction custom `":name:"` : image si l'émoji est connu du serveur.
         const nom = nomReactionEmoji(pill.emoji);
@@ -77,19 +77,21 @@ export function ReactionRow({
             aria-label={label}
             title={label}
             onClick={() => onToggle?.(pill.emoji)}
-            className={`flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blurple ${
+            className={`badge-pop flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
               pill.mine
-                ? 'border-blurple bg-blurple/20'
-                : 'border-transparent bg-input enabled:hover:border-faint'
+                ? 'border-blurple bg-blurple/10 enabled:hover:border-blurple-hover'
+                : 'border-rail/70 bg-input enabled:hover:border-faint'
             }`}
           >
             {merkle !== undefined && nom !== null ? (
-              <CustomEmoji name={nom} merkleRoot={merkle} hint={hint} size={18} />
+              <CustomEmoji name={nom} merkleRoot={merkle} hint={hint} size={16} />
             ) : (
-              <span aria-hidden>{affichage}</span>
+              <span aria-hidden className="text-[13px] leading-none">
+                {affichage}
+              </span>
             )}
             <span
-              className={`text-xs font-semibold ${pill.mine ? 'text-norm' : 'text-muted'}`}
+              className={`text-xs font-semibold leading-none ${pill.mine ? 'text-norm' : 'text-muted'}`}
             >
               {pill.count}
             </span>

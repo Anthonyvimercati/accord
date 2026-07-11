@@ -61,7 +61,7 @@ function Spoiler({ children }: { children: ReactNode }) {
   const t = useT();
   const [revele, setRevele] = useState(false);
   if (revele) {
-    return <span className="rounded bg-input/70 px-0.5">{children}</span>;
+    return <span className="rounded-sm bg-input/70 px-0.5">{children}</span>;
   }
   return (
     <span
@@ -75,7 +75,7 @@ function Spoiler({ children }: { children: ReactNode }) {
           setRevele(true);
         }
       }}
-      className="cursor-pointer select-none rounded bg-faint/60 px-0.5 text-transparent transition-colors hover:bg-faint/70"
+      className="cursor-pointer select-none rounded-sm bg-faint/60 px-0.5 text-transparent transition-colors duration-fast hover:bg-faint/70"
     >
       {children}
     </span>
@@ -101,7 +101,7 @@ const TOKEN_CLASS: Record<Exclude<TokenKind, 'plain'>, string> = {
 function CodeBlock({ value, lang }: { value: string; lang?: string | undefined }) {
   const tokens = lang !== undefined ? highlightCode(value, lang) : null;
   return (
-    <pre className="my-1 overflow-x-auto rounded-md bg-rail p-2 font-mono text-[0.85em] text-norm">
+    <pre className="my-1 overflow-x-auto rounded-lg border border-rail/70 bg-input p-2.5 font-mono text-[0.85em] text-norm shadow-1">
       <code>
         {tokens === null
           ? value
@@ -148,7 +148,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       return <Spoiler>{renderNodes(node.children, ctx)}</Spoiler>;
     case 'code':
       return (
-        <code className="rounded bg-rail px-1 py-0.5 font-mono text-[0.85em] text-norm">
+        <code className="rounded-sm bg-rail/60 px-1 py-0.5 font-mono text-[0.85em] text-norm">
           {node.value}
         </code>
       );
@@ -176,7 +176,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
     }
     case 'blockquote':
       return (
-        <blockquote className="my-0.5 border-l-4 border-faint/50 pl-3">
+        <blockquote className="relative my-0.5 pl-3 text-muted before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-full before:bg-faint/50 before:content-['']">
           {renderNodes(node.children, ctx)}
         </blockquote>
       );
@@ -188,7 +188,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-link hover:underline"
+          className="text-blurple hover:underline"
         >
           {node.value}
         </a>
@@ -204,7 +204,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
           title={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-link underline decoration-dotted underline-offset-2 hover:decoration-solid"
+          className="text-blurple underline decoration-dotted underline-offset-2 hover:decoration-solid"
         >
           {renderNodes(node.children, ctx)}
         </a>
@@ -215,7 +215,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       // Broadcast mentions always read as a pill (distinct amber accent).
       if (lower === 'everyone' || lower === 'here') {
         return (
-          <span className="rounded bg-yellow/20 px-0.5 font-semibold text-yellow">
+          <span className="rounded-xs bg-yellow/20 px-0.5 font-semibold text-yellow">
             @{node.name}
           </span>
         );
@@ -225,14 +225,14 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       if (roleColor !== undefined) {
         if (roleColor === 0) {
           return (
-            <span className="rounded bg-blurple/20 px-0.5 font-medium text-blurple">
+            <span className="rounded-xs bg-blurple/20 px-0.5 font-medium text-blurple">
               @{node.name}
             </span>
           );
         }
         return (
           <span
-            className="rounded px-0.5 font-medium"
+            className="rounded-xs px-0.5 font-medium"
             style={roleMentionStyle(roleColor)}
           >
             @{node.name}
@@ -244,7 +244,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
         <span
           className={
             connu
-              ? 'rounded bg-blurple/20 px-0.5 font-medium text-blurple'
+              ? 'rounded-xs bg-blurple/20 px-0.5 font-medium text-blurple'
               : 'font-medium text-blurple'
           }
         >

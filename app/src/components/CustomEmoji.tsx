@@ -41,13 +41,15 @@ export function CustomEmoji({ name, merkleRoot, hint, size }: CustomEmojiProps) 
     return <span className="text-muted">{code}</span>;
   }
 
-  const dim = size !== undefined ? `${size}px` : '1.375em';
+  // Inline par défaut : 20px (h-5), aligné à la ligne de base du texte,
+  // jamais déformé. `size` (pastilles de réaction, grille de gestion) prime.
+  const dim = size !== undefined ? `${size}px` : '20px';
   return (
     <img
       src={url}
       alt={code}
       title={code}
-      className="inline-block align-text-bottom object-contain"
+      className="inline-block shrink-0 rounded-sm align-text-bottom object-contain"
       style={{ height: dim, width: dim }}
     />
   );

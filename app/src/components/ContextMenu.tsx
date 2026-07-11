@@ -19,7 +19,12 @@ import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 const MARGE = 8;
 
 /** Position `fixed` (px) bornée au viewport, calée près du point de clic. */
-function clamp(x: number, y: number, width: number, height: number): { left: number; top: number } {
+function clamp(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): { left: number; top: number } {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   return {
@@ -114,12 +119,12 @@ export function ContextMenu() {
         top: pos?.top ?? menu.y,
         visibility: pos === null ? 'hidden' : 'visible',
       }}
-      className="context-menu-enter z-50 min-w-[210px] max-w-xs origin-top-left rounded-md border border-rail bg-modal py-1.5 shadow-elevation focus:outline-none"
+      className="glass-strong context-menu-enter z-50 min-w-[210px] max-w-xs origin-top-left rounded-lg p-1.5 focus:outline-none"
     >
       {items.map((item, i) => (
         <div key={`${i}-${item.label}`}>
           {item.separatorBefore === true && (
-            <div className="my-1.5 h-px bg-input" role="separator" />
+            <div className="my-1.5 h-px bg-input/60" role="separator" />
           )}
           <button
             ref={(el) => {
@@ -130,14 +135,17 @@ export function ContextMenu() {
             tabIndex={i === activeIndex ? 0 : -1}
             onMouseEnter={() => setActiveIndex(i)}
             onClick={() => activate(item)}
-            className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm font-medium transition-colors focus-visible:outline-none ${
+            className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none ${
               item.danger === true
                 ? 'text-red hover:bg-red/10 focus-visible:bg-red/10'
                 : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'
             }`}
           >
             {item.icon !== undefined && (
-              <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center">
+              <span
+                aria-hidden
+                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
+              >
                 {item.icon}
               </span>
             )}
@@ -155,90 +163,117 @@ export function ContextMenu() {
 /* ChatView, Sidebar) pour rester visuellement cohérent.                */
 /* ------------------------------------------------------------------ */
 
+/** Attributs communs à chaque icône du set (voir ICON SPEC, styles/global.css). */
+const ICON_PROPS = {
+  width: 14,
+  height: 14,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+} as const;
+
 export function CopyMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M8 2a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h1v-2H8V4h8v1h2V4a2 2 0 0 0-2-2H8Zm4 6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-6Zm0 2h6v10h-6V10Z" />
+    <svg {...ICON_PROPS}>
+      <rect width="14" height="14" x="8" y="8" rx="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
     </svg>
   );
 }
 
 export function EditMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M16.9 3.1a2.3 2.3 0 0 1 3.2 0l.8.8a2.3 2.3 0 0 1 0 3.2L9.6 18.4l-4.9 1.2a.6.6 0 0 1-.7-.7l1.2-4.9L16.9 3.1Zm1.4 1.4L6.6 16.2l-.7 2.7 2.7-.7L20.3 6.5a.3.3 0 0 0 0-.4l-.8-.8a.3.3 0 0 0-.4 0l-.8.2Z" />
+    <svg {...ICON_PROPS}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+      <path d="m15 5 4 4" />
     </svg>
   );
 }
 
 export function DeleteMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M9 3h6a1 1 0 0 1 1 1v1h4a1 1 0 1 1 0 2h-1v12a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V7H4a1 1 0 0 1 0-2h4V4a1 1 0 0 1 1-1Zm-2 4v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7H7Zm3 3a1 1 0 0 1 2 0v7a1 1 0 1 1-2 0v-7Zm4-1a1 1 0 0 0-1 1v7a1 1 0 1 0 2 0v-7a1 1 0 0 0-1-1Z" />
+    <svg {...ICON_PROPS}>
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" x2="10" y1="11" y2="17" />
+      <line x1="14" x2="14" y1="11" y2="17" />
     </svg>
   );
 }
 
 export function ReplyMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M10 8.3V4.9c0-.8-1-1.3-1.6-.7L1.7 10.3a1 1 0 0 0 0 1.5l6.7 6.1c.6.6 1.6.1 1.6-.7v-3.4c4.9 0 8.5 1.2 11 4.6-.1-6.1-3.3-9.6-11-10.1Z" />
+    <svg {...ICON_PROPS}>
+      <polyline points="9 17 4 12 9 7" />
+      <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
     </svg>
   );
 }
 
 export function ForwardMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M14 8.3V4.9c0-.8 1-1.3 1.6-.7l6.7 6.1a1 1 0 0 1 0 1.5l-6.7 6.1c-.6.6-1.6.1-1.6-.7v-3.4c-4.9 0-8.5 1.2-11 4.6.1-6.1 3.3-9.6 11-10.1Z" />
+    <svg {...ICON_PROPS}>
+      <polyline points="15 17 20 12 15 7" />
+      <path d="M4 18v-2a4 4 0 0 1 4-4h12" />
     </svg>
   );
 }
 
 export function PinMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M14.6 2.6a1 1 0 0 1 1.4 0l5.4 5.4a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1 .3l-.7-.2-3.7 3.7.4 2.7a1 1 0 0 1-.3.9l-.9.9a1 1 0 0 1-1.4 0l-3.2-3.2-4.7 4.7a1 1 0 0 1-1.5-1.5l4.8-4.7-3.3-3.2a1 1 0 0 1 0-1.4l1-.9a1 1 0 0 1 .8-.3l2.7.4 3.7-3.7-.2-.7a1 1 0 0 1 .3-1l1.6-.8Z" />
+    <svg {...ICON_PROPS}>
+      <line x1="12" x2="12" y1="17" y2="22" />
+      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
     </svg>
   );
 }
 
 export function CheckMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M9.5 16.6 4.9 12l-1.4 1.4L9.5 19.4 20.5 8.4l-1.4-1.4Z" />
+    <svg {...ICON_PROPS}>
+      <polyline points="20 6 9 17 4 12" />
     </svg>
   );
 }
 
 export function ProfileMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2c0-2.8-3.6-5-8-5Z" />
+    <svg {...ICON_PROPS}>
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
     </svg>
   );
 }
 
-export function EnvelopeMenuIcon() {
+export function EnvelopeMenuIcon({ size = 14 }: { size?: number } = {}) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v9a2.5 2.5 0 0 1-2.5 2.5H9.4l-4 3a.9.9 0 0 1-1.4-.7V5.5Z" />
+    <svg {...ICON_PROPS} width={size} height={size}>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
     </svg>
   );
 }
 
 export function GearMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.6 1a2 2 0 0 0 2.2.9l1.1-.3a2 2 0 0 1 2.4 2.4l-.3 1.1a2 2 0 0 0 .9 2.2l1 .6a2 2 0 0 1 0 3.4l-1 .6a2 2 0 0 0-.9 2.2l.3 1.1a2 2 0 0 1-2.4 2.4l-1.1-.3a2 2 0 0 0-2.2.9l-.6 1a2 2 0 0 1-3.4 0l-.6-1a2 2 0 0 0-2.2-.9l-1.1.3a2 2 0 0 1-2.4-2.4l.3-1.1a2 2 0 0 0-.9-2.2l-1-.6a2 2 0 0 1 0-3.4l1-.6a2 2 0 0 0 .9-2.2l-.3-1.1a2 2 0 0 1 2.4-2.4l1.1.3a2 2 0 0 0 2.2-.9l.6-1ZM12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+    <svg {...ICON_PROPS}>
+      <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.4.7a2 2 0 0 0 2.2.9l.8-.2a2 2 0 0 1 2.4 2.4l-.2.8a2 2 0 0 0 .9 2.2l.7.4a2 2 0 0 1 0 3.4l-.7.4a2 2 0 0 0-.9 2.2l.2.8a2 2 0 0 1-2.4 2.4l-.8-.2a2 2 0 0 0-2.2.9l-.4.7a2 2 0 0 1-3.4 0l-.4-.7a2 2 0 0 0-2.2-.9l-.8.2a2 2 0 0 1-2.4-2.4l.2-.8a2 2 0 0 0-.9-2.2l-.7-.4a2 2 0 0 1 0-3.4l.7-.4a2 2 0 0 0 .9-2.2l-.2-.8a2 2 0 0 1 2.4-2.4l.8.2a2 2 0 0 0 2.2-.9l.4-.7Z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
 
 export function LeaveMenuIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M10 3a1 1 0 0 0-1 1v2a1 1 0 1 0 2 0V5h6v14h-6v-1a1 1 0 1 0-2 0v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-8Zm2.7 6.3a1 1 0 0 0-1.4 1.4L12.6 12l-1.3 1.3a1 1 0 1 0 1.4 1.4l2-2a1 1 0 0 0 0-1.4l-2-2ZM4 11a1 1 0 1 0 0 2h6v-2H4Z" />
+    <svg {...ICON_PROPS}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" x2="9" y1="12" y2="12" />
     </svg>
   );
 }
@@ -248,5 +283,45 @@ export function MentionMenuIcon() {
     <span aria-hidden className="text-xs font-bold leading-none">
       @
     </span>
+  );
+}
+
+/** Icône de fermeture partagée (modales, popovers, panneaux plein écran). */
+export function CloseIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
+/** Icône de recherche partagée (barre de recherche, champs filtrants). */
+export function SearchIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" x2="16.65" y1="21" y2="16.65" />
+    </svg>
   );
 }

@@ -12,6 +12,7 @@ import { useGroups } from '../stores/groups';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { ChannelIcon } from './Sidebar';
+import { CloseIcon } from './ContextMenu';
 import { ServerSettingsModal } from './server/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
 
@@ -23,8 +24,16 @@ const QUICK_CHANNEL_KINDS: Array<{
   label: (t: Dict) => string;
   hint: (t: Dict) => string;
 }> = [
-  { kind: 'text', label: (t) => t.groups.kindTextChannel, hint: (t) => t.groups.kindTextHint },
-  { kind: 'voice', label: (t) => t.groups.kindVoiceChannel, hint: (t) => t.groups.kindVoiceHint },
+  {
+    kind: 'text',
+    label: (t) => t.groups.kindTextChannel,
+    hint: (t) => t.groups.kindTextHint,
+  },
+  {
+    kind: 'voice',
+    label: (t) => t.groups.kindVoiceChannel,
+    hint: (t) => t.groups.kindVoiceHint,
+  },
 ];
 
 function ModalFrame({
@@ -51,7 +60,7 @@ function ModalFrame({
 
   return (
     <div
-      className="modal-overlay-enter fixed inset-0 z-40 flex items-center justify-center bg-black/70"
+      className="modal-overlay-enter fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeModal();
       }}
@@ -61,7 +70,7 @@ function ModalFrame({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="modal-panel-enter w-[440px] max-w-[92vw] rounded-lg bg-modal shadow-modal"
+        className="glass modal-panel-enter w-[440px] max-w-[92vw] rounded-xl shadow-3"
       >
         <div className="p-5">
           <div className="flex items-start justify-between">
@@ -70,17 +79,9 @@ function ModalFrame({
               type="button"
               aria-label={t.app.close}
               onClick={closeModal}
-              className="rounded text-faint transition-colors duration-fast hover:text-norm active:scale-95"
+              className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
             >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden
-              >
-                <path d="M6.3 5 12 10.6 17.7 5 19 6.3 13.4 12l5.6 5.7-1.3 1.3-5.7-5.6L6.3 19 5 17.7l5.6-5.7L5 6.3 6.3 5Z" />
-              </svg>
+              <CloseIcon size={20} />
             </button>
           </div>
           {hint && <p className="mt-1 text-sm text-muted">{hint}</p>}
@@ -128,13 +129,13 @@ function NameForm({
         onKeyDown={(e) => {
           if (e.key === 'Enter') void submit();
         }}
-        className="w-full rounded bg-rail px-3 py-2.5 text-norm placeholder-faint outline-none"
+        className="w-full rounded-md bg-input px-3 py-2.5 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
       />
       <div className="mt-4 flex justify-end gap-3">
         <button
           type="button"
           onClick={closeModal}
-          className="px-4 py-2 text-sm font-medium text-norm hover:underline"
+          className="rounded-sm px-4 py-2 text-sm font-medium text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
         >
           {t.app.cancel}
         </button>
@@ -142,7 +143,7 @@ function NameForm({
           type="button"
           disabled={name.trim() === '' || busy}
           onClick={() => void submit()}
-          className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white hover:bg-blurple-hover disabled:opacity-50"
+          className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50 active:scale-[0.98]"
         >
           {action}
         </button>
@@ -191,7 +192,7 @@ function ChannelKindOption({
       type="button"
       aria-pressed={selected}
       onClick={() => onSelect(kind)}
-      className={`flex flex-1 items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${
+      className={`flex flex-1 items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal ${
         selected
           ? 'border-blurple bg-blurple/10'
           : 'border-transparent bg-rail hover:bg-chat-hover'
@@ -257,13 +258,13 @@ function CreateChannelModal({ groupId }: { groupId: string }) {
         onKeyDown={(e) => {
           if (e.key === 'Enter') void submit();
         }}
-        className="mt-4 w-full rounded bg-rail px-3 py-2.5 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        className="mt-4 w-full rounded-md bg-input px-3 py-2.5 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
       />
       <div className="mt-4 flex justify-end gap-3">
         <button
           type="button"
           onClick={closeModal}
-          className="px-4 py-2 text-sm font-medium text-norm hover:underline"
+          className="rounded-sm px-4 py-2 text-sm font-medium text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
         >
           {t.app.cancel}
         </button>
@@ -271,7 +272,7 @@ function CreateChannelModal({ groupId }: { groupId: string }) {
           type="button"
           disabled={name.trim() === '' || busy}
           onClick={() => void submit()}
-          className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white hover:bg-blurple-hover disabled:opacity-50"
+          className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50 active:scale-[0.98]"
         >
           {t.groups.addChannelAction}
         </button>
@@ -304,7 +305,7 @@ function InviteModal({ groupId }: { groupId: string }) {
         {candidates.map((c) => (
           <div
             key={c.pubkey}
-            className="flex items-center gap-3 rounded px-2 py-1.5 hover:bg-chat-hover"
+            className="flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors duration-fast hover:bg-chat-hover"
           >
             <Avatar
               id={c.pubkey}
@@ -326,7 +327,7 @@ function InviteModal({ groupId }: { groupId: string }) {
                   })
                   .catch(() => toast('error', t.errors.actionFailed));
               }}
-              className="rounded border border-green px-3 py-1 text-sm font-medium text-green hover:bg-green hover:text-white"
+              className="rounded-lg border border-green px-3 py-1 text-sm font-medium text-green transition-colors duration-fast hover:bg-green hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
             >
               {t.groups.invite}
             </button>

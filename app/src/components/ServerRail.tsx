@@ -126,7 +126,7 @@ function RailButton({
        */}
       <span
         aria-hidden
-        className={`absolute -left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r bg-white transition-transform duration-normal ease-spring ${
+        className={`absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r bg-white transition-transform duration-normal ease-spring ${
           active ? 'scale-y-100' : 'scale-y-0 group-hover:scale-y-50'
         }`}
       />
@@ -136,7 +136,7 @@ function RailButton({
         title={label}
         onClick={onClick}
         onContextMenu={onContextMenu}
-        className={`flex h-12 w-12 items-center justify-center overflow-hidden font-medium transition-[color,background-color,border-radius,transform] duration-normal active:scale-95 ${
+        className={`flex h-12 w-12 items-center justify-center overflow-hidden font-medium transition-[color,background-color,border-radius,transform] duration-normal active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail ${
           active
             ? 'rounded-server bg-blurple text-white'
             : accent
@@ -216,7 +216,7 @@ export function ServerRail() {
         </svg>
       </RailButton>
 
-      <div className="h-0.5 w-8 rounded bg-sidebar" role="separator" />
+      <div className="h-0.5 w-8 rounded-full bg-sidebar" role="separator" />
 
       {ids.map((id) => {
         const name = states[id]?.name ?? '…';

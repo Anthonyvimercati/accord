@@ -28,21 +28,62 @@ import { MentionBadge, UnreadBadge } from './UnreadBadge';
 import { UserPanel } from './UserPanel';
 import { VoiceSection } from './VoiceSection';
 
+/** Bouton d'action de l'en-tête, taille fixe (icon spec) : conteneur carré centré. */
+function HeaderIconButton({
+  label,
+  onClick,
+  active = false,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-95 ${
+        active ? 'text-header' : 'text-muted hover:text-norm'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 /** Bouton d'ouverture de la boîte de mentions (icône « @ »). */
 function InboxButton({ onOpen }: { onOpen: () => void }) {
   const t = useT();
   return (
-    <button
-      type="button"
-      aria-label={t.mentions.open}
-      title={t.mentions.open}
-      onClick={onOpen}
-      className="shrink-0 rounded p-1.5 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm active:scale-95"
-    >
+    <HeaderIconButton label={t.mentions.open} onClick={onOpen}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
         <path d="M12 2a10 10 0 0 0 0 20 9.9 9.9 0 0 0 5-1.3 1 1 0 1 0-1-1.7A7.9 7.9 0 0 1 12 20a8 8 0 1 1 8-8v1a1.5 1.5 0 0 1-3 0V8a1 1 0 1 0-2 0v.5A4 4 0 1 0 16 14a3.5 3.5 0 0 0 6-2v-.9A10 10 0 0 0 12 2Zm0 12a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z" />
       </svg>
-    </button>
+    </HeaderIconButton>
+  );
+}
+
+/** Petit chevron décoratif (rotation animée sur `open`), icon spec 14 px. */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={`shrink-0 transition-transform duration-fast ease-expo ${open ? 'rotate-0' : '-rotate-90'}`}
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
   );
 }
 
@@ -60,20 +101,22 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
         <button
           type="button"
           onClick={() => setView({ kind: 'friends' })}
-          className={`flex w-full items-center gap-3 rounded px-2 py-2 font-medium transition-colors duration-fast ${
+          className={`flex h-9 w-full items-center gap-3 rounded-md px-2 font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
             view.kind === 'friends'
-              ? 'bg-chat-hover text-header'
+              ? 'bg-chat-hover text-norm'
               : 'text-muted hover:bg-chat-hover hover:text-norm'
           }`}
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-7 1.7-7 4v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2c0-2.3-3.7-4-7-4Zm7.5-2.2a3.6 3.6 0 0 0 0-6.6 5.5 5.5 0 0 1 0 6.6ZM19 13.3c1.8.8 3 2 3 3.7v2a1 1 0 0 1-1 1h-3.3c.2-.3.3-.6.3-1v-2c0-1.5-.6-2.7-1.6-3.7.9 0 1.8 0 2.6.1Z" />
-          </svg>
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-7 1.7-7 4v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2c0-2.3-3.7-4-7-4Zm7.5-2.2a3.6 3.6 0 0 0 0-6.6 5.5 5.5 0 0 1 0 6.6ZM19 13.3c1.8.8 3 2 3 3.7v2a1 1 0 0 1-1 1h-3.3c.2-.3.3-.6.3-1v-2c0-1.5-.6-2.7-1.6-3.7.9 0 1.8 0 2.6.1Z" />
+            </svg>
+          </span>
           {t.friends.title}
         </button>
 
         <div className="flex items-center justify-between px-2 pb-1 pt-4">
-          <span className="text-xs font-semibold uppercase tracking-wide text-faint">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">
             {t.dm.directMessages}
           </span>
           <InboxButton onOpen={onOpenInbox} />
@@ -87,9 +130,9 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
               key={c.pubkey}
               type="button"
               onClick={() => setView({ kind: 'dm', peer: c.pubkey })}
-              className={`flex w-full items-center gap-2.5 rounded px-2 py-1.5 transition-colors duration-fast ${
+              className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                 active
-                  ? 'bg-chat-hover text-header'
+                  ? 'bg-chat-hover text-norm'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
               }`}
             >
@@ -142,7 +185,7 @@ export function ChannelIcon({ kind }: { kind: GroupChannel['kind'] }) {
     );
   }
   return (
-    <span aria-hidden className="text-lg font-normal leading-none">
+    <span aria-hidden className="text-[17px] font-medium leading-none">
       #
     </span>
   );
@@ -239,13 +282,13 @@ function ChannelRow({
         e.preventDefault();
         useContextMenu.getState().openMenu(e.clientX, e.clientY, buildItems());
       }}
-      className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 font-medium transition-colors duration-fast ${
+      className={`flex h-9 w-full items-center gap-1.5 rounded-md px-2 font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
         active
-          ? 'bg-chat-hover text-header'
+          ? 'bg-chat-hover text-norm'
           : 'text-muted hover:bg-chat-hover hover:text-norm'
       }`}
     >
-      <span aria-hidden className="flex w-5 shrink-0 justify-center text-faint">
+      <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center text-faint">
         <ChannelIcon kind={channel.kind} />
       </span>
       <span className="min-w-0 truncate">{channel.name}</span>
@@ -270,6 +313,10 @@ function GroupSidebar({
   const unread = useGroups((s) => s.unread[groupId]);
   const mentionCount = useGroups((s) => s.mentions[groupId]) ?? 0;
   const joinVoice = useVoice((s) => s.join);
+  /** Catégories repliées (état d'affichage local, propre à ce panneau). */
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const toggleCategory = (categoryId: string): void =>
+    setCollapsed((prev) => ({ ...prev, [categoryId]: !(prev[categoryId] ?? false) }));
 
   const myPerms = state?.my_permissions ?? 0;
   const sections = channelsByCategory(state?.channels ?? [], state?.categories ?? []);
@@ -289,46 +336,39 @@ function GroupSidebar({
 
   return (
     <>
-      <div className="flex h-12 items-center justify-between gap-1 border-b border-rail px-4 shadow-sm">
-        <span className="min-w-0 flex-1 truncate font-semibold text-header">
-          {state?.name ?? '…'}
+      <div className="flex h-12 items-center gap-1 border-b border-rail bg-sidebar px-4 shadow-1">
+        <span className="flex min-w-0 flex-1 items-center gap-1">
+          <span className="min-w-0 truncate text-[15px] font-semibold text-header">
+            {state?.name ?? '…'}
+          </span>
+          <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center text-faint">
+            <Chevron open />
+          </span>
         </span>
         {mentionCount > 0 && <MentionBadge count={mentionCount} />}
         <InboxButton onOpen={onOpenInbox} />
         {hasPerm(myPerms, PERMISSIONS.INVITE) && (
-          <button
-            type="button"
-            aria-label={t.groups.invite}
-            title={t.groups.invite}
+          <HeaderIconButton
+            label={t.groups.invite}
             onClick={() => openModal({ kind: 'invite', groupId })}
-            className="rounded p-1 text-muted transition-colors duration-fast hover:text-norm active:scale-95"
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden
-            >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
               <path d="M15 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-4 6c-3.3 0-7 1.7-7 4v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1c0-2.3-3.7-4-7-4Zm9-8a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2h-2a1 1 0 1 1 0-2h2V7a1 1 0 0 1 1-1Z" />
             </svg>
-          </button>
+          </HeaderIconButton>
         )}
-        <button
-          type="button"
-          aria-label={t.serveur.settingsTitle}
-          title={t.serveur.settingsTitle}
+        <HeaderIconButton
+          label={t.serveur.settingsTitle}
           onClick={() => openModal({ kind: 'serverSettings', groupId })}
-          className="rounded p-1 text-muted transition-colors duration-fast hover:text-norm active:scale-95"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.6 1a2 2 0 0 0 2.2.9l1.1-.3a2 2 0 0 1 2.4 2.4l-.3 1.1a2 2 0 0 0 .9 2.2l1 .6a2 2 0 0 1 0 3.4l-1 .6a2 2 0 0 0-.9 2.2l.3 1.1a2 2 0 0 1-2.4 2.4l-1.1-.3a2 2 0 0 0-2.2.9l-.6 1a2 2 0 0 1-3.4 0l-.6-1a2 2 0 0 0-2.2-.9l-1.1.3a2 2 0 0 1-2.4-2.4l.3-1.1a2 2 0 0 0-.9-2.2l-1-.6a2 2 0 0 1 0-3.4l1-.6a2 2 0 0 0 .9-2.2l-.3-1.1a2 2 0 0 1 2.4-2.4l1.1.3a2 2 0 0 0 2.2-.9l.6-1ZM12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
           </svg>
-        </button>
+        </HeaderIconButton>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         <div className="flex items-center justify-between px-2 pb-1 pt-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-faint">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">
             {t.groups.channels}
           </span>
           {hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS) && (
@@ -337,7 +377,7 @@ function GroupSidebar({
               aria-label={t.groups.addChannel}
               title={t.groups.addChannel}
               onClick={() => openModal({ kind: 'createChannel', groupId })}
-              className="text-faint transition-colors duration-fast hover:text-norm active:scale-95"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-95"
             >
               <svg
                 width="16"
@@ -354,26 +394,37 @@ function GroupSidebar({
         {!hasChannels && (
           <p className="px-2 py-1 text-sm text-faint">{t.groups.noChannel}</p>
         )}
-        {sections.map((section) => (
-          <div key={section.category?.category_id ?? 'sans-categorie'}>
-            {section.category !== null && section.channels.length > 0 && (
-              <div className="truncate px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-faint">
-                {section.category.name}
-              </div>
-            )}
-            {section.channels.map((ch) => (
-              <ChannelRow
-                key={ch.channel_id}
-                channel={ch}
-                active={activeChannel === ch.channel_id}
-                unread={unread?.[ch.channel_id]}
-                groupId={groupId}
-                canManage={hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)}
-                onOpen={openChannel}
-              />
-            ))}
-          </div>
-        ))}
+        {sections.map((section) => {
+          const categoryId = section.category?.category_id ?? 'sans-categorie';
+          const isOpen = !(collapsed[categoryId] ?? false);
+          return (
+            <div key={categoryId}>
+              {section.category !== null && section.channels.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => toggleCategory(categoryId)}
+                  aria-expanded={isOpen}
+                  className="flex w-full items-center gap-1 truncate rounded-md px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                >
+                  <Chevron open={isOpen} />
+                  <span className="truncate">{section.category.name}</span>
+                </button>
+              )}
+              {isOpen &&
+                section.channels.map((ch) => (
+                  <ChannelRow
+                    key={ch.channel_id}
+                    channel={ch}
+                    active={activeChannel === ch.channel_id}
+                    unread={unread?.[ch.channel_id]}
+                    groupId={groupId}
+                    canManage={hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)}
+                    onOpen={openChannel}
+                  />
+                ))}
+            </div>
+          );
+        })}
         <VoiceSection groupId={groupId} />
       </div>
     </>

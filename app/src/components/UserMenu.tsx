@@ -19,7 +19,7 @@ import { copyToClipboard } from '../lib/clipboard';
 import { useFriends } from '../stores/friends';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
-import { CheckMenuIcon, CopyMenuIcon, LeaveMenuIcon } from './ContextMenu';
+import { CheckMenuIcon, CloseIcon, CopyMenuIcon, LeaveMenuIcon } from './ContextMenu';
 import { PresenceDot } from './PresenceDot';
 
 /** Statut affichable de son propre nœud (invisible = pastille hors ligne). */
@@ -128,7 +128,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
       aria-label={t.profil.userMenu}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="absolute bottom-full left-2 z-50 mb-2 w-56 rounded-lg bg-modal p-2 shadow-modal focus:outline-none"
+      className="glass-strong context-menu-enter absolute bottom-full left-2 z-50 mb-2 w-56 rounded-lg p-1.5 focus:outline-none"
     >
       <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-faint">
         {t.profil.setStatus}
@@ -151,7 +151,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
               applyStatus(status);
               onClose();
             }}
-            className={`flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-sm focus-visible:outline-none ${
+            className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors duration-fast focus-visible:outline-none ${
               checked
                 ? 'bg-chat-hover text-header'
                 : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'
@@ -160,7 +160,10 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
             <PresenceDot status={ownDotStatus(status)} />
             <span className="min-w-0 flex-1 truncate text-left">{label}</span>
             {checked && (
-              <span aria-hidden className="shrink-0 text-header">
+              <span
+                aria-hidden
+                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-header"
+              >
                 <CheckMenuIcon />
               </span>
             )}
@@ -180,7 +183,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
               onClose();
             }
           }}
-          className="min-w-0 flex-1 rounded bg-input px-2 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+          className="min-w-0 flex-1 rounded-md bg-input px-2 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
         />
         {(ownStatusText ?? '') !== '' && (
           <button
@@ -191,17 +194,15 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
               applyStatus(ownStatus, '');
               onClose();
             }}
-            className="rounded p-1.5 text-muted hover:bg-chat-hover hover:text-norm"
+            className="rounded-md p-1.5 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M5.3 5.3a1 1 0 0 1 1.4 0L12 10.6l5.3-5.3a1 1 0 1 1 1.4 1.4L13.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4L12 13.4l-5.3 5.3a1 1 0 0 1-1.4-1.4L10.6 12 5.3 6.7a1 1 0 0 1 0-1.4Z" />
-            </svg>
+            <CloseIcon size={14} />
           </button>
         )}
       </div>
       <div className="px-1 pb-1 text-[10px] text-faint">{t.profil.customStatusHint}</div>
 
-      <div className="my-1.5 h-px bg-input" role="separator" />
+      <div className="my-1.5 h-px bg-input/60" role="separator" />
 
       {(() => {
         const index = nextIndex();
@@ -216,9 +217,12 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
             tabIndex={index === activeIndex ? 0 : -1}
             onMouseEnter={() => setActiveIndex(index)}
             onClick={copyId}
-            className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-sm font-medium text-norm transition-colors hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
+            className="flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium text-norm transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
           >
-            <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center">
+            <span
+              aria-hidden
+              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
+            >
               <CopyMenuIcon />
             </span>
             {t.profil.copyMyId}
@@ -226,7 +230,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
         );
       })()}
 
-      <div className="my-1.5 h-px bg-input" role="separator" />
+      <div className="my-1.5 h-px bg-input/60" role="separator" />
 
       {!confirmingLogout ? (
         (() => {
@@ -242,9 +246,12 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
               tabIndex={index === activeIndex ? 0 : -1}
               onMouseEnter={() => setActiveIndex(index)}
               onClick={() => setConfirmingLogout(true)}
-              className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-sm font-medium text-red transition-colors hover:bg-red/10 focus-visible:bg-red/10 focus-visible:outline-none"
+              className="flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium text-red transition-colors duration-fast hover:bg-red/10 focus-visible:bg-red/10 focus-visible:outline-none"
             >
-              <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center">
+              <span
+                aria-hidden
+                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
+              >
                 <LeaveMenuIcon />
               </span>
               {t.settings.logout}
@@ -269,7 +276,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
                     tabIndex={confirmIndex === activeIndex ? 0 : -1}
                     onMouseEnter={() => setActiveIndex(confirmIndex)}
                     onClick={confirmLogout}
-                    className="flex-1 rounded bg-red px-2 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red"
+                    className="flex-1 rounded-sm bg-red px-2 py-1.5 text-xs font-medium text-white transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                   >
                     {t.settings.logoutConfirm}
                   </button>
@@ -282,7 +289,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
                     tabIndex={cancelIndex === activeIndex ? 0 : -1}
                     onMouseEnter={() => setActiveIndex(cancelIndex)}
                     onClick={() => setConfirmingLogout(false)}
-                    className="rounded bg-rail px-2 py-1.5 text-xs font-medium text-norm transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                    className="rounded-sm bg-rail px-2 py-1.5 text-xs font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                   >
                     {t.app.cancel}
                   </button>

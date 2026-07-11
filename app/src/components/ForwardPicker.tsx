@@ -12,6 +12,7 @@ import { displayNameOf, useFriends } from '../stores/friends';
 import { sortChannels, useGroups } from '../stores/groups';
 import { useDms } from '../stores/dms';
 import { useUi, useT } from '../stores/ui';
+import { CloseIcon } from './ContextMenu';
 
 /** A resolved forward destination and the send it performs. */
 interface ForwardTarget {
@@ -80,26 +81,24 @@ export function ForwardPicker({ text, attachments, onClose }: ForwardPickerProps
 
   return (
     <div
-      className="modal-overlay-enter fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-16"
+      className="modal-overlay-enter fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-16 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-label={t.dm.forwardTitle}
         onClick={(e) => e.stopPropagation()}
-        className="modal-panel-enter max-h-[70vh] w-[24rem] max-w-[90vw] overflow-hidden rounded-lg border border-rail bg-modal shadow-modal"
+        className="glass modal-panel-enter max-h-[70vh] w-[24rem] max-w-[90vw] overflow-hidden rounded-xl shadow-3"
       >
-        <div className="flex items-center justify-between border-b border-rail px-4 py-3">
+        <div className="flex items-center justify-between border-b border-input/50 px-4 py-3">
           <span className="text-sm font-semibold text-header">{t.dm.forwardTitle}</span>
           <button
             type="button"
             aria-label={t.app.close}
             onClick={onClose}
-            className="rounded p-1 text-faint transition-colors duration-fast hover:text-norm active:scale-95"
+            className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M6.3 5 12 10.6 17.7 5 19 6.3 13.4 12l5.6 5.7-1.3 1.3-5.7-5.6L6.3 19 5 17.7l5.6-5.7L5 6.3 6.3 5Z" />
-            </svg>
+            <CloseIcon size={16} />
           </button>
         </div>
         <div className="max-h-[calc(70vh-3.25rem)] overflow-y-auto p-2">
@@ -117,7 +116,7 @@ export function ForwardPicker({ text, attachments, onClose }: ForwardPickerProps
               type="button"
               disabled={busy}
               onClick={() => forwardTo(target)}
-              className="block w-full truncate rounded px-3 py-1.5 text-left text-sm text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm disabled:opacity-40"
+              className="block w-full truncate rounded-md px-3 py-1.5 text-left text-sm text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:bg-chat-hover focus-visible:outline-none disabled:opacity-40"
             >
               {target.label}
             </button>
@@ -133,7 +132,7 @@ export function ForwardPicker({ text, attachments, onClose }: ForwardPickerProps
                   type="button"
                   disabled={busy}
                   onClick={() => forwardTo(target)}
-                  className="block w-full truncate rounded px-3 py-1.5 text-left text-sm text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm disabled:opacity-40"
+                  className="block w-full truncate rounded-md px-3 py-1.5 text-left text-sm text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:bg-chat-hover focus-visible:outline-none disabled:opacity-40"
                 >
                   {target.label}
                 </button>

@@ -28,10 +28,11 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
   };
 
   return (
-    <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-fast hover:bg-chat-hover">
+    <div className="flex h-11 items-center gap-3 rounded-lg px-3 transition-colors duration-fast hover:bg-chat-hover">
       <Avatar
         id={invite.inviter}
         name={inviterName}
+        size={32}
         avatarHash={avatarOf(contacts, invite.inviter)}
         hint={invite.inviter}
       />
@@ -41,18 +42,18 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
           {interpolate(t.invitations.invitedBy, { name: inviterName })}
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
           onClick={() => act(() => acceptInvite(invite.group_id, invite.invite_id))}
-          className="rounded bg-green px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
+          className="rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-95"
         >
           {t.invitations.accept}
         </button>
         <button
           type="button"
           onClick={() => act(() => declineInvite(invite.group_id, invite.invite_id))}
-          className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
+          className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
         >
           {t.invitations.decline}
         </button>
@@ -66,7 +67,16 @@ export function PendingInvites() {
   const invites = useGroups((s) => s.pendingInvites);
 
   if (invites.length === 0) {
-    return <p className="py-8 text-center text-muted">{t.invitations.empty}</p>;
+    return (
+      <div className="flex flex-col items-center gap-3 py-12 text-center text-muted">
+        <span aria-hidden className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v9a2.5 2.5 0 0 1-2.5 2.5H9.4l-4 3a.9.9 0 0 1-1.4-.7V5.5Z" />
+          </svg>
+        </span>
+        <p>{t.invitations.empty}</p>
+      </div>
+    );
   }
 
   return (
