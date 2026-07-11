@@ -343,13 +343,7 @@ function ChannelRow({
   );
 }
 
-function GroupSidebar({
-  groupId,
-  onOpenInbox,
-}: {
-  groupId: string;
-  onOpenInbox: () => void;
-}) {
+function GroupSidebar({ groupId }: { groupId: string }) {
   const t = useT();
   const view = useUi((s) => s.view);
   const setView = useUi((s) => s.setView);
@@ -387,7 +381,6 @@ function GroupSidebar({
           {state?.name ?? '…'}
         </span>
         {mentionCount > 0 && <MentionBadge count={mentionCount} />}
-        <InboxButton onOpen={onOpenInbox} />
         {hasPerm(myPerms, PERMISSIONS.INVITE) && (
           <HeaderIconButton
             label={t.groups.invite}
@@ -508,7 +501,7 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-60 flex-col bg-sidebar">
       {view.kind === 'group' ? (
-        <GroupSidebar groupId={view.groupId} onOpenInbox={openInbox} />
+        <GroupSidebar groupId={view.groupId} />
       ) : (
         <HomeSidebar onOpenInbox={openInbox} />
       )}
