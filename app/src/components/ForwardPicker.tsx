@@ -106,7 +106,7 @@ export function ForwardPicker({ text, attachments, onClose }: ForwardPickerProps
             <p className="py-6 text-center text-sm text-muted">{t.dm.forwardEmpty}</p>
           )}
           {dmTargets.length > 0 && (
-            <div className="px-2 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide text-faint">
+            <div className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-faint">
               {t.dm.directMessages}
             </div>
           )}
@@ -123,7 +123,7 @@ export function ForwardPicker({ text, attachments, onClose }: ForwardPickerProps
           ))}
           {groupTargets.map((group) => (
             <div key={group.name}>
-              <div className="truncate px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-faint">
+              <div className="truncate px-2 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-faint">
                 {group.name}
               </div>
               {group.channels.map((target) => (

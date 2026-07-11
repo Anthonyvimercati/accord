@@ -44,7 +44,7 @@ function ChipRow({ chips }: { chips: SearchChip[] }) {
           key={`${chip.type}:${chip.value}:${i}`}
           className="rounded-xs bg-rail px-1.5 py-0.5 text-[11px] text-muted"
         >
-          <span className="font-semibold text-blurple">{chip.type}:</span>
+          <span className="font-medium text-blurple">{chip.type}:</span>
           {chip.value}
         </span>
       ))}
@@ -88,7 +88,7 @@ function HitRow({
       className="block w-full rounded-md px-2 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-xs font-semibold text-muted">{label}</span>
+        <span className="truncate text-xs font-medium text-muted">{label}</span>
         <span className="shrink-0 text-[10px] text-faint">
           {formatTimestamp(hit.timestamp, lang)}
         </span>
@@ -141,7 +141,7 @@ export function SearchBar() {
 
   return (
     <div className="relative border-b border-input/50 p-2.5">
-      <div className="flex items-center gap-1.5 rounded-xl bg-input px-2.5 focus-within:ring-2 focus-within:ring-blurple focus-within:ring-offset-2 focus-within:ring-offset-sidebar">
+      <div className="flex items-center gap-1.5 rounded-xl border border-transparent bg-input px-2.5 transition-colors duration-fast focus-within:border-blurple/50">
         <span
           aria-hidden
           className="flex h-4 w-4 shrink-0 items-center justify-center text-faint"
@@ -176,7 +176,7 @@ export function SearchBar() {
       {rows !== null && !busy && (
         <div className="glass-strong popover-enter absolute inset-x-2 top-full z-10 mt-1 flex max-h-96 flex-col overflow-hidden rounded-lg">
           <div className="min-h-0 overflow-y-auto p-2">
-            <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-faint">
+            <div className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-faint">
               {t.search.results} — {rows.length}
             </div>
             {rows.length === 0 && (

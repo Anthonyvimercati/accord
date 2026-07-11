@@ -140,7 +140,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
         </button>
 
         <div className="flex items-center justify-between px-2 pb-1 pt-4">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
             {t.dm.directMessages}
           </span>
           <InboxButton onOpen={onOpenInbox} />
@@ -438,7 +438,7 @@ function GroupSidebar({
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         <div className="flex items-center justify-between px-2 pb-1 pt-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
             {t.groups.channels}
           </span>
           {hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS) && (
@@ -479,7 +479,7 @@ function GroupSidebar({
                   type="button"
                   onClick={() => toggleCategory(categoryId)}
                   aria-expanded={isOpen}
-                  className="flex w-full items-center gap-1 truncate rounded-md px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                  className="flex w-full items-center gap-1 truncate rounded-md px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                 >
                   <Chevron open={isOpen} />
                   <span className="truncate">{section.category.name}</span>

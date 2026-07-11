@@ -353,11 +353,9 @@ export function MessageInput({
         </p>
       )}
       <div
-        className={`relative flex items-end gap-0.5 rounded-xl border bg-input px-1.5 py-1 shadow-1 transition-colors duration-fast focus-within:border-blurple/60 focus-within:ring-2 focus-within:ring-blurple focus-within:ring-offset-2 focus-within:ring-offset-chat ${
+        className={`relative flex items-end gap-0.5 rounded-xl border bg-input px-1.5 py-1 shadow-1 transition-colors duration-fast focus-within:border-blurple/50 ${
           pieces.length > 0 ? 'rounded-t-none' : ''
-        } ${
-          survol ? 'border-blurple/60 ring-2 ring-blurple ring-offset-2 ring-offset-chat' : 'border-rail/60'
-        }`}
+        } ${survol ? 'border-blurple/50' : 'border-rail/60'}`}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes('Files')) return;
           e.preventDefault();
@@ -397,7 +395,7 @@ export function MessageInput({
           title={t.fichiers.joindre}
           disabled={sending}
           onClick={() => fileRef.current?.click()}
-          className="m-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
+          className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
         >
           <svg
             width="18"
@@ -478,7 +476,7 @@ export function MessageInput({
             aria-expanded={emojiOpen}
             disabled={sending}
             onClick={() => setEmojiOpen((open) => !open)}
-            className={`m-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-fast disabled:opacity-40 ${
+            className={`m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all duration-fast disabled:opacity-40 ${
               emojiOpen
                 ? 'bg-blurple/15 text-blurple'
                 : 'text-muted enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95'
@@ -518,7 +516,7 @@ export function MessageInput({
           title={t.app.send}
           disabled={(text.trim() === '' && pieces.length === 0) || sending}
           onClick={() => void submit()}
-          className="m-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
+          className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
         >
           <svg
             width="18"

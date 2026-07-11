@@ -32,7 +32,7 @@ export function MentionBadge({ count }: { count: number }) {
       aria-label={interpolate(t.mentions.badge, { count: String(count) })}
       className="badge-pop ml-auto flex shrink-0 items-center gap-0.5 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-white"
     >
-      <span aria-hidden className="font-bold leading-none">
+      <span aria-hidden className="font-semibold leading-none">
         @
       </span>
       {count}

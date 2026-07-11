@@ -136,7 +136,7 @@ export function ServerMembersTab({ groupId }: { groupId: string }) {
 
   return (
     <div>
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-faint">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-faint">
         {t.groups.members} — {state.members.length}
       </div>
       {state.members.map((member) => {

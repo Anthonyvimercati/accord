@@ -87,7 +87,7 @@ function VoiceBanner() {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-[color:var(--glass-border)] bg-rail/60 px-2 py-2">
       <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-green">
+        <div className="truncate text-sm font-medium text-green">
           {t.voice.connected}
         </div>
         <div className="truncate text-xs text-muted">{groupName ?? '…'}</div>

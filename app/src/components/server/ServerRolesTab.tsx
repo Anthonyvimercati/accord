@@ -126,7 +126,7 @@ function RoleEditor({
             aria-label={t.serveur.roleNameLabel}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="min-w-0 flex-1 rounded-md bg-input px-3 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-1.5 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
           />
         ) : (
           <span className="flex-1 truncate font-medium text-header">{role.name}</span>
@@ -190,7 +190,7 @@ function RoleEditor({
       {editable && (
         <>
           <div className="mt-3 flex items-center gap-3">
-            <span className="text-xs font-semibold uppercase text-faint">
+            <span className="text-xs font-medium uppercase text-faint">
               {t.serveur.roleColor}
             </span>
             <input
@@ -213,7 +213,7 @@ function RoleEditor({
           </div>
 
           <div className="mt-3">
-            <div className="mb-1 text-xs font-semibold uppercase text-faint">
+            <div className="mb-1 text-xs font-medium uppercase text-faint">
               {t.serveur.rolePermissions}
             </div>
             <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
@@ -237,7 +237,7 @@ function RoleEditor({
           </div>
 
           <div className="mt-3">
-            <div className="mb-1 text-xs font-semibold uppercase text-faint">
+            <div className="mb-1 text-xs font-medium uppercase text-faint">
               {t.serveur.roleMembersTitle}
             </div>
             {state.members.map((member) => {
@@ -338,7 +338,7 @@ export function ServerRolesTab({ groupId }: { groupId: string }) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void createRole();
               }}
-              className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+              className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
             />
             <button
               type="button"

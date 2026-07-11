@@ -44,7 +44,7 @@ export function ConfirmButton({
             setConfirming(false);
             onConfirm();
           }}
-          className="rounded-md bg-red px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+          className="rounded-md bg-red px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
         >
           {t.app.confirm}
         </button>

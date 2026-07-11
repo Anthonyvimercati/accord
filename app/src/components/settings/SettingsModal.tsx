@@ -46,7 +46,7 @@ export function SettingsModal() {
               {index > 0 && (
                 <div className="mx-2.5 my-2 h-px bg-input/60" role="separator" />
               )}
-              <div className="px-2.5 pb-1.5 text-xs font-bold uppercase tracking-wide text-faint">
+              <div className="px-2.5 pb-1.5 text-xs font-medium uppercase tracking-wide text-faint">
                 {group.label(t)}
               </div>
               {group.tabs.map((tab) => (
@@ -74,7 +74,7 @@ export function SettingsModal() {
           aria-label={active.label(t)}
           className="min-w-0 max-w-[740px] flex-1 overflow-y-auto px-10 pb-20 pt-14"
         >
-          <h2 className="mb-6 text-xl font-bold text-header">{active.label(t)}</h2>
+          <h2 className="mb-6 text-xl font-semibold text-header">{active.label(t)}</h2>
           <Content />
         </section>
         <div className="w-[84px] shrink-0 pt-14">
@@ -87,7 +87,7 @@ export function SettingsModal() {
             <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-fast group-hover:border-norm group-hover:text-norm group-focus-visible:ring-2 group-focus-visible:ring-blurple group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-chat">
               <CloseIcon size={18} />
             </span>
-            <span className="mt-1.5 text-xs font-semibold uppercase text-faint">
+            <span className="mt-1.5 text-xs font-medium uppercase text-faint">
               {t.settings.escKey}
             </span>
           </button>

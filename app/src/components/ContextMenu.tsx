@@ -280,7 +280,7 @@ export function LeaveMenuIcon() {
 
 export function MentionMenuIcon() {
   return (
-    <span aria-hidden className="text-xs font-bold leading-none">
+    <span aria-hidden className="text-xs font-medium leading-none">
       @
     </span>
   );

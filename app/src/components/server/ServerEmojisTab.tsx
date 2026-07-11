@@ -165,7 +165,7 @@ export function ServerEmojisTab({ groupId }: { groupId: string }) {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') void ajouter();
                     }}
-                    className="min-w-0 flex-1 rounded-md bg-input px-2 py-1 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                    className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-2 py-1 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
                   />
                   <span aria-hidden>:</span>
                 </div>

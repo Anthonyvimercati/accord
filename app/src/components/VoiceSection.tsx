@@ -221,7 +221,7 @@ export function VoiceSection({ groupId }: { groupId: string }) {
 
   return (
     <section aria-label={t.voice.channels}>
-      <div className="px-2 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-faint">
+      <div className="px-2 pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-faint">
         {t.voice.channels}
       </div>
       <button

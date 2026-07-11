@@ -34,12 +34,23 @@
  *   - sized w-5 (20px) / w-[18px] / w-4 (16px) by density, always centered
  *     inside a fixed-size flex container (never left to inline-block drift)
  *
- * FOCUS RING CONVENTION:
- *   `focus-visible:ring-2 ring-blurple ring-offset-2 ring-offset-<surface>`
- *   where `<surface>` is the Tailwind token of whatever the element sits on
- *   (`ring-offset-modal`, `ring-offset-sidebar`, `ring-offset-chat`, …).
- *   Prefer this over the bare `:focus-visible` outline below for any
- *   interactive element on a colored/glass surface.
+ * FOCUS RING CONVENTION — split by control type:
+ *   TEXT INPUTS / textareas / search fields / composer (`focus:` or
+ *   `focus-within:`, fires on mouse click too — a typed-into field should
+ *   show it's active the moment you click it):
+ *     soft border highlight only — `border border-transparent
+ *     focus:border-blurple/50` (or `focus-within:border-blurple/50` on the
+ *     wrapping container). NO ring-2, NO ring-offset; at most a supplementary
+ *     `focus:ring-1 focus:ring-blurple/30`. Reads as a gentle highlight, not
+ *     a glowing outline.
+ *   BUTTONS / menu items / any other interactive element (keyboard
+ *   navigation only — mouse clicks must never flash a ring):
+ *     `focus-visible:ring-2 ring-blurple ring-offset-2 ring-offset-<surface>`
+ *     where `<surface>` is the Tailwind token of whatever the element sits on
+ *     (`ring-offset-modal`, `ring-offset-sidebar`, `ring-offset-chat`, …).
+ *     Always `focus-visible:`, never bare `focus:`, on non-text-input
+ *     controls — accessibility still needs a clear ring for keyboard users,
+ *     it just shouldn't fire on mouse clicks.
  * ============================================================================
  */
 
@@ -190,6 +201,7 @@ body,
 
 body {
   @apply bg-chat font-sans text-norm antialiased;
+  text-rendering: optimizeLegibility;
   user-select: none;
 }
 

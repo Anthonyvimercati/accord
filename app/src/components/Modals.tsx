@@ -74,7 +74,7 @@ function ModalFrame({
       >
         <div className="p-5">
           <div className="flex items-start justify-between">
-            <h2 className="text-lg font-bold text-header">{title}</h2>
+            <h2 className="text-lg font-semibold text-header">{title}</h2>
             <button
               type="button"
               aria-label={t.app.close}
@@ -129,7 +129,7 @@ function NameForm({
         onKeyDown={(e) => {
           if (e.key === 'Enter') void submit();
         }}
-        className="w-full rounded-md bg-input px-3 py-2.5 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+        className="w-full rounded-md border border-transparent bg-input px-3 py-2.5 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
       />
       <div className="mt-4 flex justify-end gap-3">
         <button
@@ -207,7 +207,7 @@ function ChannelKindOption({
         <ChannelIcon kind={kind} />
       </span>
       <span className="min-w-0">
-        <span className="block text-sm font-semibold text-header">{option.label(t)}</span>
+        <span className="block text-sm font-medium text-header">{option.label(t)}</span>
         <span className="mt-0.5 block text-xs text-muted">{option.hint(t)}</span>
       </span>
     </button>
@@ -258,7 +258,7 @@ function CreateChannelModal({ groupId }: { groupId: string }) {
         onKeyDown={(e) => {
           if (e.key === 'Enter') void submit();
         }}
-        className="mt-4 w-full rounded-md bg-input px-3 py-2.5 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+        className="mt-4 w-full rounded-md border border-transparent bg-input px-3 py-2.5 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
       />
       <div className="mt-4 flex justify-end gap-3">
         <button

@@ -72,7 +72,7 @@ function DeviceSelect({
   const t = useT();
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-semibold uppercase text-faint">
+      <span className="mb-1.5 block text-xs font-medium uppercase text-faint">
         {label}
       </span>
       <select

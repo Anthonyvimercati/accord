@@ -14,7 +14,7 @@ export function SettingsSection({
 }) {
   return (
     <section aria-label={title} className="mb-8">
-      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-faint">
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-faint">
         {title}
       </h3>
       {hint !== undefined && <p className="mb-3 text-sm text-muted">{hint}</p>}

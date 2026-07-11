@@ -238,7 +238,7 @@ function MessageEditor({
             onCancel();
           }
         }}
-        className="max-h-48 min-h-[40px] w-full resize-none rounded-lg border border-rail/60 bg-input px-3 py-2 text-[15px] text-norm outline-none transition-colors duration-fast focus-visible:border-blurple/60 focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+        className="max-h-48 min-h-[40px] w-full resize-none rounded-lg border border-rail/60 bg-input px-3 py-2 text-[15px] text-norm outline-none transition-colors duration-fast focus:border-blurple/50"
       />
       <div className="mt-0.5 text-[11px] text-faint">{t.dm.editHint}</div>
     </div>
@@ -626,7 +626,7 @@ export function MessageList({
             {newDay && (
               <div className="mx-4 mb-1 mt-4 flex items-center gap-3" role="separator">
                 <div className="h-px flex-1 bg-input" />
-                <span className="rounded-full bg-chat-hover px-2.5 py-1 text-[11px] font-semibold text-faint">
+                <span className="rounded-full bg-chat-hover px-2.5 py-1 text-[11px] font-medium text-faint">
                   {formatDay(m.sent_ms, lang)}
                 </span>
                 <div className="h-px flex-1 bg-input" />
@@ -823,7 +823,7 @@ export function MessageList({
                     <button
                       type="button"
                       onClick={() => actions.onRetry?.(m)}
-                      className="font-semibold underline-offset-2 hover:underline"
+                      className="font-medium underline-offset-2 hover:underline"
                     >
                       {t.dm.retry}
                     </button>

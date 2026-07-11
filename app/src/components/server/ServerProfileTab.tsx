@@ -99,7 +99,7 @@ export function ServerProfileTab({ groupId }: { groupId: string }) {
             onKeyDown={(e) => {
               if (e.key === 'Enter') void save();
             }}
-            className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-60"
+            className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50 disabled:opacity-60"
           />
           {canManage && (
             <button

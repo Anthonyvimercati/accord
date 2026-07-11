@@ -91,7 +91,7 @@ function RailBadge({ badge }: { badge: RailBadgeInfo }) {
       className="badge-pop absolute right-1.5 top-0 z-10 flex min-w-[18px] items-center justify-center gap-0.5 rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-white ring-2 ring-rail"
     >
       {badge.mention && (
-        <span aria-hidden className="font-bold leading-none">
+        <span aria-hidden className="font-semibold leading-none">
           @
         </span>
       )}

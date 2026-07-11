@@ -33,7 +33,7 @@ export function TypingIndicator({ typingKey }: { typingKey: string }) {
       role="status"
       className="view-enter -mt-5 flex h-5 items-center gap-1.5 px-6 text-xs text-muted"
     >
-      <span aria-hidden className="animate-pulse font-bold tracking-widest">
+      <span aria-hidden className="animate-pulse font-medium tracking-widest">
         …
       </span>
       <span className="truncate">{label}</span>

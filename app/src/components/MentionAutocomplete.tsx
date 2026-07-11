@@ -51,7 +51,7 @@ function MentionIcon({ candidate }: { candidate: MentionCandidate }) {
   return (
     <span
       aria-hidden
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blurple/20 text-sm font-bold text-blurple"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blurple/20 text-sm font-semibold text-blurple"
     >
       @
     </span>

@@ -229,7 +229,7 @@ export function AvatarCropper({
         onKeyDown={onKeyDown}
         className="w-[340px] max-w-[92vw] rounded-lg bg-modal p-5 shadow-modal outline-none"
       >
-        <h2 className="mb-1 text-lg font-bold text-header">{titre}</h2>
+        <h2 className="mb-1 text-lg font-semibold text-header">{titre}</h2>
         <p id="recadreur-instructions" className="mb-4 text-sm text-muted">
           {t.recadreur.instructions}
         </p>

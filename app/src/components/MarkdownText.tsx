@@ -121,9 +121,9 @@ function CodeBlock({ value, lang }: { value: string; lang?: string | undefined }
 
 /** Heading sizes tuned to Discord's chat headings (h1 > h2 > h3). */
 const HEADING_CLASS: Record<1 | 2 | 3, string> = {
-  1: 'my-1 block text-2xl font-bold leading-tight text-header',
-  2: 'my-1 block text-xl font-bold leading-tight text-header',
-  3: 'my-1 block text-base font-bold leading-tight text-header',
+  1: 'my-1 block text-2xl font-semibold leading-tight text-header',
+  2: 'my-1 block text-xl font-semibold leading-tight text-header',
+  3: 'my-1 block text-base font-semibold leading-tight text-header',
 };
 
 function renderNodes(nodes: readonly MdNode[], ctx: Ctx): ReactNode {
@@ -215,7 +215,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       // Broadcast mentions always read as a pill (distinct amber accent).
       if (lower === 'everyone' || lower === 'here') {
         return (
-          <span className="rounded-xs bg-yellow/20 px-0.5 font-semibold text-yellow">
+          <span className="rounded-xs bg-yellow/20 px-0.5 font-medium text-yellow">
             @{node.name}
           </span>
         );

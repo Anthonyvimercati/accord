@@ -39,11 +39,15 @@ export default {
         link: themed('--color-link'),
       },
       fontFamily: {
+        // Native system stack (no bundled/CDN font — CSP forbids external
+        // hosts): each OS renders its own default UI typeface, matching the
+        // clean, standard chat-app feel users expect.
         sans: [
-          'gg sans',
-          'Noto Sans',
-          'Helvetica Neue',
-          'Helvetica',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"Segoe UI"',
+          'Roboto',
+          '"Helvetica Neue"',
           'Arial',
           'sans-serif',
         ],

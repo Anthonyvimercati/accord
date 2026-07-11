@@ -79,7 +79,7 @@ function BanniereProfil({
       {/* Fondu bas de bannière vers la surface de verre du panneau. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-modal/70"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-10 bg-gradient-to-b from-transparent to-modal/70"
       />
     </div>
   );
@@ -331,7 +331,7 @@ export function ProfilePopover() {
       <BanniereProfil hash={bannerHash} hint={pubkey} color={bannerColor} />
       <div className="-mt-8 px-4 pb-4">
         <div className="mb-2 flex items-end justify-between">
-          <div className="rounded-full ring-4 ring-modal">
+          <div className="relative z-10 rounded-full ring-4 ring-modal">
             <Avatar
               id={pubkey}
               name={name}
@@ -358,7 +358,7 @@ export function ProfilePopover() {
           )}
           <div className="flex items-center gap-2">
             <span
-              className="truncate text-lg font-bold text-header"
+              className="truncate text-lg font-semibold text-header"
               style={accentHex !== null ? { color: accentHex } : undefined}
             >
               {name}
@@ -388,7 +388,7 @@ export function ProfilePopover() {
           {roles.length > 0 && (
             <>
               <div className="mt-3 h-px bg-input/60" role="separator" />
-              <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-faint">
+              <div className="mt-2 text-xs font-medium uppercase tracking-wide text-faint">
                 {t.profil.rolesLabel}
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -417,7 +417,7 @@ export function ProfilePopover() {
               <div className="mt-3 h-px bg-input/60" role="separator" />
               <label
                 htmlFor="profil-nickname"
-                className="mt-2 block text-xs font-semibold uppercase tracking-wide text-faint"
+                className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
               >
                 {t.profil.nicknameLabel}
               </label>
@@ -434,7 +434,7 @@ export function ProfilePopover() {
                 }}
                 maxLength={32}
                 placeholder={t.profil.nicknamePlaceholder}
-                className="mt-1 w-full rounded-md bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint focus:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                className="mt-1 w-full rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
               />
             </>
           )}
@@ -444,7 +444,7 @@ export function ProfilePopover() {
               <div className="mt-3 h-px bg-input/60" role="separator" />
               <label
                 htmlFor="profil-note"
-                className="mt-2 block text-xs font-semibold uppercase tracking-wide text-faint"
+                className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
               >
                 {t.profil.noteLabel}
               </label>
@@ -456,7 +456,7 @@ export function ProfilePopover() {
                 maxLength={4096}
                 rows={2}
                 placeholder={t.profil.notePlaceholder}
-                className="mt-1 w-full resize-none rounded-md bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint focus:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                className="mt-1 w-full resize-none rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
               />
             </>
           )}

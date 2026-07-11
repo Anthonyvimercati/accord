@@ -374,7 +374,7 @@ function PronounsSection() {
           onKeyDown={(e) => {
             if (e.key === 'Enter') void save();
           }}
-          className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
         />
         <button
           type="button"
@@ -426,7 +426,7 @@ function BioSection() {
           rows={3}
           maxLength={BIO_MAX}
           onChange={(e) => setDraft(e.target.value)}
-          className="w-full resize-none rounded-md bg-input px-3 py-2 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+          className="w-full resize-none rounded-md border border-transparent bg-input px-3 py-2 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
         />
         <div className="mt-2 flex items-center justify-between">
           <span className="text-xs text-faint">
@@ -507,7 +507,7 @@ function ColorSwatchPicker({
       })}
       <label
         title={t.settings.colorCustom}
-        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-faint bg-rail text-faint transition-colors duration-fast hover:text-norm focus-within:ring-2 focus-within:ring-blurple focus-within:ring-offset-2 focus-within:ring-offset-sidebar"
+        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-faint bg-rail text-faint transition-colors duration-fast hover:text-norm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blurple has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-sidebar"
       >
         <input
           type="color"
@@ -575,7 +575,7 @@ function ColorsSection() {
     <SettingsSection title={t.settings.colorsTitle} hint={t.settings.colorsHint}>
       <div className="space-y-4 rounded-lg bg-sidebar p-4">
         <div>
-          <div className="mb-2 text-xs font-semibold uppercase text-faint">
+          <div className="mb-2 text-xs font-medium uppercase text-faint">
             {t.settings.accentColorLabel}
           </div>
           <ColorSwatchPicker
@@ -587,7 +587,7 @@ function ColorsSection() {
         </div>
         <div className="h-px bg-input/60" role="separator" />
         <div>
-          <div className="mb-2 text-xs font-semibold uppercase text-faint">
+          <div className="mb-2 text-xs font-medium uppercase text-faint">
             {t.settings.bannerColorLabel}
           </div>
           <p className="mb-2 text-xs text-muted">{t.settings.bannerColorHint}</p>
@@ -716,7 +716,7 @@ export function AccountTab() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') void save();
             }}
-            className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
           />
           <button
             type="button"
@@ -742,7 +742,7 @@ export function AccountTab() {
         <div className="rounded-lg bg-sidebar p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase text-faint">
+              <div className="text-xs font-medium uppercase text-faint">
                 {t.friends.myCode}
               </div>
               <div className="selectable truncate font-mono text-norm">
@@ -757,7 +757,7 @@ export function AccountTab() {
               {copied ? t.app.copied : t.settings.copyFriendCode}
             </button>
           </div>
-          <div className="mt-3 text-xs font-semibold uppercase text-faint">
+          <div className="mt-3 text-xs font-medium uppercase text-faint">
             {t.settings.publicKey}
           </div>
           <div className="selectable font-mono text-xs text-muted">

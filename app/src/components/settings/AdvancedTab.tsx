@@ -50,7 +50,7 @@ export function AdvancedTab() {
           <div className="rounded-lg bg-sidebar p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-xs font-semibold uppercase text-faint">
+                <div className="text-xs font-medium uppercase text-faint">
                   {t.friends.myCode}
                 </div>
                 <div className="selectable truncate font-mono text-norm">
@@ -65,7 +65,7 @@ export function AdvancedTab() {
                 {copied ? t.app.copied : t.settings.copyFriendCode}
               </button>
             </div>
-            <div className="mt-3 text-xs font-semibold uppercase text-faint">
+            <div className="mt-3 text-xs font-medium uppercase text-faint">
               {t.settings.nodeId}
             </div>
             <div className="selectable break-all font-mono text-xs text-muted">

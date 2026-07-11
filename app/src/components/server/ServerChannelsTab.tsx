@@ -87,7 +87,7 @@ function ChannelPermsEditor({
         const current = overrideOf(state, channel.channel_id, role.role_id);
         return (
           <div key={role.role_id} className="mb-2">
-            <div className="mb-1 text-xs font-semibold uppercase text-faint">
+            <div className="mb-1 text-xs font-medium uppercase text-faint">
               {role.name}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -197,7 +197,7 @@ function ChannelEditor({
           aria-label={t.serveur.channelNameLabel}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
         />
         <span className="shrink-0 text-xs text-faint">{kindLabel(t, channel.kind)}</span>
       </div>
@@ -207,12 +207,12 @@ function ChannelEditor({
           placeholder={t.serveur.topicPlaceholder}
           value={topic}
           onChange={(e) => setTopicDraft(e.target.value)}
-          className="mt-2 w-full rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+          className="mt-2 w-full rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
         />
       )}
       {state.categories.length > 0 && (
         <div className="mt-2 flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase text-faint">
+          <span className="text-xs font-medium uppercase text-faint">
             {t.serveur.categoryLabel}
           </span>
           <select
@@ -307,7 +307,7 @@ function CategoryEditor({
         aria-label={interpolate(t.serveur.categoryRenameLabel, { name: category.name })}
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="min-w-0 flex-1 rounded-md bg-input px-3 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+        className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-1.5 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
       />
       <button
         type="button"
@@ -397,7 +397,7 @@ export function ServerChannelsTab({ groupId }: { groupId: string }) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void createChannel();
                 }}
-                className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
               />
               <select
                 aria-label={t.serveur.kindLabel}
@@ -445,7 +445,7 @@ export function ServerChannelsTab({ groupId }: { groupId: string }) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void createCategory();
                 }}
-                className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
               />
               <button
                 type="button"

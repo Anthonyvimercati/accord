@@ -476,7 +476,7 @@ function MemberList({ groupId }: { groupId: string }) {
     <aside className="w-60 shrink-0 overflow-y-auto bg-sidebar p-2" aria-label={t.groups.members}>
       {populatedSections.map((section) => (
         <div key={section.key}>
-          <div className="px-1.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted first:pt-1">
+          <div className="px-1.5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted first:pt-1">
             {section.label} — {section.members.length}
           </div>
           {section.members.map((member) => {

@@ -128,9 +128,9 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
       aria-label={t.profil.userMenu}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="glass-strong context-menu-enter absolute bottom-full left-2 z-50 mb-2 w-56 rounded-lg p-1.5 focus:outline-none"
+      className="glass-strong context-menu-enter absolute bottom-[calc(100%+8px)] left-2 z-50 w-56 rounded-lg p-1.5 focus:outline-none"
     >
-      <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-faint">
+      <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-faint">
         {t.profil.setStatus}
       </div>
       {options.map(({ status, label }) => {
@@ -183,7 +183,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
               onClose();
             }
           }}
-          className="min-w-0 flex-1 rounded-md bg-input px-2 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
         />
         {(ownStatusText ?? '') !== '' && (
           <button

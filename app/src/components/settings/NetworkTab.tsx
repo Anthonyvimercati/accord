@@ -81,7 +81,7 @@ export function NetworkTab() {
       <SettingsSection title={t.reseau.title} hint={t.reseau.intro}>
         {erreur !== null && <p className="mb-3 text-sm text-red">{erreur}</p>}
         <div className="rounded-lg bg-sidebar p-4">
-          <div className="text-xs font-semibold uppercase text-faint">
+          <div className="text-xs font-medium uppercase text-faint">
             {t.reseau.myAddress}
           </div>
           {status !== null && status.local_addrs.length > 0 ? (
@@ -129,7 +129,7 @@ export function NetworkTab() {
             }}
             placeholder={t.reseau.addPeerPlaceholder}
             aria-label={t.reseau.addPeer}
-            className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 font-mono text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 font-mono text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
           />
           <button
             type="button"
@@ -181,7 +181,7 @@ export function NetworkTab() {
           {/* Adresse externe ouverte par le mapping de port, si disponible. */}
           {externalAddr !== null && (
             <div className="mt-4">
-              <div className="text-xs font-semibold uppercase text-faint">
+              <div className="text-xs font-medium uppercase text-faint">
                 {t.reseau.externalAddr}
               </div>
               <div className="mt-2 flex items-center justify-between gap-3">
@@ -201,10 +201,10 @@ export function NetworkTab() {
 
           {/* Nombre de pairs Accord découverts sur le réseau local (mDNS). */}
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase text-faint">
+            <span className="text-xs font-medium uppercase text-faint">
               {t.reseau.lanPeers}
             </span>
-            <span className="text-lg font-semibold text-header">
+            <span className="text-lg font-medium text-header">
               {status?.lan_peers ?? '—'}
             </span>
           </div>
@@ -223,7 +223,7 @@ export function NetworkTab() {
 function Stat({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-lg bg-rail py-2">
-      <div className="text-lg font-semibold text-header">{value}</div>
+      <div className="text-lg font-medium text-header">{value}</div>
       <div className="mt-0.5 text-xs text-faint">{label}</div>
     </div>
   );

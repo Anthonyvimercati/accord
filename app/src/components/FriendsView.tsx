@@ -247,7 +247,7 @@ function AddFriend() {
       )}
       {self && (
         <div className="mt-8 rounded-lg bg-sidebar p-4">
-          <div className="text-xs font-semibold uppercase text-faint">
+          <div className="text-xs font-medium uppercase text-faint">
             {t.friends.myCode}
           </div>
           <div className="selectable mt-1 font-mono text-lg text-header">
@@ -382,14 +382,14 @@ export function FriendsView() {
         <AddFriend />
       ) : tab === 'invitations' ? (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+          <div className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">
             {t.invitations.tabLabel} — {pendingInvites.length}
           </div>
           <PendingInvites />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+          <div className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">
             {tabs.find((x) => x.id === tab)?.label} — {byTab[tab].length}
           </div>
           {byTab[tab].length === 0 && <EmptyFriends label={emptyLabel[tab]} />}

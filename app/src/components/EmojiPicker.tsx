@@ -115,7 +115,7 @@ export function EmojiPicker({
           placeholder={t.emoji.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full rounded-xl bg-input px-2.5 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+          className="w-full rounded-xl border border-transparent bg-input px-2.5 py-1.5 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -125,7 +125,7 @@ export function EmojiPicker({
 
         {customsFiltres.length > 0 && (
           <section aria-label={customSectionLabel} className="mb-2">
-            <h4 className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-faint">
+            <h4 className="mb-1 px-1 text-xs font-medium uppercase tracking-wide text-faint">
               {customSectionLabel}
             </h4>
             <div className="flex flex-wrap gap-0.5">
@@ -158,7 +158,7 @@ export function EmojiPicker({
 
         {categories.map((cat) => (
           <section key={cat.id} aria-label={labelCategorie(cat.id, t)} className="mb-2">
-            <h4 className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-faint">
+            <h4 className="mb-1 px-1 text-xs font-medium uppercase tracking-wide text-faint">
               {labelCategorie(cat.id, t)}
             </h4>
             <div className="flex flex-wrap gap-0.5">
