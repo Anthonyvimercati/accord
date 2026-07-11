@@ -22,6 +22,7 @@ import { isEditableTarget } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { useGroups, channelKey } from '../stores/groups';
+import { isConversationMuted } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useTyping, dmTypingKey, groupTypingKey } from '../stores/typing';
 import {
@@ -46,7 +47,8 @@ import { Sidebar } from './Sidebar';
 
 /**
  * Notification native « Nouveau message de <nom> » si les réglages
- * l'autorisent — jamais le contenu du message, jamais ses propres messages.
+ * l'autorisent — jamais le contenu du message, jamais ses propres messages,
+ * jamais si le serveur/salon visé est en sourdine (`stores/mute.ts`).
  */
 function notifyNewMessage(ref: ConversationRef, author: string): void {
   const self = useSession.getState().self;
@@ -62,6 +64,7 @@ function notifyNewMessage(ref: ConversationRef, author: string): void {
     },
     windowFocused,
     isOwnMessage: author === self.pubkey,
+    muted: isConversationMuted(ref),
   });
   if (!eligible) return;
   const dict = dictionaries[ui.lang];
@@ -96,7 +99,8 @@ function isViewingConversation(view: View, ref: ConversationRef): boolean {
  * mention (`mentions_me`) joue le blip renforcé. Respecte aussi le filtrage
  * choisi par l'utilisateur (Paramètres → Notifications → « Jouer un son
  * pour ») — le master `notifySoundEnabled` est vérifié plus bas, dans
- * `playNotificationSound` lui-même.
+ * `playNotificationSound` lui-même — et la sourdine locale du serveur/salon
+ * (`stores/mute.ts`, menus contextuels de `ServerRail`/`Sidebar`).
  */
 function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean): void {
   const self = useSession.getState().self;
@@ -108,6 +112,7 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
     dnd: useFriends.getState().ownStatus === 'dnd',
     mode: useUi.getState().notifySoundMode,
     isMention,
+    muted: isConversationMuted(ref),
   });
   if (!eligible) return;
   playNotificationSound(isMention ? 'mention' : 'message');

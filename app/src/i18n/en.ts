@@ -376,6 +376,8 @@ export const en: Dict = {
     permAllow: 'Allow',
     permDeny: 'Deny',
     channelRestrictedLabel: 'Restricted channel: role-based access limits',
+    mutedLabel: 'Muted',
+    mutedChannelLabel: 'Muted channel: notifications disabled',
     // Audit log.
     auditEmpty: 'No recorded action.',
     auditLoadMore: 'Load more',
@@ -810,6 +812,10 @@ export const en: Dict = {
     voiceUnmuteServer: 'Remove server mute',
     voiceDeafenServer: 'Server deafen',
     voiceUndeafenServer: 'Remove server deafen',
+    muteServer: 'Mute server',
+    unmuteServer: 'Unmute',
+    muteChannel: 'Mute channel',
+    unmuteChannel: 'Unmute',
   },
   layout: {
     resizeSidebar: 'Resize the sidebar',

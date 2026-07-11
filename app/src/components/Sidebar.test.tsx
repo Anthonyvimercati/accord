@@ -7,10 +7,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { Contact, GroupStateJson } from '../lib/api';
+import { useContextMenu } from '../stores/contextMenu';
 import { useFriends } from '../stores/friends';
 import { PERMISSIONS, useGroups } from '../stores/groups';
+import { useMute } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
+import { ContextMenu } from './ContextMenu';
 import { Sidebar } from './Sidebar';
 
 function contact(
@@ -90,6 +93,7 @@ beforeEach(() => {
   useSession.setState({ self: null });
   useFriends.setState({ contacts: [] });
   useGroups.setState({ ids: [], states: {}, unread: {} });
+  useMute.setState({ mutedServers: [], mutedChannels: [] });
 });
 
 describe('Sidebar — non-lus des conversations privées', () => {
@@ -354,5 +358,80 @@ describe('Sidebar — menu du nom de serveur', () => {
     expect(
       screen.queryByRole('menu', { name: 'Menu du serveur' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('Sidebar — sourdine des notifications (salon)', () => {
+  beforeEach(() => {
+    useUi.setState({ view: { kind: 'group', groupId: 'g1', channelId: 'c1' } });
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+    useContextMenu.setState({ menu: null });
+  });
+
+  it('atténue la ligne et affiche l’icône cloche barrée sur un salon en sourdine', () => {
+    useMute.setState({ mutedChannels: ['g1/c1'] });
+
+    render(<Sidebar />);
+
+    expect(
+      screen.getByLabelText('Salon en sourdine : notifications désactivées'),
+    ).toBeInTheDocument();
+    const row = screen.getByText('général').closest('button');
+    expect(row?.className).toMatch(/opacity-50/);
+  });
+
+  it('n’atténue pas un salon qui n’est pas en sourdine', () => {
+    render(<Sidebar />);
+
+    expect(
+      screen.queryByLabelText('Salon en sourdine : notifications désactivées'),
+    ).not.toBeInTheDocument();
+    const row = screen.getByText('général').closest('button');
+    expect(row?.className).not.toMatch(/opacity-50/);
+  });
+
+  it('le menu contextuel du salon propose la sourdine puis « Réactiver » une fois activée', () => {
+    render(
+      <>
+        <Sidebar />
+        <ContextMenu />
+      </>,
+    );
+
+    // Rendu réel du menu (plutôt qu'appeler `onClick` à la main) : le clic
+    // passe par les gestionnaires React normaux, donc par `act()` via
+    // `fireEvent`, ce qui garantit que le re-rendu déclenché par le store de
+    // sourdine est bien reflété avant l'assertion suivante.
+    fireEvent.contextMenu(screen.getByText('général'));
+    expect(
+      screen.getByRole('menuitem', { name: 'Mettre le salon en sourdine' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Mettre le salon en sourdine' }));
+
+    expect(useMute.getState().mutedChannels).toEqual(['g1/c1']);
+
+    fireEvent.contextMenu(screen.getByText('général'));
+    expect(screen.getByRole('menuitem', { name: 'Réactiver' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Réactiver' }));
+
+    expect(useMute.getState().mutedChannels).toEqual([]);
+  });
+
+  it('ne met en sourdine que le salon ciblé, pas ses voisins', () => {
+    render(
+      <>
+        <Sidebar />
+        <ContextMenu />
+      </>,
+    );
+
+    fireEvent.contextMenu(screen.getByText('général'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Mettre le salon en sourdine' }));
+
+    expect(useMute.getState().mutedChannels).toEqual(['g1/c1']);
+    const rows = screen.getAllByLabelText('Salon en sourdine : notifications désactivées');
+    expect(rows).toHaveLength(1);
   });
 });

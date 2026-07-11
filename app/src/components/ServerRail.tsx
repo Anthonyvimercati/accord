@@ -9,9 +9,16 @@ import { copyToClipboard } from '../lib/clipboard';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
 import { useGroups, sortChannels, hasPerm, PERMISSIONS } from '../stores/groups';
+import { isServerMuted, useMute } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
-import { CopyMenuIcon, EnvelopeMenuIcon, GearMenuIcon, LeaveMenuIcon } from './ContextMenu';
+import {
+  BellOffMenuIcon,
+  CopyMenuIcon,
+  EnvelopeMenuIcon,
+  GearMenuIcon,
+  LeaveMenuIcon,
+} from './ContextMenu';
 import { lireFichier } from '../lib/files';
 import { initials } from '../lib/format';
 import type { GroupStateJson } from '../lib/api';
@@ -105,6 +112,7 @@ function RailButton({
   active,
   accent,
   badge,
+  muted,
   onClick,
   onContextMenu,
   children,
@@ -113,6 +121,12 @@ function RailButton({
   active: boolean;
   accent?: boolean;
   badge?: RailBadgeInfo;
+  /**
+   * Sourdine active sur ce serveur (voir `stores/mute.ts`) : icône atténuée
+   * (opacité, compositor-friendly) — la pastille de non-lu/mention, posée en
+   * dehors du bouton, reste à pleine opacité (non-lu toujours suivi).
+   */
+  muted?: boolean;
   onClick: () => void;
   onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
@@ -142,7 +156,7 @@ function RailButton({
             : accent
               ? 'rounded-full bg-sidebar text-green hover:rounded-server hover:bg-green hover:text-white'
               : 'rounded-full bg-sidebar text-norm hover:rounded-server hover:bg-blurple hover:text-white'
-        }`}
+        } ${muted === true ? 'opacity-50' : ''}`}
       >
         {children}
       </button>
@@ -159,6 +173,7 @@ export function ServerRail() {
   const ids = useGroups((s) => s.ids);
   const states = useGroups((s) => s.states);
   const groupMentions = useGroups((s) => s.mentions);
+  const mutedServers = useMute((s) => s.mutedServers);
   const lastChannelByServer = useUi((s) => s.lastChannelByServer);
   const lastDmPeer = useUi((s) => s.lastDmPeer);
   const contacts = useFriends((s) => s.contacts);
@@ -225,15 +240,19 @@ export function ServerRail() {
         // serveur remontent ici (compteur `groups.list.mentions`, par
         // serveur) — le détail par salon reste dans la barre latérale.
         const badge: RailBadgeInfo = { count: groupMentions[id] ?? 0, mention: true };
+        const muted = isServerMuted(mutedServers, id);
 
         /**
          * Items du menu contextuel du serveur : copie d'identifiant,
-         * invitation (si permis, D-045 : consentement explicite — ouvre le
-         * sélecteur d'ami existant), paramètres (mêmes actions que l'icône
-         * ⚙️ du salon) et départ — omis si le fondateur ne peut pas encore
-         * quitter (règle du contrat : d'autres membres restent). Pas de
-         * « marquer comme lu » global : aucune action équivalente n'existe
-         * côté store (seulement par salon, une fois ouvert).
+         * sourdine des notifications (locale, voir `stores/mute.ts` —
+         * suppression totale du son/de la notification native, sans effet
+         * sur le compteur de non-lu), invitation (si permis, D-045 :
+         * consentement explicite — ouvre le sélecteur d'ami existant),
+         * paramètres (mêmes actions que l'icône ⚙️ du salon) et départ —
+         * omis si le fondateur ne peut pas encore quitter (règle du
+         * contrat : d'autres membres restent). Pas de « marquer comme lu »
+         * global : aucune action équivalente n'existe côté store (seulement
+         * par salon, une fois ouvert).
          */
         const buildServerItems = (): ContextMenuItem[] => {
           const groupState = states[id];
@@ -250,6 +269,11 @@ export function ServerRail() {
                   () => toast('info', t.app.copied),
                   () => toast('error', t.errors.actionFailed),
                 ),
+            },
+            {
+              label: muted ? t.contextMenu.unmuteServer : t.contextMenu.muteServer,
+              icon: <BellOffMenuIcon />,
+              onClick: () => useMute.getState().toggleServerMute(id),
             },
           ];
           if (canInvite) {
@@ -292,9 +316,10 @@ export function ServerRail() {
         return (
           <RailButton
             key={id}
-            label={`${name}${badgeSuffix(t, badge)}`}
+            label={`${name}${badgeSuffix(t, badge)}${muted ? ` — ${t.serveur.mutedLabel}` : ''}`}
             active={active}
             badge={badge}
+            muted={muted}
             onClick={() =>
               setView({
                 kind: 'group',

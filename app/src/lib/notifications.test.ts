@@ -96,6 +96,41 @@ describe('isNotificationEligible', () => {
       }),
     ).toBe(true);
   });
+
+  it('mode absent (comportement historique) : équivaut à `muted: false`', () => {
+    expect(
+      isNotificationEligible({
+        kind: 'dm',
+        prefs: ALL_ON,
+        windowFocused: false,
+        isOwnMessage: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('tait la notification native quand la conversation/le salon est en sourdine', () => {
+    expect(
+      isNotificationEligible({
+        kind: 'group',
+        prefs: ALL_ON,
+        windowFocused: false,
+        isOwnMessage: false,
+        muted: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('notifie normalement quand `muted` est explicitement faux', () => {
+    expect(
+      isNotificationEligible({
+        kind: 'group',
+        prefs: ALL_ON,
+        windowFocused: false,
+        isOwnMessage: false,
+        muted: false,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe('isSoundEligible', () => {
@@ -160,6 +195,19 @@ describe('isSoundEligible', () => {
   it('mode « tous » : joue pour un message ordinaire comme pour une mention', () => {
     expect(isSoundEligible({ ...BASE, mode: 'all', isMention: false })).toBe(true);
     expect(isSoundEligible({ ...BASE, mode: 'all', isMention: true })).toBe(true);
+  });
+
+  it('tait le son quand le serveur/salon est en sourdine, même pour une mention', () => {
+    expect(isSoundEligible({ ...BASE, muted: true })).toBe(false);
+    expect(isSoundEligible({ ...BASE, muted: true, isMention: true })).toBe(false);
+  });
+
+  it('joue le son normalement quand `muted` est explicitement faux', () => {
+    expect(isSoundEligible({ ...BASE, muted: false })).toBe(true);
+  });
+
+  it('`muted` absent (comportement historique) : équivaut à `muted: false`', () => {
+    expect(isSoundEligible(BASE)).toBe(true);
   });
 });
 

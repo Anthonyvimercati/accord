@@ -380,6 +380,11 @@ export const fr = {
     permAllow: 'Autoriser',
     permDeny: 'Refuser',
     channelRestrictedLabel: 'Salon restreint : accès limité selon les rôles',
+    // Sourdine des notifications (locale, voir stores/mute.ts) — suffixe
+    // accessible sur l'icône du rail (opacité seule ne parle pas aux
+    // lecteurs d'écran) et libellé de l'icône cloche barrée sur un salon.
+    mutedLabel: 'En sourdine',
+    mutedChannelLabel: 'Salon en sourdine : notifications désactivées',
     // Journal d'audit.
     auditEmpty: 'Aucune action enregistrée.',
     auditLoadMore: 'Charger la suite',
@@ -819,6 +824,12 @@ export const fr = {
     voiceUnmuteServer: 'Retirer la sourdine (serveur)',
     voiceDeafenServer: 'Rendre sourd (serveur)',
     voiceUndeafenServer: 'Retirer la surdité (serveur)',
+    // Sourdine des notifications (locale, voir stores/mute.ts) — distincte
+    // de la sourdine vocale de modération ci-dessus.
+    muteServer: 'Mettre le serveur en sourdine',
+    unmuteServer: 'Réactiver',
+    muteChannel: 'Mettre le salon en sourdine',
+    unmuteChannel: 'Réactiver',
   },
   layout: {
     resizeSidebar: 'Redimensionner la barre latérale',

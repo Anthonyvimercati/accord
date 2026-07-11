@@ -7,11 +7,14 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { Contact, GroupChannel, GroupStateJson } from '../lib/api';
+import { useContextMenu } from '../stores/contextMenu';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
+import { useMute } from '../stores/mute';
 import { useUi } from '../stores/ui';
+import { ContextMenu } from './ContextMenu';
 import { channelToRestore, ServerRail } from './ServerRail';
 
 function contact(pubkey: string, unread?: number, mentionCount?: number): Contact {
@@ -117,6 +120,7 @@ describe('ServerRail — pastilles', () => {
     });
     useFriends.setState({ contacts: [] });
     useGroups.setState({ ids: [], states: {}, mentions: {} });
+    useMute.setState({ mutedServers: [], mutedChannels: [] });
   });
 
   it('affiche le non-lu agrégé des MP sur le bouton Accueil', () => {
@@ -176,5 +180,71 @@ describe('ServerRail — pastilles', () => {
 
     expect(screen.getByLabelText('Guilde')).toBeInTheDocument();
     expect(screen.queryByLabelText(/mention/)).not.toBeInTheDocument();
+  });
+});
+
+describe('ServerRail — sourdine des notifications', () => {
+  beforeEach(() => {
+    useUi.setState({
+      lang: 'fr',
+      view: { kind: 'friends' },
+      lastChannelByServer: {},
+      lastDmPeer: null,
+    });
+    useFriends.setState({ contacts: [] });
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: serverState('Guilde') },
+      mentions: {},
+    });
+    useMute.setState({ mutedServers: [], mutedChannels: [] });
+    useContextMenu.setState({ menu: null });
+  });
+
+  it('atténue l’icône (opacité) d’un serveur en sourdine', () => {
+    useMute.setState({ mutedServers: ['g1'] });
+
+    render(<ServerRail />);
+
+    const button = screen.getByLabelText(/Guilde.*En sourdine/);
+    expect(button.className).toMatch(/opacity-50/);
+  });
+
+  it('n’atténue pas un serveur qui n’est pas en sourdine', () => {
+    render(<ServerRail />);
+
+    const button = screen.getByLabelText('Guilde');
+    expect(button.className).not.toMatch(/opacity-50/);
+  });
+
+  it('le menu contextuel propose « Mettre le serveur en sourdine » puis « Réactiver » une fois activé', () => {
+    render(
+      <>
+        <ServerRail />
+        <ContextMenu />
+      </>,
+    );
+
+    // Rendu réel du menu (plutôt qu'appeler `onClick` à la main) : le clic
+    // passe par les gestionnaires React normaux, donc par `act()` via
+    // `fireEvent`, ce qui garantit que le re-rendu déclenché par le store de
+    // sourdine est bien reflété avant l'assertion suivante.
+    fireEvent.contextMenu(screen.getByLabelText('Guilde'));
+    expect(
+      screen.getByRole('menuitem', { name: 'Mettre le serveur en sourdine' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Mettre le serveur en sourdine' }),
+    );
+
+    expect(useMute.getState().mutedServers).toEqual(['g1']);
+
+    fireEvent.contextMenu(screen.getByLabelText(/Guilde.*En sourdine/));
+    expect(screen.getByRole('menuitem', { name: 'Réactiver' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Réactiver' }));
+
+    expect(useMute.getState().mutedServers).toEqual([]);
   });
 });

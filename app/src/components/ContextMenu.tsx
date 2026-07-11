@@ -398,3 +398,21 @@ export function VoiceDeafenMenuIcon() {
     </svg>
   );
 }
+
+/**
+ * Icône cloche barrée du jeu de menu (14 px, sourdine des notifications d'un
+ * serveur ou d'un salon — voir `stores/mute.ts`). Même tracé utilisé pour les
+ * deux sens du bascule (mettre/retirer la sourdine) et comme indicateur
+ * permanent sur une ligne de salon en sourdine (`Sidebar`) — seul le libellé
+ * change selon l'état, comme `VoiceMuteMenuIcon` ci-dessus.
+ */
+export function BellOffMenuIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5" />
+      <path d="M17 17H3s3-2 3-9c0-.5 0-1 .1-1.5" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+      <line x1="2" x2="22" y1="2" y2="22" />
+    </svg>
+  );
+}

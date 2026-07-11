@@ -26,9 +26,16 @@ export function isNotificationEligible(options: {
   prefs: NotifyPrefs;
   windowFocused: boolean;
   isOwnMessage: boolean;
+  /**
+   * Vrai si la conversation/le salon visé est en sourdine (voir
+   * `stores/mute.ts#isConversationMuted`) ; absent = jamais en sourdine
+   * (comportement historique, avant l'ajout de la fonctionnalité).
+   */
+  muted?: boolean;
 }): boolean {
-  const { kind, prefs, windowFocused, isOwnMessage } = options;
+  const { kind, prefs, windowFocused, isOwnMessage, muted = false } = options;
   if (isOwnMessage) return false;
+  if (muted) return false;
   if (kind === 'dm' && !prefs.dms) return false;
   if (kind === 'group' && !prefs.groups) return false;
   if (prefs.onlyWhenUnfocused && windowFocused) return false;
@@ -59,6 +66,14 @@ export interface SoundEligibilityOptions {
   mode?: NotifySoundMode;
   /** Vrai si le message mentionne l'utilisateur ; n'importe que pour `mentionsOnly`. */
   isMention?: boolean;
+  /**
+   * Vrai si le serveur ou le salon visé est en sourdine (voir
+   * `stores/mute.ts#isConversationMuted`) ; absent = jamais en sourdine
+   * (comportement historique, avant l'ajout de la fonctionnalité). MVP
+   * volontairement simple : une sourdine coupe le son même pour une mention
+   * (pas d'exception « les mentions notifient quand même »).
+   */
+  muted?: boolean;
 }
 
 /** Décide si le blip de notification doit jouer pour un message entrant. */
@@ -70,8 +85,10 @@ export function isSoundEligible(options: SoundEligibilityOptions): boolean {
     dnd,
     mode = 'all',
     isMention = false,
+    muted = false,
   } = options;
   if (isOwnMessage) return false;
+  if (muted) return false;
   if (dnd) return false;
   if (mode === 'none') return false;
   if (mode === 'mentionsOnly' && !isMention) return false;
