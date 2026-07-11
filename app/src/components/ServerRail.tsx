@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
 import { copyToClipboard } from '../lib/clipboard';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
+import { folderOfServer, useFolders, type ServerFolder } from '../stores/folders';
 import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
 import { useGroups, sortChannels, hasPerm, PERMISSIONS } from '../stores/groups';
 import { isServerMuted, useMute } from '../stores/mute';
@@ -71,6 +72,15 @@ function ServerIcon({ icon, name }: { icon: string | null; name: string }) {
 
   if (url === null) return <>{initials(name)}</>;
   return <img src={url} alt="" className="h-full w-full object-cover" />;
+}
+
+/** Glyphe dossier partagé (pastille du rail et items de menu contextuel). */
+function FolderSvg({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h4.2a1.5 1.5 0 0 1 1.13.52l1.77 1.98h5.9A1.5 1.5 0 0 1 20 8v10a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18V5.5Z" />
+    </svg>
+  );
 }
 
 /** Compteur de non-lus/mentions à afficher sur une icône du rail. */
@@ -179,6 +189,7 @@ export function ServerRail() {
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
   const toast = useUi((s) => s.toast);
+  const folders = useFolders((s) => s.folders);
 
   const isHome = view.kind === 'friends' || view.kind === 'dm';
 
@@ -210,6 +221,193 @@ export function ServerRail() {
     setView({ kind: 'friends' });
   };
 
+  /**
+   * Entrées du rail : un serveur rangé dans un dossier (voir
+   * `stores/folders.ts`) est rendu groupé sous la pastille de son dossier, à
+   * la position du premier membre dans l'ordre du rail ; les serveurs hors
+   * dossier restent à la racine, inchangés.
+   */
+  const railEntries: Array<
+    | { kind: 'server'; id: string }
+    | { kind: 'folder'; folder: ServerFolder; memberIds: string[] }
+  > = [];
+  const seenFolders = new Set<string>();
+  for (const id of ids) {
+    const folder = folderOfServer(folders, id);
+    if (folder === null) {
+      railEntries.push({ kind: 'server', id });
+    } else if (!seenFolders.has(folder.id)) {
+      seenFolders.add(folder.id);
+      railEntries.push({
+        kind: 'folder',
+        folder,
+        memberIds: ids.filter((memberId) => folder.serverIds.includes(memberId)),
+      });
+    }
+  }
+
+  /**
+   * Menu contextuel d'un dossier : renommer, plier/déplier, supprimer —
+   * suppression sans confirmation, rien n'est perdu (les serveurs
+   * retournent simplement à la racine du rail).
+   */
+  const buildFolderItems = (folder: ServerFolder): ContextMenuItem[] => [
+    {
+      label: t.folders.rename,
+      icon: <FolderSvg size={16} />,
+      onClick: () => {
+        const name = window.prompt(t.folders.namePrompt, folder.name);
+        if (name === null || name.trim() === '') return;
+        useFolders.getState().renameFolder(folder.id, name.trim());
+      },
+    },
+    {
+      label: folder.collapsed ? t.folders.expand : t.folders.collapse,
+      icon: <FolderSvg size={16} />,
+      onClick: () => useFolders.getState().toggleCollapsed(folder.id),
+    },
+    {
+      label: t.folders.delete,
+      icon: <FolderSvg size={16} />,
+      danger: true,
+      separatorBefore: true,
+      onClick: () => useFolders.getState().deleteFolder(folder.id),
+    },
+  ];
+
+  /** Icône d'un serveur du rail (racine ou membre d'un dossier déplié). */
+  const renderServer = (id: string) => {
+    const name = states[id]?.name ?? '…';
+    const active = view.kind === 'group' && view.groupId === id;
+    // Pastille de mention (rouge) : seules les mentions non lues du
+    // serveur remontent ici (compteur `groups.list.mentions`, par
+    // serveur) — le détail par salon reste dans la barre latérale.
+    const badge: RailBadgeInfo = { count: groupMentions[id] ?? 0, mention: true };
+    const muted = isServerMuted(mutedServers, id);
+
+    /**
+     * Items du menu contextuel du serveur : copie d'identifiant,
+     * sourdine des notifications (locale, voir `stores/mute.ts` —
+     * suppression totale du son/de la notification native, sans effet
+     * sur le compteur de non-lu), rangement dans un dossier (local, voir
+     * `stores/folders.ts`), invitation (si permis, D-045 : consentement
+     * explicite — ouvre le sélecteur d'ami existant), paramètres (mêmes
+     * actions que l'icône ⚙️ du salon) et départ — omis si le fondateur
+     * ne peut pas encore quitter (règle du contrat : d'autres membres
+     * restent). Pas de « marquer comme lu » global : aucune action
+     * équivalente n'existe côté store (seulement par salon, une fois
+     * ouvert).
+     */
+    const buildServerItems = (): ContextMenuItem[] => {
+      const groupState = states[id];
+      const isFounder = self !== null && groupState?.founder === self.pubkey;
+      const founderBlocked = isFounder && (groupState?.members.length ?? 0) > 1;
+      const canInvite = hasPerm(groupState?.my_permissions ?? 0, PERMISSIONS.INVITE);
+      const items: ContextMenuItem[] = [
+        {
+          label: t.contextMenu.copyServerId,
+          icon: <CopyMenuIcon />,
+          onClick: () =>
+            copyToClipboard(
+              id,
+              () => toast('info', t.app.copied),
+              () => toast('error', t.errors.actionFailed),
+            ),
+        },
+        {
+          label: muted ? t.contextMenu.unmuteServer : t.contextMenu.muteServer,
+          icon: <BellOffMenuIcon />,
+          onClick: () => useMute.getState().toggleServerMute(id),
+        },
+      ];
+      if (folderOfServer(folders, id) !== null) {
+        items.push({
+          label: t.folders.removeFromFolder,
+          icon: <FolderSvg size={16} />,
+          onClick: () => useFolders.getState().removeServer(id),
+        });
+      } else {
+        for (const f of folders) {
+          items.push({
+            label: interpolate(t.folders.addToFolder, { name: f.name }),
+            icon: <FolderSvg size={16} />,
+            onClick: () => useFolders.getState().addServer(f.id, id),
+          });
+        }
+        items.push({
+          label: t.folders.addToNew,
+          icon: <FolderSvg size={16} />,
+          onClick: () => {
+            const folderName = window.prompt(
+              t.folders.namePrompt,
+              t.folders.defaultName,
+            );
+            if (folderName === null || folderName.trim() === '') return;
+            useFolders.getState().createFolder(folderName.trim(), [id]);
+          },
+        });
+      }
+      if (canInvite) {
+        items.push({
+          label: t.groups.invitePeople,
+          icon: <EnvelopeMenuIcon />,
+          onClick: () => useUi.getState().openModal({ kind: 'invite', groupId: id }),
+        });
+      }
+      items.push({
+        label: t.serveur.settingsTitle,
+        icon: <GearMenuIcon />,
+        onClick: () => useUi.getState().openModal({ kind: 'serverSettings', groupId: id }),
+      });
+      if (!founderBlocked) {
+        items.push({
+          label: t.serveur.leave,
+          icon: <LeaveMenuIcon />,
+          danger: true,
+          separatorBefore: true,
+          onClick: () => {
+            if (!window.confirm(interpolate(t.serveur.leaveConfirm, { name }))) return;
+            useGroups
+              .getState()
+              .leave(id)
+              .then(() => {
+                toast('info', t.serveur.left);
+                const current = useUi.getState().view;
+                if (current.kind === 'group' && current.groupId === id) {
+                  setView({ kind: 'friends' });
+                }
+              })
+              .catch(() => toast('error', t.errors.actionFailed));
+          },
+        });
+      }
+      return items;
+    };
+
+    return (
+      <RailButton
+        key={id}
+        label={`${name}${badgeSuffix(t, badge)}${muted ? ` — ${t.serveur.mutedLabel}` : ''}`}
+        active={active}
+        badge={badge}
+        muted={muted}
+        onClick={() =>
+          setView({
+            kind: 'group',
+            groupId: id,
+            channelId: channelToRestore(states[id], lastChannelByServer[id]),
+          })
+        }
+        onContextMenu={(e) => {
+          e.preventDefault();
+          useContextMenu.getState().openMenu(e.clientX, e.clientY, buildServerItems());
+        }}
+      >
+        <ServerIcon icon={states[id]?.icon ?? null} name={name} />
+      </RailButton>
+    );
+  };
+
   return (
     <nav
       aria-label={t.app.name}
@@ -233,107 +431,56 @@ export function ServerRail() {
 
       <div className="h-0.5 w-8 rounded-full bg-sidebar" role="separator" />
 
-      {ids.map((id) => {
-        const name = states[id]?.name ?? '…';
-        const active = view.kind === 'group' && view.groupId === id;
-        // Pastille de mention (rouge) : seules les mentions non lues du
-        // serveur remontent ici (compteur `groups.list.mentions`, par
-        // serveur) — le détail par salon reste dans la barre latérale.
-        const badge: RailBadgeInfo = { count: groupMentions[id] ?? 0, mention: true };
-        const muted = isServerMuted(mutedServers, id);
-
-        /**
-         * Items du menu contextuel du serveur : copie d'identifiant,
-         * sourdine des notifications (locale, voir `stores/mute.ts` —
-         * suppression totale du son/de la notification native, sans effet
-         * sur le compteur de non-lu), invitation (si permis, D-045 :
-         * consentement explicite — ouvre le sélecteur d'ami existant),
-         * paramètres (mêmes actions que l'icône ⚙️ du salon) et départ —
-         * omis si le fondateur ne peut pas encore quitter (règle du
-         * contrat : d'autres membres restent). Pas de « marquer comme lu »
-         * global : aucune action équivalente n'existe côté store (seulement
-         * par salon, une fois ouvert).
-         */
-        const buildServerItems = (): ContextMenuItem[] => {
-          const groupState = states[id];
-          const isFounder = self !== null && groupState?.founder === self.pubkey;
-          const founderBlocked = isFounder && (groupState?.members.length ?? 0) > 1;
-          const canInvite = hasPerm(groupState?.my_permissions ?? 0, PERMISSIONS.INVITE);
-          const items: ContextMenuItem[] = [
-            {
-              label: t.contextMenu.copyServerId,
-              icon: <CopyMenuIcon />,
-              onClick: () =>
-                copyToClipboard(
-                  id,
-                  () => toast('info', t.app.copied),
-                  () => toast('error', t.errors.actionFailed),
-                ),
-            },
-            {
-              label: muted ? t.contextMenu.unmuteServer : t.contextMenu.muteServer,
-              icon: <BellOffMenuIcon />,
-              onClick: () => useMute.getState().toggleServerMute(id),
-            },
-          ];
-          if (canInvite) {
-            items.push({
-              label: t.groups.invitePeople,
-              icon: <EnvelopeMenuIcon />,
-              onClick: () => useUi.getState().openModal({ kind: 'invite', groupId: id }),
-            });
-          }
-          items.push({
-            label: t.serveur.settingsTitle,
-            icon: <GearMenuIcon />,
-            onClick: () => useUi.getState().openModal({ kind: 'serverSettings', groupId: id }),
-          });
-          if (!founderBlocked) {
-            items.push({
-              label: t.serveur.leave,
-              icon: <LeaveMenuIcon />,
-              danger: true,
-              separatorBefore: true,
-              onClick: () => {
-                if (!window.confirm(interpolate(t.serveur.leaveConfirm, { name }))) return;
-                useGroups
-                  .getState()
-                  .leave(id)
-                  .then(() => {
-                    toast('info', t.serveur.left);
-                    const current = useUi.getState().view;
-                    if (current.kind === 'group' && current.groupId === id) {
-                      setView({ kind: 'friends' });
-                    }
-                  })
-                  .catch(() => toast('error', t.errors.actionFailed));
-              },
-            });
-          }
-          return items;
-        };
-
+      {railEntries.map((entry) => {
+        if (entry.kind === 'server') return renderServer(entry.id);
+        const { folder, memberIds } = entry;
+        const folderLabel = interpolate(t.folders.folderLabel, { name: folder.name });
         return (
-          <RailButton
-            key={id}
-            label={`${name}${badgeSuffix(t, badge)}${muted ? ` — ${t.serveur.mutedLabel}` : ''}`}
-            active={active}
-            badge={badge}
-            muted={muted}
-            onClick={() =>
-              setView({
-                kind: 'group',
-                groupId: id,
-                channelId: channelToRestore(states[id], lastChannelByServer[id]),
-              })
-            }
-            onContextMenu={(e) => {
-              e.preventDefault();
-              useContextMenu.getState().openMenu(e.clientX, e.clientY, buildServerItems());
-            }}
+          <div
+            key={`dossier-${folder.id}`}
+            className={`flex w-full flex-col items-center gap-2 ${
+              folder.collapsed ? '' : 'rounded-2xl bg-sidebar/40 pb-2'
+            }`}
           >
-            <ServerIcon icon={states[id]?.icon ?? null} name={name} />
-          </RailButton>
+            <RailButton
+              label={`${folderLabel} — ${
+                folder.collapsed ? t.folders.expand : t.folders.collapse
+              }`}
+              active={false}
+              onClick={() => useFolders.getState().toggleCollapsed(folder.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                useContextMenu
+                  .getState()
+                  .openMenu(e.clientX, e.clientY, buildFolderItems(folder));
+              }}
+            >
+              {folder.collapsed ? (
+                /* Plié : mini-aperçus des premières icônes du dossier. */
+                <span aria-hidden className="grid h-9 w-9 grid-cols-2 gap-0.5">
+                  {memberIds.slice(0, 4).map((memberId) => (
+                    <span
+                      key={memberId}
+                      className="flex items-center justify-center overflow-hidden rounded-full bg-rail text-[8px] text-norm"
+                    >
+                      <ServerIcon
+                        icon={states[memberId]?.icon ?? null}
+                        name={states[memberId]?.name ?? '…'}
+                      />
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span
+                  className="flex items-center justify-center"
+                  style={folder.color !== undefined ? { color: folder.color } : undefined}
+                >
+                  <FolderSvg size={22} />
+                </span>
+              )}
+            </RailButton>
+            {!folder.collapsed && memberIds.map((memberId) => renderServer(memberId))}
+          </div>
         );
       })}
 

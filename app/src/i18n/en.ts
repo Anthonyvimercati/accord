@@ -817,6 +817,18 @@ export const en: Dict = {
     muteChannel: 'Mute channel',
     unmuteChannel: 'Unmute',
   },
+  folders: {
+    defaultName: 'New folder',
+    addToNew: 'Add to a new folder',
+    addToFolder: 'Add to folder {name}',
+    removeFromFolder: 'Remove from folder',
+    rename: 'Rename folder',
+    namePrompt: 'Folder name',
+    delete: 'Delete folder',
+    collapse: 'Collapse folder',
+    expand: 'Expand folder',
+    folderLabel: 'Folder {name}',
+  },
   layout: {
     resizeSidebar: 'Resize the sidebar',
     resizeMembers: 'Resize the members list',
