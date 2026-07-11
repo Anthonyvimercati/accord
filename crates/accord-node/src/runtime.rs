@@ -24,8 +24,11 @@ use accord_proto::dht_msg::{DhtBody, DhtMessage};
 use accord_proto::file_msg::FileMsg;
 use accord_proto::limits::MAX_NODE_ADDRS;
 use accord_proto::plaintext::ChannelMsg;
+use accord_proto::plaintext::ControlMsg;
+use accord_proto::types::WireAddr;
 use accord_proto::types::{NodeId, NodeInfo};
-use accord_transport::nat::ObservedAddrs;
+use accord_transport::nat::{Candidate, ObservedAddrs};
+use accord_transport::tcp::{self, TcpLinks};
 use accord_transport::{Endpoint, TransportError, TransportEvent};
 use rand::RngCore;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -35,7 +38,7 @@ use crate::maintenance::{self, MaintenanceConfig};
 use crate::node::network::{NetworkControl, NetworkStatus};
 use crate::node::relay::{self, NatKind};
 use crate::node::Node;
-use crate::node::{discovery, nat};
+use crate::node::{discovery, holepunch, nat};
 use crate::outbound::Outbound;
 use crate::voice::VoiceHandle;
 
@@ -47,6 +50,14 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(2);
 const RELAY_OPEN_RETRIES: u32 = 5;
 /// Attente entre deux tentatives d'ouverture de circuit relais.
 const RELAY_OPEN_RETRY_WAIT: Duration = Duration::from_millis(200);
+
+/// Rondes de poinçonnage TCP (ouverture simultanée) après l'échec de la salve
+/// UDP (SPEC §11.3) : chaque ronde tente tous les candidats en parallèle.
+const TCP_PUNCH_ROUNDS: u32 = 3;
+/// Délai d'une tentative de connexion TCP poinçonnée.
+const TCP_PUNCH_TIMEOUT: Duration = Duration::from_millis(1_500);
+/// Pause entre deux rondes de poinçonnage TCP (laisse les SYN se croiser).
+const TCP_PUNCH_ROUND_WAIT: Duration = Duration::from_millis(500);
 
 /// Période de la passe des transferts de fichiers.
 const FILES_TICK: Duration = Duration::from_millis(250);
@@ -185,6 +196,13 @@ pub struct Runtime {
     /// détacher une tâche possédant un `Arc<Runtime>` — typiquement le repli
     /// relais, borné et déporté hors de la boucle de résolution.
     self_ref: OnceLock<Weak<Runtime>>,
+    /// Cadence et corrélation du poinçonnage coordonné (SPEC §11.2) : état
+    /// borné, politique dans [`crate::node::holepunch`].
+    punch: holepunch::PunchCoordinator,
+    /// Registre des liens TCP (repli SPEC §11.3), câblé après construction par
+    /// l'assemblage ([`crate::run_with_maintenance`]) ; absent dans les tests
+    /// sans réseau réel — le repli TCP est alors simplement désactivé.
+    tcp_links: OnceLock<Arc<TcpLinks>>,
 }
 
 /// Signal compact de changement réseau : ne déclenche `event.network` que sur
@@ -229,7 +247,14 @@ impl Runtime {
             nat: Arc::new(nat::NatShared::default()),
             lan: Arc::new(discovery::LanShared::default()),
             self_ref: OnceLock::new(),
+            punch: holepunch::PunchCoordinator::default(),
+            tcp_links: OnceLock::new(),
         })
+    }
+
+    /// Câble le registre des liens TCP (une seule fois, à l'assemblage).
+    pub fn set_tcp_links(&self, links: Arc<TcpLinks>) {
+        let _ = self.tcp_links.set(links);
     }
 
     /// Upgrade de la référence faible sur soi-même : `Some` une fois les boucles
@@ -658,6 +683,129 @@ impl Runtime {
         false
     }
 
+    // ---- Poinçonnage coordonné (SPEC §11.2) ----
+
+    /// Demande à `friend` un poinçonnage coordonné en lui transmettant nos
+    /// candidats frais, par n'importe quel lien déjà établi — typiquement la
+    /// session bout-en-bout tunnelée par un relais (rendez-vous sans serveur).
+    /// Best-effort, cadencé par le coordinateur ; sans effet si une session
+    /// directe existe déjà.
+    pub(crate) async fn request_punch(&self, friend: [u8; 32]) {
+        if self.endpoint.has_direct_session_with(&friend) {
+            return; // déjà en direct : rien à upgrader
+        }
+        let candidates = self.presence_addrs();
+        if candidates.is_empty() {
+            return; // rien à proposer au pair (aucune adresse joignable)
+        }
+        let token = rand::rngs::OsRng.next_u64();
+        if !self
+            .punch
+            .begin_request(friend, token, crate::node::now_ms())
+        {
+            return; // demande trop récente (cadence) ou état plein
+        }
+        let msg = ChannelMsg::Control(ControlMsg::PunchRequest {
+            token,
+            candidates: candidates.into_iter().map(WireAddr).collect(),
+        });
+        if self.send_control_to(&friend, &msg).await {
+            tracing::debug!("poinçonnage : demande coordonnée émise");
+        }
+    }
+
+    /// Achemine un message de contrôle vers un ami par le meilleur lien
+    /// existant : session liée à l'identité d'abord, circuit relais sinon.
+    /// Rend vrai si un envoi est parti (sans garantie de livraison).
+    async fn send_control_to(&self, to: &[u8; 32], msg: &ChannelMsg) -> bool {
+        if let Some(addr) = self.addr_of(to) {
+            if self.endpoint.send_to(addr, Some(*to), msg).await.is_ok() {
+                return true;
+            }
+        }
+        if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(to)) {
+            if self.endpoint.send_via_relay(circuit, msg).await.is_ok() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Vrai si `pubkey` est un ami confirmé (les demandes de poinçonnage des
+    /// simples pairs de session — nœuds DHT, inconnus — sont ignorées : elles
+    /// feraient émettre des HELLO vers des adresses arbitraires).
+    fn is_friend(&self, pubkey: &[u8; 32]) -> bool {
+        self.node
+            .friend_pubkeys()
+            .map(|friends| friends.contains(pubkey))
+            .unwrap_or(false)
+    }
+
+    /// Demande de poinçonnage ENTRANTE : amitié requise, cadence par pair,
+    /// candidats filtrés et bornés ; puis réponse avec NOS candidats frais et
+    /// salve immédiate vers les siens — les deux salves se croisent.
+    async fn on_punch_requested(&self, from: [u8; 32], token: u64, candidates: Vec<SocketAddr>) {
+        if !self.is_friend(&from) {
+            tracing::debug!("poinçonnage : demande d'un non-ami ignorée");
+            return;
+        }
+        if !self.punch.accept_inbound(from, crate::node::now_ms()) {
+            tracing::debug!("poinçonnage : demande trop fréquente ignorée");
+            return;
+        }
+        let candidates = holepunch::sanitize_candidates(&candidates);
+        if candidates.is_empty() {
+            return;
+        }
+        let ours: Vec<WireAddr> = self.presence_addrs().into_iter().map(WireAddr).collect();
+        let resp = ChannelMsg::Control(ControlMsg::PunchResponse {
+            token,
+            candidates: ours,
+        });
+        let _ = self.send_control_to(&from, &resp).await;
+        self.spawn_punch(from, candidates);
+    }
+
+    /// Réponse de poinçonnage : uniquement si elle corrèle une demande
+    /// sortante fraîche (jeton), sinon ignorée (forgée, rejouée, périmée).
+    async fn on_punch_responded(&self, from: [u8; 32], token: u64, candidates: Vec<SocketAddr>) {
+        if !self.punch.take_response(from, token, crate::node::now_ms()) {
+            tracing::debug!("poinçonnage : réponse non sollicitée ignorée");
+            return;
+        }
+        let candidates = holepunch::sanitize_candidates(&candidates);
+        if candidates.is_empty() {
+            return;
+        }
+        self.spawn_punch(from, candidates);
+    }
+
+    /// Salve UDP vers `candidates` (liée à l'identité `friend`), puis repli
+    /// TCP par ouverture simultanée si aucune session directe n'est apparue
+    /// (SPEC §11.3 : UDP d'abord, TCP ensuite, relais en dernier). Détaché
+    /// pour ne jamais bloquer la boucle d'événements.
+    fn spawn_punch(&self, friend: [u8; 32], candidates: Vec<SocketAddr>) {
+        let endpoint = self.endpoint_arc();
+        let tcp = self.tcp_links.get().cloned();
+        tokio::spawn(async move {
+            let cands: Vec<Candidate> = candidates
+                .iter()
+                .copied()
+                .map(maintenance::classer_candidat)
+                .collect();
+            if let Err(e) = endpoint.punch(&cands, friend).await {
+                tracing::debug!(erreur = %e, "poinçonnage coordonné : salve UDP échouée");
+            }
+            if endpoint.has_direct_session_with(&friend) {
+                return;
+            }
+            let Some(links) = tcp else {
+                return; // repli TCP non câblé (tests) : on s'arrête à l'UDP
+            };
+            tcp_punch_toward(endpoint, links, friend, &candidates).await;
+        });
+    }
+
     // ---- Accès internes pour les boucles de maintenance ----
 
     pub(crate) fn node(&self) -> &Node {
@@ -744,6 +892,20 @@ impl Runtime {
                 }
                 TransportEvent::ObservedAddr { observed } => {
                     self.observe_addr(observed);
+                }
+                TransportEvent::PunchRequested {
+                    static_pub,
+                    token,
+                    candidates,
+                } => {
+                    self.on_punch_requested(static_pub, token, candidates).await;
+                }
+                TransportEvent::PunchResponded {
+                    static_pub,
+                    token,
+                    candidates,
+                } => {
+                    self.on_punch_responded(static_pub, token, candidates).await;
                 }
                 TransportEvent::Disconnected { addr } => {
                     self.forget_live(addr);
@@ -1283,6 +1445,57 @@ impl NetworkControl for Runtime {
 /// `NodeInfo` synthétique pour un RPC DHT direct vers une adresse : seule
 /// `addrs` est utilisée par le transport ; l'identité du pair est inconnue au
 /// démarrage (le récepteur vérifie l'authenticité des records qu'il rend).
+/// Poinçonnage TCP par ouverture simultanée (SPEC §11.3, best-effort). À
+/// chaque ronde, tente `connect()` vers TOUS les candidats en parallèle depuis
+/// le port P2P local (partagé avec l'écouteur TCP via `SO_REUSEPORT`) : les
+/// SYN sortants ouvrent les mappings NAT pendant que ceux du pair — qui
+/// exécute la même procédure au même moment (coordination §11.2) — tentent de
+/// les traverser. La première connexion établie est adoptée comme lien
+/// datagramme, puis le handshake de session chiffrée est rejoué à travers elle
+/// (mêmes validations, PoW et liaison d'identité que sur UDP).
+///
+/// Limite documentée : sans observation du port TCP public du pair, chaque
+/// côté vise le port ANNONCÉ (celui de l'écouteur) — la traversée réussit
+/// surtout avec des NAT préservant le port, une redirection, ou quand seul
+/// UDP est filtré. Sinon, le relais (SPEC §11.3) reste en place.
+async fn tcp_punch_toward(
+    endpoint: Arc<Endpoint>,
+    links: Arc<TcpLinks>,
+    friend: [u8; 32],
+    candidates: &[SocketAddr],
+) {
+    let local_port = endpoint.local_addr().port();
+    if local_port == 0 {
+        return;
+    }
+    for _ in 0..TCP_PUNCH_ROUNDS {
+        if endpoint.has_direct_session_with(&friend) {
+            return; // l'UDP (ou le lien TCP entrant du pair) a fini par passer
+        }
+        let mut set = tokio::task::JoinSet::new();
+        for cand in candidates {
+            let cand = *cand;
+            set.spawn(async move { tcp::punch_connect(local_port, cand, TCP_PUNCH_TIMEOUT).await });
+        }
+        while let Some(res) = set.join_next().await {
+            let Ok(Ok(stream)) = res else { continue };
+            let Ok(peer) = links.adopt(stream) else {
+                continue; // plafond de liens atteint : on n'insiste pas
+            };
+            set.abort_all();
+            let cand = Candidate {
+                addr: peer,
+                kind: accord_transport::nat::CandidateKind::HolePunch,
+            };
+            if let Err(e) = endpoint.punch(&[cand], friend).await {
+                tracing::debug!(erreur = %e, "poinçonnage TCP : handshake échoué");
+            }
+            return;
+        }
+        tokio::time::sleep(TCP_PUNCH_ROUND_WAIT).await;
+    }
+}
+
 fn direct_target(addr: SocketAddr) -> NodeInfo {
     NodeInfo {
         node_id: NodeId([0u8; 32]),

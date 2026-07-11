@@ -38,6 +38,26 @@ pub enum ControlMsg {
         /// Adresse UDP/TCP vue par le répondeur.
         addr: WireAddr,
     },
+    /// Demande de poinçonnage coordonné (SPEC §11.2) : l'émetteur communique
+    /// ses candidats d'adresse frais et invite le pair à poinçonner vers eux
+    /// immédiatement. Transite par un lien déjà établi (typiquement une session
+    /// relayée) : le rendez-vous reste sans serveur central.
+    PunchRequest {
+        /// Jeton opaque répété dans la réponse (corrélation, anti-réponse
+        /// non sollicitée).
+        token: u64,
+        /// Candidats d'adresse de l'émetteur (borné à
+        /// [`limits::MAX_PUNCH_CANDIDATES`] au décodage).
+        candidates: Vec<WireAddr>,
+    },
+    /// Réponse à [`ControlMsg::PunchRequest`] : le répondeur renvoie ses
+    /// propres candidats puis poinçonne aussitôt — les deux salves se croisent.
+    PunchResponse {
+        /// Jeton de la demande correspondante.
+        token: u64,
+        /// Candidats d'adresse du répondeur (même borne qu'à la demande).
+        candidates: Vec<WireAddr>,
+    },
 }
 
 impl WireEncode for ControlMsg {
@@ -64,6 +84,16 @@ impl WireEncode for ControlMsg {
                 w.put_u8(0x05);
                 addr.encode(w);
             }
+            ControlMsg::PunchRequest { token, candidates } => {
+                w.put_u8(0x06);
+                w.put_u64(*token);
+                w.put_list(candidates, |w, a| a.encode(w));
+            }
+            ControlMsg::PunchResponse { token, candidates } => {
+                w.put_u8(0x07);
+                w.put_u64(*token);
+                w.put_list(candidates, |w, a| a.encode(w));
+            }
         }
     }
 }
@@ -78,6 +108,22 @@ impl WireDecode for ControlMsg {
             0x04 => Ok(ControlMsg::ObserveAddrReq),
             0x05 => Ok(ControlMsg::ObserveAddrResp {
                 addr: WireAddr::decode(r)?,
+            }),
+            0x06 => Ok(ControlMsg::PunchRequest {
+                token: r.u64()?,
+                candidates: r.list(
+                    limits::MAX_PUNCH_CANDIDATES,
+                    "punch.candidates",
+                    WireAddr::decode,
+                )?,
+            }),
+            0x07 => Ok(ControlMsg::PunchResponse {
+                token: r.u64()?,
+                candidates: r.list(
+                    limits::MAX_PUNCH_CANDIDATES,
+                    "punch.candidates",
+                    WireAddr::decode,
+                )?,
             }),
             _ => Err(DecodeError::InvalidValue("control kind")),
         }
