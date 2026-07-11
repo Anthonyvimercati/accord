@@ -8,22 +8,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MAX_TAILLE_PIECE } from '../lib/attachments';
-import type { Contact, GroupStateJson } from '../lib/api';
+import type { Contact, DmMessage, GroupMessage, GroupStateJson } from '../lib/api';
 import type {
   VoiceRecorderCallbacks,
   VoiceRecorderResult,
   VoiceRecorderError,
 } from '../lib/voiceRecorder';
 import { useContextMenu } from '../stores/contextMenu';
+import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
-import { useGroups } from '../stores/groups';
+import { channelKey, useGroups } from '../stores/groups';
+import { useMessageEdit } from '../stores/messageEdit';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 import { MessageInput } from './MessageInput';
 
 vi.mock('../lib/client', () => ({
   rpc: { onEvent: vi.fn(() => () => {}), onStatus: vi.fn(() => () => {}) },
-  api: { filesShareBytes: vi.fn() },
+  api: {
+    filesShareBytes: vi.fn(),
+    // Émis en best effort par `useTypingEmitter` dès qu'un texte non vide
+    // est saisi avec un `typingTarget` — non exercé par les tests existants
+    // (aucun ne tapait dans un composeur avec cible), mais nécessaire dès
+    // qu'un test ArrowUp saisit du texte avant d'appuyer sur Haut.
+    dmTyping: vi.fn(() => Promise.resolve()),
+    groupsTyping: vi.fn(() => Promise.resolve()),
+  },
 }));
 
 /**
@@ -75,10 +85,12 @@ function dernierEnregistreur(): InstanceType<typeof FakeVoiceRecorder> {
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr', toasts: [], modal: null });
-  useGroups.setState({ states: {} });
+  useGroups.setState({ states: {}, messages: {} });
   useFriends.setState({ contacts: [] });
   useSession.setState({ self: null });
   useContextMenu.setState({ menu: null });
+  useDms.setState({ conversations: {} });
+  useMessageEdit.setState({ request: null });
   shareMock.mockReset();
   FakeVoiceRecorder.instances = [];
 });
@@ -616,5 +628,142 @@ describe('MessageInput — menu du trombone (Fichier / Sondage)', () => {
       groupId: 'g1',
       channelId: 'c1',
     });
+  });
+});
+
+/** Message DM texte minimal, pour peupler `useDms` dans les tests ArrowUp. */
+function dmTextMessage(over: Partial<DmMessage>): DmMessage {
+  return {
+    msg_id: 'm',
+    author: 'pk_alice',
+    lamport: 1,
+    sent_ms: 1000,
+    acked: true,
+    deleted: false,
+    body: { type: 'text', text: 'x', reply_to: null, attachments: 0 },
+    edited: null,
+    ...over,
+  };
+}
+
+const DM_TARGET = { kind: 'dm', peer: 'pk_alice' } as const;
+
+describe('MessageInput — ArrowUp édite le dernier message propre (composeur vide)', () => {
+  it('demande l’édition du dernier message texte encore éditable (ignore le supprimé)', () => {
+    useSession.setState({ self: SELF });
+    useDms.setState({
+      conversations: {
+        pk_alice: [
+          dmTextMessage({ msg_id: 'm1', author: 'pk_alice', lamport: 1 }),
+          dmTextMessage({ msg_id: 'm2', author: 'moi', lamport: 2, body: { type: 'text', text: 'coucou', reply_to: null, attachments: 0 } }),
+          dmTextMessage({ msg_id: 'm3', author: 'moi', lamport: 3, deleted: true }),
+        ],
+      },
+    });
+    render(<MessageInput placeholder="p" onSend={vi.fn()} typingTarget={DM_TARGET} />);
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowUp' });
+
+    expect(useMessageEdit.getState().request?.msgId).toBe('m2');
+  });
+
+  it('trouve le dernier message propre dans un salon de groupe', () => {
+    useSession.setState({ self: SELF });
+    seedComposer({}, 'text');
+    const messages: GroupMessage[] = [
+      {
+        msg_id: 'g1',
+        channel_id: 'c1',
+        author: 'moi',
+        lamport: 1,
+        sent_ms: 1000,
+        deleted: false,
+        body: { type: 'text', text: 'salut le salon', reply_to: null, attachments: 0 },
+        edited: null,
+      },
+    ];
+    useGroups.setState((s) => ({
+      messages: { ...s.messages, [channelKey('g1', 'c1')]: messages },
+    }));
+    render(
+      <MessageInput
+        placeholder="p"
+        onSend={vi.fn()}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowUp' });
+
+    expect(useMessageEdit.getState().request?.msgId).toBe('g1');
+  });
+
+  it('ne déclenche rien quand le composeur contient déjà du texte', () => {
+    useSession.setState({ self: SELF });
+    useDms.setState({
+      conversations: { pk_alice: [dmTextMessage({ msg_id: 'm1', author: 'moi' })] },
+    });
+    render(<MessageInput placeholder="p" onSend={vi.fn()} typingTarget={DM_TARGET} />);
+    typeInput('en cours de saisie');
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowUp' });
+
+    expect(useMessageEdit.getState().request).toBeNull();
+  });
+
+  it('no-op silencieux quand aucun message propre n’est éditable', () => {
+    useSession.setState({ self: SELF });
+    useDms.setState({
+      conversations: { pk_alice: [dmTextMessage({ msg_id: 'm1', author: 'pk_alice' })] },
+    });
+    render(<MessageInput placeholder="p" onSend={vi.fn()} typingTarget={DM_TARGET} />);
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowUp' });
+
+    expect(useMessageEdit.getState().request).toBeNull();
+  });
+
+  it('laisse l’autocomplétion de mentions capter Haut plutôt que de déclencher une édition', () => {
+    setupGroup();
+    useSession.setState({ self: SELF });
+    render(<MessageInput placeholder="p" onSend={vi.fn()} groupId="g1" />);
+    typeInput('@');
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowUp' });
+
+    expect(useMessageEdit.getState().request).toBeNull();
+  });
+});
+
+describe('MessageInput — commandes slash à l’envoi', () => {
+  it('transforme /shrug juste avant l’envoi (Entrée)', async () => {
+    const onSend = renderInput();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '/shrug osef' } });
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith('osef ¯\\_(ツ)_/¯', undefined),
+    );
+  });
+
+  it('transforme /me au clic sur Envoyer', async () => {
+    const onSend = renderInput();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '/me observe' } });
+    fireEvent.click(screen.getByLabelText('Envoyer'));
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('*observe*', undefined));
+  });
+
+  it('n’altère pas un message normal ni une commande inconnue', async () => {
+    const onSend = renderInput();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '/foo bar' } });
+    fireEvent.click(screen.getByLabelText('Envoyer'));
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('/foo bar', undefined));
   });
 });

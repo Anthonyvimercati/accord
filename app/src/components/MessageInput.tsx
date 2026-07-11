@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
-import type { FileAttachment } from '../lib/api';
+import type { FileAttachment, MsgBody } from '../lib/api';
 import {
   estImage,
   fichierEnB64,
@@ -26,16 +26,47 @@ import {
 } from '../lib/mentions';
 import { api } from '../lib/client';
 import { formatTimestamp, formatDuration, tailleLisible } from '../lib/format';
+import { applySlashCommand } from '../lib/slashCommands';
 import { VoiceRecorder, voiceFileName } from '../lib/voiceRecorder';
 import { useTypingEmitter, type TypingTarget } from '../hooks/useTypingEmitter';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
+import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
-import { isChannelReadOnly, sortRoles, timeoutUntil, useGroups } from '../stores/groups';
+import {
+  channelKey,
+  isChannelReadOnly,
+  sortRoles,
+  timeoutUntil,
+  useGroups,
+} from '../stores/groups';
+import { useMessageEdit } from '../stores/messageEdit';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { CloseIcon } from './ContextMenu';
 import { EmojiPicker } from './EmojiPicker';
 import { MentionAutocomplete } from './MentionAutocomplete';
+
+/** Forme minimale partagée par `DmMessage`/`GroupMessage` pour ArrowUp-édite. */
+interface OwnEditCandidate {
+  msg_id: string;
+  author: string;
+  deleted: boolean;
+  body: MsgBody;
+}
+
+/** Dernier message de `selfPubkey` encore éditable (texte, non supprimé). */
+function lastOwnEditableMessageId(
+  messages: readonly OwnEditCandidate[] | undefined,
+  selfPubkey: string | null,
+): string | null {
+  if (messages === undefined || selfPubkey === null) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages.at(i);
+    if (m === undefined) continue;
+    if (!m.deleted && m.author === selfPubkey && m.body.type === 'text') return m.msg_id;
+  }
+  return null;
+}
 
 /** Pièce en attente d'envoi (aperçu local, avant publication). */
 interface PieceEnAttente {
@@ -87,6 +118,19 @@ export function MessageInput({
   const groupState = useGroups((s) => (groupId !== null ? s.states[groupId] : undefined));
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
+
+  // ArrowUp sur composeur vide (édition du dernier message, voir plus bas) :
+  // lit le fil de la conversation courante dans le magasin dms/groups
+  // concerné — jamais les deux à la fois (un seul `typingTarget`).
+  const dmMessages = useDms((s) =>
+    typingTarget?.kind === 'dm' ? s.conversations[typingTarget.peer] : undefined,
+  );
+  const groupMessages = useGroups((s) =>
+    typingTarget?.kind === 'group'
+      ? s.messages[channelKey(typingTarget.groupId, typingTarget.channelId)]
+      : undefined,
+  );
+
   const candidates = useMemo<MentionCandidate[]>(() => {
     if (groupState === undefined) return [];
     const nameOf = (pubkey: string): string =>
@@ -222,7 +266,9 @@ export function MessageInput({
         );
         attachments.push(file);
       }
-      await onSend(trimmed, attachments.length > 0 ? attachments : undefined);
+      // Commandes slash (`/shrug`, `/me`…) : transforme le texte final juste
+      // avant l'envoi, sans toucher à l'état affiché ni à la saisie en cours.
+      await onSend(applySlashCommand(trimmed), attachments.length > 0 ? attachments : undefined);
       setPieces([]);
       setText('');
       setErreur(null);
@@ -655,6 +701,21 @@ export function MessageInput({
                 setMention(null);
                 return;
               }
+            }
+            // Composeur vide + Haut : édite le dernier de ses propres
+            // messages texte (comportement Discord). N'agit jamais si
+            // l'autocomplétion de mentions est ouverte (gérée ci-dessus) ni
+            // si le composeur contient déjà du texte — sinon la navigation
+            // native du curseur resterait sans effet de toute façon (champ
+            // vide), donc rien n'est perdu à intercepter la touche ici.
+            if (e.key === 'ArrowUp' && !mentionOpen && text === '') {
+              const ownMessages = typingTarget?.kind === 'dm' ? dmMessages : groupMessages;
+              const msgId = lastOwnEditableMessageId(ownMessages, self?.pubkey ?? null);
+              if (msgId !== null) {
+                e.preventDefault();
+                useMessageEdit.getState().requestEdit(msgId);
+              }
+              return;
             }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();

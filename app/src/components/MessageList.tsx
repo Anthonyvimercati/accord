@@ -25,6 +25,7 @@ import {
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
 import { hasPerm, PERMISSIONS, pollOf, serverAvatarOf, useGroups } from '../stores/groups';
+import { useMessageEdit } from '../stores/messageEdit';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover, type View } from '../stores/ui';
 import { AttachmentRow } from './Attachments';
@@ -326,6 +327,9 @@ export function MessageList({
   const closePoll = useGroups((s) => s.closePoll);
   /** Message en cours de transfert (null : aucun). */
   const [forwarding, setForwarding] = useState<DisplayMessage | null>(null);
+  /** Requête externe d'édition en place (voir l'effet plus bas). */
+  const editRequest = useMessageEdit((s) => s.request);
+  const clearEditRequest = useMessageEdit((s) => s.clearEditRequest);
 
   /** Copie une valeur puis confirme (`successText`) ou signale l'échec. */
   const copyWithToast = (value: string, successText: string): void => {
@@ -381,6 +385,19 @@ export function MessageList({
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTarget?.nonce]);
+
+  // Requête externe d'édition en place (composeur vide + flèche Haut, voir
+  // `MessageInput`) : ouvre le même éditeur que le menu contextuel, sans
+  // dupliquer sa logique. Ignorée si le message ciblé n'est pas dans ce fil
+  // (mauvaise conversation) ; toujours consommée pour ne jamais reboucler.
+  useEffect(() => {
+    if (editRequest === null) return;
+    if (messages.some((m) => m.msg_id === editRequest.msgId)) {
+      setEditingId(editRequest.msgId);
+    }
+    clearEditRequest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequest]);
 
   // Les messages de pur contenu (texte / sticker / supprimés) sont affichés ;
   // éditions, réactions et méta sont des mutations déjà appliquées.
