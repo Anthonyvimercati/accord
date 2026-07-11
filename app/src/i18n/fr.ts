@@ -364,6 +364,8 @@ export const fr = {
     dnd: 'Ne pas déranger',
     invisible: 'Invisible',
     setStatus: 'Définir le statut',
+    userMenu: 'Menu utilisateur',
+    copyMyId: 'Copier mon ID',
     customStatusPlaceholder: 'Statut personnalisé',
     customStatusHint: 'Entrée pour enregistrer',
     clearCustomStatus: 'Effacer le statut personnalisé',

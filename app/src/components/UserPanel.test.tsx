@@ -1,6 +1,6 @@
 /**
- * Tests du panneau utilisateur : menu de statut (clic sur l'avatar),
- * ouverture de la carte de profil (clic sur le pseudo), et bandeau « Vocal
+ * Tests du panneau utilisateur : menu utilisateur rapide (clic sur
+ * l'avatar/pseudo — statut, copie d'ID, déconnexion), et bandeau « Vocal
  * connecté » — n'apparaît qu'en vocal, nomme le groupe, coupe le micro
  * (icône barrée, aria-pressed) et raccroche.
  */
@@ -51,13 +51,18 @@ beforeEach(() => {
   });
 });
 
-describe('UserPanel — carte de profil et menu de statut', () => {
-  it('ouvre le menu de statut au clic sur l’avatar (pas la carte de profil)', () => {
+describe('UserPanel — menu utilisateur rapide', () => {
+  it('ouvre le menu utilisateur au clic sur l’avatar/pseudo', () => {
     render(<UserPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Définir le statut' }));
+    const trigger = screen.getByRole('button', { name: 'Menu utilisateur' });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
-    expect(screen.getByRole('menu', { name: 'Définir le statut' })).toBeInTheDocument();
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole('menu', { name: 'Menu utilisateur' })).toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(useUi.getState().profile).toBeNull();
   });
 
@@ -66,7 +71,7 @@ describe('UserPanel — carte de profil et menu de statut', () => {
     useFriends.setState({ setOwnStatus });
     render(<UserPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Définir le statut' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Ne pas déranger' }));
 
     expect(setOwnStatus).toHaveBeenCalledWith('dnd', undefined);
@@ -78,7 +83,7 @@ describe('UserPanel — carte de profil et menu de statut', () => {
     useFriends.setState({ ownStatus: 'idle', setOwnStatus });
     render(<UserPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Définir le statut' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
     const input = screen.getByRole('textbox', { name: 'Statut personnalisé' });
     fireEvent.change(input, { target: { value: 'en pause' } });
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -86,12 +91,49 @@ describe('UserPanel — carte de profil et menu de statut', () => {
     expect(setOwnStatus).toHaveBeenCalledWith('idle', 'en pause');
   });
 
-  it('ouvre la carte de profil au clic sur le pseudo', () => {
+  it('copie son propre ID dans le presse-papiers', () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
     render(<UserPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Profil' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copier mon ID' }));
 
-    expect(useUi.getState().profile?.pubkey).toBe('moi');
+    expect(writeText).toHaveBeenCalledWith('moi');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('déconnexion rapide : demande confirmation puis appelle lock()', () => {
+    const lock = vi.fn(async () => {});
+    useSession.setState({ lock });
+    render(<UserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Se déconnecter' }));
+
+    // Premier clic : confirmation inline, pas encore déconnecté.
+    expect(lock).not.toHaveBeenCalled();
+    expect(
+      screen.getByText('Votre phrase de passe sera nécessaire pour vous reconnecter.'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Oui, me déconnecter' }));
+
+    expect(lock).toHaveBeenCalledTimes(1);
+  });
+
+  it('ferme le menu à Échap', () => {
+    render(<UserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });
 

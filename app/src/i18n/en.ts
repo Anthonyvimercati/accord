@@ -362,6 +362,8 @@ export const en: Dict = {
     dnd: 'Do not disturb',
     invisible: 'Invisible',
     setStatus: 'Set status',
+    userMenu: 'User menu',
+    copyMyId: 'Copy my ID',
     customStatusPlaceholder: 'Custom status',
     customStatusHint: 'Enter to save',
     clearCustomStatus: 'Clear custom status',
