@@ -831,6 +831,18 @@ export const fr = {
     muteChannel: 'Mettre le salon en sourdine',
     unmuteChannel: 'Réactiver',
   },
+  folders: {
+    defaultName: 'Nouveau dossier',
+    addToNew: 'Ajouter à un nouveau dossier',
+    addToFolder: 'Ajouter au dossier {name}',
+    removeFromFolder: 'Retirer du dossier',
+    rename: 'Renommer le dossier',
+    namePrompt: 'Nom du dossier',
+    delete: 'Supprimer le dossier',
+    collapse: 'Replier le dossier',
+    expand: 'Déplier le dossier',
+    folderLabel: 'Dossier {name}',
+  },
   layout: {
     resizeSidebar: 'Redimensionner la barre latérale',
     resizeMembers: 'Redimensionner la liste des membres',
