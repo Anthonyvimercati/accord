@@ -10,74 +10,48 @@
  * modération via `canModerate`). L'édition se fait en place et les réactions
  * s'affichent en pastilles sous le corps. `colorOf` colore le nom des
  * auteurs (couleur du rôle le plus haut en salon).
+ *
+ * Ce fichier orchestre le fil ; le modèle (`DisplayMessage`,
+ * `MessageListActions`, `messageModel`), les sous-composants (`MessageQuote`,
+ * `MessageEditor`, `BodyText`) et les items de menus contextuels
+ * (`messageMenus`) vivent dans leurs propres modules.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
-import type { DeliveryState, FileAttachment, MsgBody, Reaction } from '../lib/api';
+import type { DeliveryState } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatDay, formatTimestamp, formatTimestampCompact } from '../lib/format';
-import {
-  isEditableTarget,
-  useContextMenu,
-  type ContextMenuItem,
-} from '../stores/contextMenu';
+import { isEditableTarget, useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
 import { hasPerm, PERMISSIONS, pollOf, serverAvatarOf, useGroups } from '../stores/groups';
 import { useMessageEdit } from '../stores/messageEdit';
 import { selfDisplayName, useSession } from '../stores/session';
-import { useUi, useT, type AncrePopover, type View } from '../stores/ui';
+import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { AttachmentRow } from './Attachments';
 import { Avatar } from './Avatar';
-import {
-  CopyMenuIcon,
-  DeleteMenuIcon,
-  EditMenuIcon,
-  EnvelopeMenuIcon,
-  ForwardMenuIcon,
-  MentionMenuIcon,
-  PinMenuIcon,
-  ProfileMenuIcon,
-  ReplyMenuIcon,
-} from './ContextMenu';
+import { BodyText } from './BodyText';
 import { ForwardPicker } from './ForwardPicker';
-import { MarkdownText } from './MarkdownText';
 import { MessageActions } from './MessageActions';
+import { MessageEditor } from './MessageEditor';
+import { buildMessageItems, buildUserItems, type MessageMenuDeps } from './messageMenus';
+import {
+  displayText,
+  messageLink,
+  type DisplayMessage,
+  type MessageListActions,
+} from './messageModel';
+import { MessageQuote } from './MessageQuote';
 import { PollCard } from './PollCard';
 import { ReactionRow } from './Reactions';
 import { messageOf } from './server/controls';
 import { StickerImage } from './StickerImage';
 
-export interface DisplayMessage {
-  msg_id: string;
-  author: string;
-  sent_ms: number;
-  deleted: boolean;
-  body: MsgBody;
-  edited: string | null;
-  acked?: boolean;
-  /** État de livraison sortante (MP uniquement) ; absent = considéré envoyé. */
-  delivery?: DeliveryState;
-  reactions?: Reaction[];
-  /** Pièces jointes de l'enveloppe (`[]` ou absent si aucune). */
-  attachments?: FileAttachment[];
-}
-
-/** Actions de message ; leur absence masque toute la barre. */
-export interface MessageListActions {
-  onReact: (message: DisplayMessage, emoji: string) => void;
-  /** Réponse citée — absente dans les salons (non prévue par l'API). */
-  onReply?: (message: DisplayMessage) => void;
-  onEdit: (message: DisplayMessage, text: string) => void;
-  onDelete: (message: DisplayMessage) => void;
-  /** Modération : autorise la suppression des messages d'autrui. */
-  canModerate?: boolean;
-  /** Épinglage — `pinned` reflète l'état courant du message. */
-  onTogglePin?: (message: DisplayMessage, pinned: boolean) => void;
-  /** Relance d'un envoi échoué (MP uniquement) ; absente = pas d'affordance. */
-  onRetry?: (message: DisplayMessage) => void;
-}
+// Ré-exports de l'API historique du module : les consommateurs (vues, tests)
+// importent modèle et lien depuis `MessageList` — voir `messageModel`.
+export { messageLink };
+export type { DisplayMessage, MessageListActions };
 
 /** Fenêtre de regroupement de messages consécutifs du même auteur. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -101,155 +75,6 @@ function sameDay(a: number, b: number): boolean {
     da.getFullYear() === db.getFullYear() &&
     da.getMonth() === db.getMonth() &&
     da.getDate() === db.getDate()
-  );
-}
-
-/** Texte affichable d'un message (dernière édition, sinon corps d'origine). */
-function displayText(message: DisplayMessage): string | null {
-  return message.edited ?? (message.body.type === 'text' ? message.body.text : null);
-}
-
-/**
- * Lien `accord:` copiable vers un message : `accord:msg/<conversation>/<id>`
- * où la conversation est `dm:<pair>` ou `group:<groupe>:<salon>`. Aucun
- * gestionnaire d'ouverture n'existe encore (copier suffit — voir le suivi).
- */
-export function messageLink(view: View, msgId: string): string | null {
-  if (view.kind === 'dm') return `accord:msg/dm:${view.peer}/${msgId}`;
-  if (view.kind === 'group') {
-    return `accord:msg/group:${view.groupId}:${view.channelId ?? ''}/${msgId}`;
-  }
-  return null;
-}
-
-function BodyText({
-  message,
-  emojiMap,
-  knownMentions,
-  roleColors,
-}: {
-  message: DisplayMessage;
-  emojiMap?: ReadonlyMap<string, string> | undefined;
-  knownMentions?: ReadonlySet<string> | undefined;
-  roleColors?: ReadonlyMap<string, number> | undefined;
-}) {
-  const t = useT();
-  if (message.deleted) {
-    return <em className="text-faint">{t.dm.deletedMessage}</em>;
-  }
-  const text = displayText(message);
-  if (text === null) {
-    return <em className="text-faint">{t.dm.unsupported}</em>;
-  }
-  return (
-    <span className="selectable whitespace-pre-wrap break-words">
-      <MarkdownText
-        text={text}
-        emojis={emojiMap}
-        knownMentions={knownMentions}
-        roleColors={roleColors}
-        hint={message.author}
-      />
-      {message.edited !== null && (
-        <span className="ml-1 text-[10px] text-faint">{t.dm.edited}</span>
-      )}
-    </span>
-  );
-}
-
-/** Aperçu du message cité, affiché au-dessus d'une réponse (clic = saut). */
-function MessageQuote({
-  quoted,
-  nameOf,
-  onJump,
-}: {
-  quoted: DisplayMessage | undefined;
-  nameOf: (author: string) => string;
-  onJump?: (() => void) | undefined;
-}) {
-  const t = useT();
-  const snippet =
-    quoted === undefined
-      ? t.dm.quoteUnavailable
-      : quoted.deleted
-        ? t.dm.deletedMessage
-        : (displayText(quoted) ?? t.dm.unsupported);
-
-  const inner = (
-    <>
-      <span
-        aria-hidden
-        className="ml-1 h-2 w-6 shrink-0 rounded-tl-md border-l-2 border-t-2 border-input"
-      />
-      {quoted !== undefined && (
-        <span className="shrink-0 font-medium text-header">{nameOf(quoted.author)}</span>
-      )}
-      <span className={`truncate ${quoted === undefined ? 'italic text-faint' : ''}`}>
-        {snippet}
-      </span>
-    </>
-  );
-
-  const className = 'mb-0.5 flex items-center gap-1.5 text-xs text-muted';
-  if (onJump === undefined) return <div className={className}>{inner}</div>;
-  return (
-    <button
-      type="button"
-      onClick={onJump}
-      className={`${className} rounded-sm text-left hover:text-norm focus-visible:outline-none focus-visible:text-norm focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat`}
-    >
-      {inner}
-    </button>
-  );
-}
-
-/** Éditeur en place : Entrée enregistre, Échap annule. */
-function MessageEditor({
-  initial,
-  onSave,
-  onCancel,
-}: {
-  initial: string;
-  onSave: (text: string) => void;
-  onCancel: () => void;
-}) {
-  const t = useT();
-  const [text, setText] = useState(initial);
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  }, []);
-
-  const save = (): void => {
-    const trimmed = text.trim();
-    if (trimmed === '') return;
-    onSave(trimmed);
-  };
-
-  return (
-    <div className="py-1">
-      <textarea
-        ref={ref}
-        aria-label={t.dm.edit}
-        value={text}
-        rows={1}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            save();
-          } else if (e.key === 'Escape') {
-            onCancel();
-          }
-        }}
-        className="max-h-48 min-h-[40px] w-full resize-none rounded-lg border border-rail/60 bg-input px-3 py-2 text-[15px] text-norm outline-none transition-colors duration-fast focus:border-blurple/50"
-      />
-      <div className="mt-0.5 text-[11px] text-faint">{t.dm.editHint}</div>
-    </div>
   );
 }
 
@@ -514,132 +339,18 @@ export function MessageList({
     openProfile(author, ancre, groupId);
   };
 
-  /**
-   * Items du menu contextuel « utilisateur » (avatar, pseudo, entrée de la
-   * liste des membres) : profil, mention, MP, copie d'identifiant — réutilise
-   * `ouvrirProfil`, le pont de mention (`requestMentionInsert`) et l'action
-   * d'ouverture de MP déjà existante (`ui.setView`).
-   */
-  const buildUserItems = (author: string, target: HTMLElement): ContextMenuItem[] => {
-    const isSelfAuthor = self !== null && author === self.pubkey;
-    const contact = contacts.find((c) => c.pubkey === author);
-    const canMessage = !isSelfAuthor && contact?.state === 'friend';
-    const items: ContextMenuItem[] = [
-      {
-        label: t.contextMenu.viewProfile,
-        icon: <ProfileMenuIcon />,
-        onClick: () => ouvrirProfil(author, target),
-      },
-      {
-        label: interpolate(t.contextMenu.mention, { name: nameOf(author) }),
-        icon: <MentionMenuIcon />,
-        onClick: () => requestMentionInsert(nameOf(author)),
-      },
-    ];
-    if (canMessage) {
-      items.push({
-        label: t.friends.sendDm,
-        icon: <EnvelopeMenuIcon />,
-        onClick: () => useUi.getState().setView({ kind: 'dm', peer: author }),
-      });
-    }
-    items.push({
-      label: t.contextMenu.copyUserId,
-      icon: <CopyMenuIcon />,
-      separatorBefore: true,
-      onClick: () => copyWithToast(author, t.app.copied),
-    });
-    return items;
-  };
-
-  /**
-   * Items du menu contextuel « message » : copie, mention de l'auteur, puis
-   * réponse/transfert/épingle/édition/suppression — chacun réutilisant une
-   * action déjà câblée par `actions` (ou omis si l'action n'existe pas ou
-   * n'est pas permise), à l'image de la barre d'actions au survol.
-   */
-  const buildMessageItems = (
-    message: DisplayMessage,
-    isOwn: boolean,
-    pinned: boolean,
-  ): ContextMenuItem[] => {
-    const text = !message.deleted ? displayText(message) : null;
-    // Un sticker n'a pas de texte à éditer (contrat : pas de fusion
-    // texte/sticker) — seule la suppression reste permise.
-    const canEdit =
-      actions !== undefined && !message.deleted && isOwn && message.body.type === 'text';
-    const canDelete =
-      actions !== undefined &&
-      !message.deleted &&
-      (isOwn || actions.canModerate === true);
-    const items: ContextMenuItem[] = [];
-    if (text !== null && text !== '') {
-      items.push({
-        label: t.contextMenu.copyText,
-        icon: <CopyMenuIcon />,
-        onClick: () => copyWithToast(text, t.app.copied),
-      });
-    }
-    items.push({
-      label: t.contextMenu.copyMessageId,
-      icon: <CopyMenuIcon />,
-      onClick: () => copyWithToast(message.msg_id, t.app.copied),
-    });
-    if (actions !== undefined && !message.deleted) {
-      items.push({
-        label: interpolate(t.contextMenu.mention, { name: nameOf(message.author) }),
-        icon: <MentionMenuIcon />,
-        separatorBefore: true,
-        onClick: () => requestMentionInsert(nameOf(message.author)),
-      });
-    }
-    const flow: ContextMenuItem[] = [];
-    if (!message.deleted && actions?.onReply !== undefined) {
-      flow.push({
-        label: t.dm.reply,
-        icon: <ReplyMenuIcon />,
-        onClick: () => actions.onReply?.(message),
-      });
-    }
-    if (!message.deleted && actions !== undefined) {
-      flow.push({
-        label: t.dm.forward,
-        icon: <ForwardMenuIcon />,
-        onClick: () => setForwarding(message),
-      });
-    }
-    if (!message.deleted && actions?.onTogglePin !== undefined) {
-      flow.push({
-        label: pinned ? t.serveur.unpin : t.serveur.pin,
-        icon: <PinMenuIcon />,
-        onClick: () => actions.onTogglePin?.(message, pinned),
-      });
-    }
-    flow.forEach((item, i) =>
-      items.push(i === 0 ? { ...item, separatorBefore: true } : item),
-    );
-
-    const management: ContextMenuItem[] = [];
-    if (canEdit) {
-      management.push({
-        label: t.dm.edit,
-        icon: <EditMenuIcon />,
-        onClick: () => setEditingId(message.msg_id),
-      });
-    }
-    if (canDelete) {
-      management.push({
-        label: t.dm.delete,
-        icon: <DeleteMenuIcon />,
-        danger: true,
-        onClick: () => actions?.onDelete(message),
-      });
-    }
-    management.forEach((item, i) =>
-      items.push(i === 0 ? { ...item, separatorBefore: true } : item),
-    );
-
-    return items;
+  /** Contexte partagé des menus contextuels du fil (voir `messageMenus`). */
+  const menuDeps: MessageMenuDeps = {
+    t,
+    selfPubkey: self?.pubkey ?? null,
+    contacts,
+    actions,
+    nameOf,
+    copyWithToast,
+    requestMentionInsert,
+    openProfile: ouvrirProfil,
+    onForward: setForwarding,
+    onEditInPlace: setEditingId,
   };
 
   return (
@@ -710,7 +421,11 @@ export function MessageList({
                   e.preventDefault();
                   useContextMenu
                     .getState()
-                    .openMenu(e.clientX, e.clientY, buildMessageItems(m, isOwn, pinned));
+                    .openMenu(
+                      e.clientX,
+                      e.clientY,
+                      buildMessageItems(menuDeps, m, isOwn, pinned),
+                    );
                 }}
               >
                 {actionable && (
@@ -753,7 +468,7 @@ export function MessageList({
                         .openMenu(
                           e.clientX,
                           e.clientY,
-                          buildUserItems(m.author, e.currentTarget),
+                          buildUserItems(menuDeps, m.author, e.currentTarget),
                         );
                     }}
                     className="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
@@ -793,7 +508,7 @@ export function MessageList({
                               .openMenu(
                                 e.clientX,
                                 e.clientY,
-                                buildUserItems(m.author, e.currentTarget),
+                                buildUserItems(menuDeps, m.author, e.currentTarget),
                               );
                           }}
                           className="font-semibold text-header hover:underline focus-visible:underline focus-visible:outline-none"
