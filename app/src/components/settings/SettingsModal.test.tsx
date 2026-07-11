@@ -106,13 +106,26 @@ describe('SettingsModal — apparence', () => {
     render(<SettingsModal />);
     openTab('Apparence');
 
-    const light = screen.getByRole('button', { name: 'Clair' });
-    expect(light).toHaveAttribute('aria-pressed', 'false');
+    const light = screen.getByRole('radio', { name: 'Clair' });
+    expect(light).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(light);
 
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(window.localStorage.getItem('accord.theme')).toBe('light');
-    expect(light).toHaveAttribute('aria-pressed', 'true');
+    expect(light).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('affiche la galerie de thèmes comme un radiogroup accessible', () => {
+    render(<SettingsModal />);
+    openTab('Apparence');
+
+    const group = screen.getByRole('radiogroup', { name: 'Thème' });
+    expect(group).toBeInTheDocument();
+    expect(screen.getAllByRole('radio')).toHaveLength(8);
+    expect(screen.getByRole('radio', { name: 'Sombre' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
   });
 
   it('bascule la densité compacte, l’applique à la racine et la persiste', () => {

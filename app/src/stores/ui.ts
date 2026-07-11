@@ -61,7 +61,24 @@ export interface JumpRequest {
   nonce: number;
 }
 
-export type Theme = 'dark' | 'light';
+/**
+ * Identifiants de la galerie de thèmes (Paramètres → Apparence), palettes
+ * définies en CSS (`[data-theme='<id>']`, voir global.css). `'dark'` et
+ * `'light'` sont les valeurs historiques : une préférence déjà persistée
+ * sous l'un de ces deux ids continue de se résoudre sans migration, ce sont
+ * simplement deux thèmes de plus dans l'union.
+ */
+export const THEME_IDS = [
+  'dark',
+  'light',
+  'midnight',
+  'storm',
+  'forest',
+  'sunset',
+  'ocean',
+  'crimson',
+] as const;
+export type Theme = (typeof THEME_IDS)[number];
 export type Density = 'comfortable' | 'compact';
 
 /** Échelles de police proposées, en pourcentage de la taille de base. */
@@ -153,7 +170,7 @@ function writeStored(key: string, value: string): void {
 }
 
 function isTheme(value: string | null): value is Theme {
-  return value === 'dark' || value === 'light';
+  return value !== null && (THEME_IDS as readonly string[]).includes(value);
 }
 
 function isDensity(value: string | null): value is Density {

@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   useUi,
+  THEME_IDS,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MIN,
   SIDEBAR_WIDTH_MAX,
@@ -40,6 +41,38 @@ describe('useUi — thème', () => {
 
     expect(root.dataset.theme).toBe('dark');
     expect(window.localStorage.getItem('accord.theme')).toBe('dark');
+  });
+
+  it('applique et persiste chacun des thèmes de la galerie', () => {
+    for (const id of THEME_IDS) {
+      useUi.getState().setTheme(id);
+
+      expect(root.dataset.theme).toBe(id);
+      expect(window.localStorage.getItem('accord.theme')).toBe(id);
+      expect(useUi.getState().theme).toBe(id);
+    }
+  });
+
+  it('migre sans accroc une préférence historique (dark/light) persistée avant la galerie', async () => {
+    // Valeurs stockées par une build antérieure à l'ajout des thèmes teintés :
+    // toujours membres de l'union `Theme`, aucune réécriture n'est nécessaire.
+    window.localStorage.setItem('accord.theme', 'light');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().theme).toBe('light');
+    expect(root.dataset.theme).toBe('light');
+  });
+
+  it('replie sur le thème sombre pour un id de thème persisté inconnu', async () => {
+    window.localStorage.setItem('accord.theme', 'sepia');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().theme).toBe('dark');
+    expect(root.dataset.theme).toBe('dark');
   });
 });
 
