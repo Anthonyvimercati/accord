@@ -8,10 +8,10 @@ import { interpolate } from '../i18n';
 import { copyToClipboard } from '../lib/clipboard';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
-import { useGroups, sortChannels } from '../stores/groups';
+import { useGroups, sortChannels, hasPerm, PERMISSIONS } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
-import { CopyMenuIcon, GearMenuIcon, LeaveMenuIcon } from './ContextMenu';
+import { CopyMenuIcon, EnvelopeMenuIcon, GearMenuIcon, LeaveMenuIcon } from './ContextMenu';
 import { lireFichier } from '../lib/files';
 import { initials } from '../lib/format';
 import type { GroupStateJson } from '../lib/api';
@@ -223,16 +223,18 @@ export function ServerRail() {
 
         /**
          * Items du menu contextuel du serveur : copie d'identifiant,
-         * paramètres (mêmes actions que l'icône ⚙️ du salon) et départ — omis
-         * si le fondateur ne peut pas encore quitter (règle du contrat :
-         * d'autres membres restent). Pas de « marquer comme lu » global :
-         * aucune action équivalente n'existe côté store (seulement par
-         * salon, une fois ouvert).
+         * invitation (si permis, D-045 : consentement explicite — ouvre le
+         * sélecteur d'ami existant), paramètres (mêmes actions que l'icône
+         * ⚙️ du salon) et départ — omis si le fondateur ne peut pas encore
+         * quitter (règle du contrat : d'autres membres restent). Pas de
+         * « marquer comme lu » global : aucune action équivalente n'existe
+         * côté store (seulement par salon, une fois ouvert).
          */
         const buildServerItems = (): ContextMenuItem[] => {
           const groupState = states[id];
           const isFounder = self !== null && groupState?.founder === self.pubkey;
           const founderBlocked = isFounder && (groupState?.members.length ?? 0) > 1;
+          const canInvite = hasPerm(groupState?.my_permissions ?? 0, PERMISSIONS.INVITE);
           const items: ContextMenuItem[] = [
             {
               label: t.contextMenu.copyServerId,
@@ -244,12 +246,19 @@ export function ServerRail() {
                   () => toast('error', t.errors.actionFailed),
                 ),
             },
-            {
-              label: t.serveur.settingsTitle,
-              icon: <GearMenuIcon />,
-              onClick: () => useUi.getState().openModal({ kind: 'serverSettings', groupId: id }),
-            },
           ];
+          if (canInvite) {
+            items.push({
+              label: t.groups.invitePeople,
+              icon: <EnvelopeMenuIcon />,
+              onClick: () => useUi.getState().openModal({ kind: 'invite', groupId: id }),
+            });
+          }
+          items.push({
+            label: t.serveur.settingsTitle,
+            icon: <GearMenuIcon />,
+            onClick: () => useUi.getState().openModal({ kind: 'serverSettings', groupId: id }),
+          });
           if (!founderBlocked) {
             items.push({
               label: t.serveur.leave,

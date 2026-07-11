@@ -208,6 +208,21 @@ export interface GroupInvite {
   revoked: boolean;
 }
 
+/**
+ * Invitation entrante en attente (consentement explicite, D-045 : plus de
+ * force-join) — `groups.invites_list` et `event.group_invite_pending`.
+ * `received_ms` n'est porté que par `groups.invites_list` (absent de
+ * l'événement temps réel, qui vient tout juste d'arriver).
+ */
+export interface PendingInvite {
+  group_id: string;
+  invite_id: string;
+  group_name: string;
+  inviter: string;
+  expires_ms: number;
+  received_ms?: number;
+}
+
 /** Émoji de serveur : nom (`[a-z0-9_]`) et racine Merkle de son image. */
 export interface ServerEmoji {
   name: string;
@@ -364,6 +379,16 @@ export type AccordEvent =
       };
     }
   | { method: 'event.group_key'; params: { group_id: string } }
+  | {
+      method: 'event.group_invite_pending';
+      params: {
+        group_id: string;
+        invite_id: string;
+        group_name: string;
+        inviter: string;
+        expires_ms: number;
+      };
+    }
   | {
       method: 'event.group_typing';
       params: { group_id: string; channel_id: string; pubkey: string };
@@ -1110,8 +1135,38 @@ export class Api {
     });
   }
 
-  groupsInvite(groupId: string, pubkey: string): Promise<{ ok: true }> {
-    return this.rpc.call('groups.invite', { group_id: groupId, pubkey });
+  /**
+   * Autorise une invitation à usage unique vers `pubkey` (consentement
+   * explicite requis côté invité, D-045 — aucun force-join) ; rend
+   * l'identifiant de l'invitation créée.
+   */
+  groupsInviteCreate(groupId: string, pubkey: string): Promise<{ invite_id: string }> {
+    return this.rpc.call('groups.invite_create', { group_id: groupId, pubkey });
+  }
+
+  /** Invitations entrantes en attente (reçues, ni acceptées ni refusées). */
+  groupsInvitesList(): Promise<{ invites: PendingInvite[] }> {
+    return this.rpc.call('groups.invites_list');
+  }
+
+  /**
+   * Accepte une invitation reçue : le groupe se matérialise localement via
+   * les événements `event.group_state`/`event.group_op`/`event.group_key`
+   * qui suivent, une fois l'inviteur notifié.
+   */
+  groupsInviteAccept(groupId: string, inviteId: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.invite_accept', {
+      group_id: groupId,
+      invite_id: inviteId,
+    });
+  }
+
+  /** Refuse une invitation reçue. */
+  groupsInviteDecline(groupId: string, inviteId: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.invite_decline', {
+      group_id: groupId,
+      invite_id: inviteId,
+    });
   }
 
   /**

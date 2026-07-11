@@ -86,6 +86,14 @@ export const en: Dict = {
     removeQuestion: 'Remove this friend?',
     removeKeepHistory: 'Your message history is kept.',
   },
+  invitations: {
+    tabLabel: 'Invitations',
+    invitedBy: 'Invited by {name}',
+    accept: 'Accept',
+    decline: 'Decline',
+    empty: 'No pending invitations.',
+    badge: '{count} pending invitation(s)',
+  },
   dm: {
     placeholder: 'Message @{name}',
     directMessages: 'Direct messages',
@@ -149,6 +157,7 @@ export const en: Dict = {
     kindVoiceHint: 'Hang out with voice, with or without video.',
     members: 'Members',
     invite: 'Invite',
+    invitePeople: 'Invite people',
     inviteTitle: 'Invite a friend',
     inviteHint: 'Pick a friend to invite to this group.',
     invited: 'Invitation sent!',

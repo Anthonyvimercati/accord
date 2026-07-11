@@ -86,6 +86,14 @@ export const fr = {
     removeQuestion: 'Retirer cet ami ?',
     removeKeepHistory: 'L’historique de vos messages est conservé.',
   },
+  invitations: {
+    tabLabel: 'Invitations',
+    invitedBy: 'Invité·e par {name}',
+    accept: 'Accepter',
+    decline: 'Refuser',
+    empty: 'Aucune invitation en attente.',
+    badge: '{count} invitation(s) en attente',
+  },
   dm: {
     placeholder: 'Écrire à @{name}',
     directMessages: 'Messages privés',
@@ -149,6 +157,7 @@ export const fr = {
     kindVoiceHint: 'Retrouvez-vous à la voix, avec ou sans caméra.',
     members: 'Membres',
     invite: 'Inviter',
+    invitePeople: 'Inviter des personnes',
     inviteTitle: 'Inviter un ami',
     inviteHint: 'Choisissez un ami à inviter dans ce groupe.',
     invited: 'Invitation envoyée !',

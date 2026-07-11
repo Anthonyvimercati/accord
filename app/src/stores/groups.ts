@@ -15,6 +15,7 @@ import type {
   GroupMessage,
   GroupRole,
   GroupStateJson,
+  PendingInvite,
 } from '../lib/api';
 import {
   PAGE_SIZE,
@@ -297,7 +298,27 @@ interface GroupsState {
   unread: Record<string, Record<string, number>>;
   /** Mentions non lues par groupe (`groups.list`) : seuls les > 0 figurent. */
   mentions: Record<string, number>;
+  /**
+   * Invitations de serveur entrantes en attente (consentement explicite,
+   * D-045) : reçues, ni acceptées ni refusées. Chargées au démarrage et
+   * complétées par `handleInvitePending` (`event.group_invite_pending`).
+   */
+  pendingInvites: PendingInvite[];
   loadList: () => Promise<void>;
+  /** Recharge uniquement les invitations entrantes en attente. */
+  loadPendingInvites: () => Promise<void>;
+  /**
+   * Ajoute une invitation reçue (`event.group_invite_pending`), dédupliquée
+   * par couple `(group_id, invite_id)`.
+   */
+  handleInvitePending: (invite: PendingInvite) => void;
+  /**
+   * Accepte une invitation reçue : retire l'entrée localement (optimiste),
+   * la restaure et propage l'erreur si le nœud refuse.
+   */
+  acceptInvite: (groupId: string, inviteId: string) => Promise<void>;
+  /** Refuse une invitation reçue — même sémantique optimiste qu'`acceptInvite`. */
+  declineInvite: (groupId: string, inviteId: string) => Promise<void>;
   /** Recharge uniquement les compteurs de non-lus (sans recharger les états). */
   refreshUnread: () => Promise<void>;
   /** Marque le salon lu jusqu'à `lamport` puis rafraîchit les non-lus. */
@@ -419,6 +440,7 @@ interface GroupsState {
     emoji: string,
     selfPubkey: string,
   ) => Promise<void>;
+  /** Autorise une invitation vers `pubkey` (consentement explicite requis, D-045). */
   invite: (groupId: string, pubkey: string) => Promise<void>;
   /** Ajoute (ou remplace) un émoji de serveur puis recharge l'état. */
   addEmoji: (
@@ -440,11 +462,58 @@ export const useGroups = create<GroupsState>((set, get) => ({
   pins: {},
   unread: {},
   mentions: {},
+  pendingInvites: [],
 
   loadList: async () => {
     const { groups, unread, mentions } = await api.groupsList();
     set({ ids: groups, unread: unread ?? {}, mentions: mentions ?? {} });
-    await Promise.all(groups.map((id) => get().loadState(id)));
+    await Promise.all([
+      ...groups.map((id) => get().loadState(id)),
+      get().loadPendingInvites(),
+    ]);
+  },
+
+  loadPendingInvites: async () => {
+    const { invites } = await api.groupsInvitesList();
+    set({ pendingInvites: invites });
+  },
+
+  handleInvitePending: (invite) =>
+    set((s) => {
+      const exists = s.pendingInvites.some(
+        (i) => i.group_id === invite.group_id && i.invite_id === invite.invite_id,
+      );
+      return exists ? {} : { pendingInvites: [...s.pendingInvites, invite] };
+    }),
+
+  acceptInvite: async (groupId, inviteId) => {
+    const previous = get().pendingInvites;
+    set({
+      pendingInvites: previous.filter(
+        (i) => !(i.group_id === groupId && i.invite_id === inviteId),
+      ),
+    });
+    try {
+      await api.groupsInviteAccept(groupId, inviteId);
+    } catch (err) {
+      set({ pendingInvites: previous });
+      throw err;
+    }
+  },
+
+  declineInvite: async (groupId, inviteId) => {
+    const previous = get().pendingInvites;
+    set({
+      pendingInvites: previous.filter(
+        (i) => !(i.group_id === groupId && i.invite_id === inviteId),
+      ),
+    });
+    try {
+      await api.groupsInviteDecline(groupId, inviteId);
+    } catch (err) {
+      set({ pendingInvites: previous });
+      throw err;
+    }
   },
 
   refreshUnread: async () => {
@@ -761,7 +830,7 @@ export const useGroups = create<GroupsState>((set, get) => ({
   },
 
   invite: async (groupId, pubkey) => {
-    await api.groupsInvite(groupId, pubkey);
+    await api.groupsInviteCreate(groupId, pubkey);
     await get().loadState(groupId);
   },
 

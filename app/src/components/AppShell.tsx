@@ -95,6 +95,17 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
 }
 
 /**
+ * Alerte discrète pour une invitation de serveur entrante (consentement
+ * explicite, D-045) : réutilise le blip de message existant (jamais en Ne
+ * pas déranger, comme pour les messages) — la pastille elle-même vient
+ * réactivement du store (`pendingInvites.length`), affichée dans la vue Amis.
+ */
+function maybePlayInviteSound(): void {
+  if (useFriends.getState().ownStatus === 'dnd') return;
+  playNotificationSound('message');
+}
+
+/**
  * Notification click fallback: when the window regains focus shortly after a
  * native notification, navigate to the conversation that triggered it.
  * `ConversationRef` is structurally a `View`, so the UI store's `setView`
@@ -188,6 +199,10 @@ function useNodeEvents() {
         case 'event.group_op':
         case 'event.group_key':
           void useGroups.getState().loadList();
+          break;
+        case 'event.group_invite_pending':
+          useGroups.getState().handleInvitePending(event.params);
+          maybePlayInviteSound();
           break;
         case 'event.group_state':
           // Op appliquée (locale ou distante) : recharger l'état du groupe.

@@ -1,14 +1,19 @@
-/** Vue Amis : onglets Tous / En attente / Bloqués / Ajouter, actions. */
+/** Vue Amis : onglets Tous / En attente / Invitations / Bloqués / Ajouter, actions. */
 
 import { useEffect, useState } from 'react';
+import { interpolate } from '../i18n';
 import type { Contact } from '../lib/api';
 import { presenceOf, useFriends } from '../stores/friends';
+import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { PendingInvites } from './PendingInvites';
 import { PresenceDot } from './PresenceDot';
 
-type Tab = 'all' | 'pending' | 'blocked' | 'add';
+type Tab = 'all' | 'pending' | 'invitations' | 'blocked' | 'add';
+/** Onglets adossés à la liste de contacts (`byTab`) — distincts d'« invitations » et « add ». */
+type ContactTab = 'all' | 'pending' | 'blocked';
 
 function FriendRow({ contact }: { contact: Contact }) {
   const t = useT();
@@ -242,28 +247,30 @@ export function FriendsView() {
   const t = useT();
   const contacts = useFriends((s) => s.contacts);
   const load = useFriends((s) => s.load);
+  const pendingInvites = useGroups((s) => s.pendingInvites);
   const [tab, setTab] = useState<Tab>('all');
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const byTab: Record<Exclude<Tab, 'add'>, Contact[]> = {
+  const byTab: Record<ContactTab, Contact[]> = {
     all: contacts.filter((c) => c.state === 'friend'),
     pending: contacts.filter(
       (c) => c.state === 'pending_in' || c.state === 'pending_out',
     ),
     blocked: contacts.filter((c) => c.state === 'blocked'),
   };
-  const emptyLabel: Record<Exclude<Tab, 'add'>, string> = {
+  const emptyLabel: Record<ContactTab, string> = {
     all: t.friends.empty,
     pending: t.friends.emptyPending,
     blocked: t.friends.emptyBlocked,
   };
 
-  const tabs: { id: Tab; label: string }[] = [
+  const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: 'all', label: t.friends.all },
     { id: 'pending', label: t.friends.pending },
+    { id: 'invitations', label: t.invitations.tabLabel, badge: pendingInvites.length },
     { id: 'blocked', label: t.friends.blocked },
   ];
 
@@ -285,18 +292,31 @@ export function FriendsView() {
         </div>
         <div className="h-6 w-px bg-input" role="separator" />
         <nav className="flex gap-2" aria-label={t.friends.title}>
-          {tabs.map(({ id, label }) => (
+          {tabs.map(({ id, label, badge }) => (
             <button
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={`rounded px-2.5 py-0.5 text-sm font-medium ${
+              aria-label={
+                badge !== undefined && badge > 0
+                  ? `${label} — ${interpolate(t.invitations.badge, { count: String(badge) })}`
+                  : undefined
+              }
+              className={`flex items-center rounded px-2.5 py-0.5 text-sm font-medium ${
                 tab === id
                   ? 'bg-chat-hover text-header'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
               }`}
             >
               {label}
+              {badge !== undefined && badge > 0 && (
+                <span
+                  aria-hidden
+                  className="ml-1.5 flex min-w-[18px] items-center justify-center rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-white"
+                >
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              )}
             </button>
           ))}
           <button
@@ -312,6 +332,13 @@ export function FriendsView() {
       </header>
       {tab === 'add' ? (
         <AddFriend />
+      ) : tab === 'invitations' ? (
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="mb-2 text-xs font-semibold uppercase text-faint">
+            {t.invitations.tabLabel} — {pendingInvites.length}
+          </div>
+          <PendingInvites />
+        </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
           <div className="mb-2 text-xs font-semibold uppercase text-faint">

@@ -34,11 +34,15 @@ vi.mock('../lib/client', () => ({
     groupsTimeout: vi.fn(),
     groupsTimeoutClear: vi.fn(),
     groupsSetNickname: vi.fn(),
+    groupsInviteCreate: vi.fn(),
+    groupsInvitesList: vi.fn(),
+    groupsInviteAccept: vi.fn(),
+    groupsInviteDecline: vi.fn(),
   },
 }));
 
 import { api, rpc } from '../lib/client';
-import type { GroupMessage, GroupRole, GroupStateJson } from '../lib/api';
+import type { GroupMessage, GroupRole, GroupStateJson, PendingInvite } from '../lib/api';
 import {
   useGroups,
   channelKey,
@@ -84,6 +88,10 @@ const historyAroundMock = api.groupsHistoryAround as unknown as Mock;
 const timeoutMock = api.groupsTimeout as unknown as Mock;
 const timeoutClearMock = api.groupsTimeoutClear as unknown as Mock;
 const nicknameMock = api.groupsSetNickname as unknown as Mock;
+const inviteCreateMock = api.groupsInviteCreate as unknown as Mock;
+const invitesListMock = api.groupsInvitesList as unknown as Mock;
+const inviteAcceptMock = api.groupsInviteAccept as unknown as Mock;
+const inviteDeclineMock = api.groupsInviteDecline as unknown as Mock;
 const callMock = rpc.call as unknown as Mock;
 
 function role(id: string, position: number, color = 0): GroupRole {
@@ -130,6 +138,7 @@ beforeEach(() => {
     pins: {},
     unread: {},
     mentions: {},
+    pendingInvites: [],
   });
   for (const mock of [
     listMock,
@@ -156,10 +165,17 @@ beforeEach(() => {
     timeoutMock,
     timeoutClearMock,
     nicknameMock,
+    inviteCreateMock,
+    invitesListMock,
+    inviteAcceptMock,
+    inviteDeclineMock,
     callMock,
   ]) {
     mock.mockReset();
   }
+  // Défaut sûr : `loadList` appelle toujours `invites_list` en parallèle des
+  // états de groupe — la plupart des tests ne portent pas sur les invitations.
+  invitesListMock.mockResolvedValue({ invites: [] });
 });
 
 describe('hasPerm', () => {
@@ -628,6 +644,92 @@ describe('useGroups — mentions', () => {
     handleMentionNodeEvent('event.dm');
 
     expect(listMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useGroups — invitations en attente (D-045)', () => {
+  function invite(over: Partial<PendingInvite> = {}): PendingInvite {
+    return {
+      group_id: 'g1',
+      invite_id: 'i1',
+      group_name: 'Guilde',
+      inviter: 'alice-pk',
+      expires_ms: 9999,
+      ...over,
+    };
+  }
+
+  it('handleInvitePending ajoute une invitation reçue (event.group_invite_pending)', () => {
+    useGroups.getState().handleInvitePending(invite());
+
+    expect(useGroups.getState().pendingInvites).toEqual([invite()]);
+  });
+
+  it('handleInvitePending déduplique par (group_id, invite_id)', () => {
+    useGroups.setState({ pendingInvites: [invite()] });
+
+    useGroups
+      .getState()
+      .handleInvitePending(invite({ group_name: 'Renommée entre-temps' }));
+
+    expect(useGroups.getState().pendingInvites).toHaveLength(1);
+    expect(useGroups.getState().pendingInvites[0]?.group_name).toBe('Guilde');
+  });
+
+  it('loadPendingInvites remplace la liste depuis le nœud', async () => {
+    invitesListMock.mockResolvedValueOnce({ invites: [invite()] });
+
+    await useGroups.getState().loadPendingInvites();
+
+    expect(useGroups.getState().pendingInvites).toEqual([invite()]);
+  });
+
+  it('acceptInvite retire l’invitation localement puis appelle le nœud', async () => {
+    useGroups.setState({ pendingInvites: [invite()] });
+    inviteAcceptMock.mockResolvedValueOnce({ ok: true });
+
+    await useGroups.getState().acceptInvite('g1', 'i1');
+
+    expect(inviteAcceptMock).toHaveBeenCalledWith('g1', 'i1');
+    expect(useGroups.getState().pendingInvites).toEqual([]);
+  });
+
+  it('acceptInvite restaure l’invitation et propage l’erreur si le nœud refuse', async () => {
+    useGroups.setState({ pendingInvites: [invite()] });
+    inviteAcceptMock.mockRejectedValueOnce(new Error('refusé'));
+
+    await expect(useGroups.getState().acceptInvite('g1', 'i1')).rejects.toThrow();
+
+    expect(useGroups.getState().pendingInvites).toEqual([invite()]);
+  });
+
+  it('declineInvite retire l’invitation localement puis appelle le nœud', async () => {
+    useGroups.setState({ pendingInvites: [invite()] });
+    inviteDeclineMock.mockResolvedValueOnce({ ok: true });
+
+    await useGroups.getState().declineInvite('g1', 'i1');
+
+    expect(inviteDeclineMock).toHaveBeenCalledWith('g1', 'i1');
+    expect(useGroups.getState().pendingInvites).toEqual([]);
+  });
+
+  it('declineInvite restaure l’invitation et propage l’erreur si le nœud refuse', async () => {
+    useGroups.setState({ pendingInvites: [invite()] });
+    inviteDeclineMock.mockRejectedValueOnce(new Error('refusé'));
+
+    await expect(useGroups.getState().declineInvite('g1', 'i1')).rejects.toThrow();
+
+    expect(useGroups.getState().pendingInvites).toEqual([invite()]);
+  });
+
+  it('invite (créer, D-045) appelle invite_create puis recharge l’état — plus de force-join', async () => {
+    inviteCreateMock.mockResolvedValueOnce({ invite_id: 'i2' });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().invite('g1', 'bob-pk');
+
+    expect(inviteCreateMock).toHaveBeenCalledWith('g1', 'bob-pk');
+    expect(stateMock).toHaveBeenCalledWith('g1');
   });
 });
 
