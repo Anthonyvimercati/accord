@@ -177,6 +177,33 @@ impl Db {
         }
     }
 
+    /// Groupes en attente locale (`Accepted`) n'ayant encore AUCUN op-log
+    /// matérialisé : candidats à la purge d'une acceptation/rachat fantôme
+    /// (lien mort ou révoqué qui n'aboutira jamais). Un groupe portant déjà des
+    /// ops en est exclu — il se matérialise par la porte de consentement
+    /// normale ([`LocalMembership::Joined`]).
+    pub fn accepted_without_ops_group_ids(&self) -> Result<Vec<[u8; 16]>, CoreError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT m.group_id FROM group_membership_local m
+             WHERE m.state = 1
+               AND NOT EXISTS (SELECT 1 FROM group_ops g WHERE g.group_id = m.group_id)",
+        )?;
+        let raws = stmt
+            .query_map([], |row| row.get::<_, Vec<u8>>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        raws.into_iter().map(blob).collect()
+    }
+
+    /// Efface toute trace d'appartenance locale d'un groupe (retour à `None`
+    /// implicite). Idempotent — sans effet si aucune ligne n'existe.
+    pub fn clear_group_membership(&self, group_id: &[u8; 16]) -> Result<(), CoreError> {
+        self.conn().execute(
+            "DELETE FROM group_membership_local WHERE group_id = ?1",
+            [group_id.as_slice()],
+        )?;
+        Ok(())
+    }
+
     // ---- Clés d'époque ----
 
     /// Stocke la clé d'un epoch (idempotent, premier arrivé conservé).

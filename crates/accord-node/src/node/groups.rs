@@ -186,6 +186,21 @@ fn group_events_fired_key(group_id: &[u8; 16]) -> String {
     format!("evfired:{}", hex::encode(group_id))
 }
 
+/// Clé de métadonnée locale du nom affiché d'un groupe rejoint via un lien
+/// d'invitation, en attendant l'op-log (jamais répliquée ; le nom replié de
+/// l'op-log fait autorité dès qu'il est matérialisé).
+fn pending_group_name_key(group_id: &[u8; 16]) -> String {
+    format!("pendname:{}", hex::encode(group_id))
+}
+
+/// Clé de métadonnée locale de l'horodatage (ms, big-endian comme
+/// [`read_u64`]) du rachat d'un lien d'invitation en attente d'op-log. Borne
+/// l'âge d'une appartenance `Accepted` fantôme — lien mort ou révoqué qui
+/// n'aboutira jamais — pour la purger à la lecture. Jamais répliquée.
+fn pending_redeem_key(group_id: &[u8; 16]) -> String {
+    format!("pendredeem:{}", hex::encode(group_id))
+}
+
 /// Décode la liste d'identifiants d'événements déjà signalés (silencieuse
 /// sur une longueur non multiple de 16 : tronque au dernier identifiant
 /// complet plutôt que paniquer — métadonnée locale, jamais attaquant-
@@ -1560,6 +1575,120 @@ impl Node {
         Ok(())
     }
 
+    /// Crée un lien d'invitation public partageable : autorise une invitation
+    /// paramétrable (op `InviteCreate` répliquée — `max_uses = 0` illimité,
+    /// `expires_h = Some(0)` sans expiration, absent = TTL par défaut) puis
+    /// encode le code `accord://invite/…` portant tout ce qu'il faut pour
+    /// contacter l'inviteur ([`group_invite::encode_invite_link`]). Aucun
+    /// ticket point-à-point : n'importe quel porteur du code peut demander à
+    /// rejoindre via `groups.invite_link_redeem`.
+    pub fn group_invite_link_create(
+        &self,
+        group_id: &[u8; 16],
+        max_uses: u32,
+        expires_h: Option<u64>,
+    ) -> Result<String, NodeError> {
+        let group_name = self.group_state(group_id)?.name;
+        // Même défense en profondeur que `group_invite_create` (MEDIUM-1) :
+        // jamais de code portant un nom de groupe usurpateur.
+        if !accord_core::group::state::is_valid_display_label(&group_name, MAX_LABEL_CHARS) {
+            return Err(NodeError::Invalid(
+                "nom de groupe invalide pour un lien d'invitation",
+            ));
+        }
+        let ttl_ms = match expires_h {
+            None => Some(group_invite::DEFAULT_INVITE_TTL_MS),
+            Some(0) => None,
+            Some(h) => Some(h.saturating_mul(60 * 60 * 1000)),
+        };
+        let authored = self.with_db(|db| {
+            Ok(group_invite::author_invite_create_with(
+                db,
+                &self.identity,
+                group_id,
+                now_ms(),
+                max_uses,
+                ttl_ms,
+            )?)
+        })?;
+        self.outbound.send(Outbound::GroupOp {
+            op: Box::new(authored.op),
+        });
+        self.emit_group_state(group_id);
+        Ok(group_invite::encode_invite_link(
+            group_id,
+            &authored.invite_id,
+            &authored.secret,
+            &self.identity.public_key(),
+            &group_name,
+        ))
+    }
+
+    /// Rachète un lien d'invitation public : décode et valide le code,
+    /// refuse si le groupe est déjà rejoint, ouvre la porte de consentement
+    /// locale ([`LocalMembership::Accepted`] — la démarche est volontaire,
+    /// même sémantique que [`Node::group_invite_accept`]) en retenant le nom
+    /// affiché du lien en attendant l'op-log, puis envoie
+    /// `CoreMsg::InviteRedeem` à l'inviteur (mis en file s'il est hors
+    /// ligne). Rend `(group_id, group_name)` ; le groupe n'apparaît dans
+    /// `groups.list` qu'une fois l'op-log effectivement poussé en retour.
+    pub fn group_invite_link_redeem(&self, code: &str) -> Result<([u8; 16], String), NodeError> {
+        let link = group_invite::decode_invite_link(code)
+            .map_err(|_| NodeError::Invalid("lien d'invitation invalide"))?;
+        if link.inviter == self.identity.public_key() {
+            return Err(NodeError::Invalid("ce lien pointe vers vous-même"));
+        }
+        self.with_db(|db| {
+            if db.group_membership(&link.group_id)? == LocalMembership::Joined {
+                return Err(NodeError::Invalid("déjà membre de ce groupe"));
+            }
+            db.set_group_membership(&link.group_id, LocalMembership::Accepted)?;
+            db.set_meta(
+                &pending_group_name_key(&link.group_id),
+                link.group_name.as_bytes(),
+            )?;
+            // MEDIUM : jalon d'âge pour purger une appartenance `Accepted`
+            // fantôme si le rachat n'aboutit jamais (lien mort/révoqué).
+            db.set_meta(&pending_redeem_key(&link.group_id), &now_ms().to_be_bytes())?;
+            Ok(())
+        })?;
+        self.outbound.send(Outbound::Core {
+            to: link.inviter,
+            msg: Box::new(CoreMsg::InviteRedeem {
+                group_id: link.group_id,
+                invite_id: link.invite_id,
+                secret: link.secret,
+            }),
+        });
+        Ok((link.group_id, link.group_name))
+    }
+
+    /// Purge les appartenances locales `Accepted` fantômes issues d'un rachat
+    /// de lien jamais abouti (MEDIUM) : état accepté, aucun op-log reçu, et
+    /// rachat plus vieux que [`group_invite::DEFAULT_INVITE_TTL_MS`]. Appelée à
+    /// la lecture (`groups.list`) — pas de boucle de maintenance dédiée. Une
+    /// appartenance `Accepted` sans jalon de rachat (acceptation de ticket
+    /// point-à-point, hors périmètre) est laissée intacte. Rend le nombre
+    /// d'appartenances purgées.
+    pub fn purge_stale_pending_redeems(&self, now_ms: u64) -> Result<usize, NodeError> {
+        self.with_db(|db| {
+            let mut purged = 0usize;
+            for group_id in db.accepted_without_ops_group_ids()? {
+                let key = pending_redeem_key(&group_id);
+                let since = read_u64(db.meta(&key)?);
+                if since == 0 || now_ms.saturating_sub(since) <= group_invite::DEFAULT_INVITE_TTL_MS
+                {
+                    continue;
+                }
+                db.clear_group_membership(&group_id)?;
+                db.del_meta(&key)?;
+                db.del_meta(&pending_group_name_key(&group_id))?;
+                purged += 1;
+            }
+            Ok(purged)
+        })
+    }
+
     /// Ingère un `CoreMsg::InviteTicket` reçu (appelé depuis
     /// [`super::Node::ingest_core`]) : vérifie la signature et l'expiration
     /// de transport, valide `group_name` (anti-usurpation, MEDIUM-1) puis
@@ -1656,7 +1785,10 @@ impl Node {
                 now_ms(),
             )?)
         });
-        let Ok(finalized) = result else {
+        // `Ok(None)` = cette identité n'est pas le créateur de l'invitation
+        // (CRITICAL/HIGH liens publics) : rien à pousser, exactement comme une
+        // preuve invalide (`Err`).
+        let Ok(Some(finalized)) = result else {
             return;
         };
         self.outbound.send(Outbound::GroupOp {
@@ -1677,6 +1809,25 @@ impl Node {
             }),
         });
         self.emit_group_state(&group_id);
+    }
+
+    /// Ingère un `CoreMsg::InviteRedeem` reçu (appelé depuis
+    /// [`super::Node::ingest_core`], APRÈS la cadence anti-abus par pair) :
+    /// exactement la même autorité de décision que [`ingest_invite_accept`]
+    /// — le rachat d'un lien public prouve la détention du secret comme une
+    /// acceptation de ticket, [`group_invite::finalize_invite_accept`]
+    /// re-vérifie hash du secret, révocation, expiration et usages restants
+    /// contre l'op `InviteCreate` répliquée avant tout `AddMember`. Toute
+    /// preuve invalide est ignorée en silence (aucun oracle d'erreur vers un
+    /// pair arbitraire porteur d'un code).
+    pub(super) fn ingest_invite_redeem(
+        &self,
+        redeemer: [u8; 32],
+        group_id: [u8; 16],
+        invite_id: [u8; 16],
+        secret: [u8; 32],
+    ) {
+        self.ingest_invite_accept(redeemer, group_id, invite_id, secret);
     }
 
     /// Fixture de test : ajoute directement un membre en contournant le

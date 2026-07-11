@@ -32,6 +32,18 @@ use crate::outbound::{Outbound, OutboundSink};
 /// pair (anti-abus) : en deçà, l'événement est silencieusement ignoré.
 const TYPING_MIN_INTERVAL_MS: u64 = 2_000;
 
+/// Fenêtre de cadence des `InviteRedeem` entrants par pair (anti-abus).
+const REDEEM_WINDOW_MS: u64 = 60_000;
+
+/// Rachats d'invitation acceptés par pair et par fenêtre : au-delà, le
+/// message est silencieusement ignoré (aucun oracle vers l'attaquant).
+const REDEEM_MAX_PER_WINDOW: u32 = 5;
+
+/// Borne mémoire du suivi de cadence des rachats : au-delà, les fenêtres
+/// expirées sont purgées ; si la table reste pleine, les nouveaux pairs sont
+/// ignorés (dégradation sûre plutôt que croissance non bornée).
+const REDEEM_SEEN_MAX_PEERS: usize = 1024;
+
 /// Décode une valeur `u64` big-endian d'une métadonnée (0 si absente ou
 /// malformée). Support des marques de lecture DM et de salon.
 pub(super) fn read_u64(v: Option<Vec<u8>>) -> u64 {
@@ -112,6 +124,9 @@ pub struct Node {
     peer_status: Mutex<HashMap<[u8; 32], RichPresence>>,
     /// Dernier indicateur de frappe accepté par pair (anti-abus, ms murales).
     typing_seen: Mutex<HashMap<[u8; 32], u64>>,
+    /// Cadence des `InviteRedeem` entrants par pair : `(début de fenêtre ms,
+    /// compte)`. Anti-abus en mémoire, borné ([`REDEEM_SEEN_MAX_PEERS`]).
+    redeem_seen: Mutex<HashMap<[u8; 32], (u64, u32)>>,
 }
 
 impl Node {
@@ -139,6 +154,7 @@ impl Node {
             online: Mutex::new(HashSet::new()),
             peer_status: Mutex::new(HashMap::new()),
             typing_seen: Mutex::new(HashMap::new()),
+            redeem_seen: Mutex::new(HashMap::new()),
         }
     }
 
@@ -336,6 +352,30 @@ impl Node {
                 true
             }
         }
+    }
+
+    /// Anti-abus des rachats de lien d'invitation : au plus
+    /// [`REDEEM_MAX_PER_WINDOW`] `InviteRedeem` acceptés par pair et par
+    /// fenêtre de [`REDEEM_WINDOW_MS`] ms. Rend vrai si le message doit être
+    /// traité (et crédite la fenêtre). Table bornée : pleine, elle purge les
+    /// fenêtres expirées puis, à défaut, ignore les pairs inconnus.
+    fn redeem_allowed(&self, peer: &[u8; 32], now: u64) -> bool {
+        let mut seen = self.redeem_seen.lock().expect("verrou rachat empoisonné");
+        if seen.len() >= REDEEM_SEEN_MAX_PEERS && !seen.contains_key(peer) {
+            seen.retain(|_, (start, _)| now.saturating_sub(*start) < REDEEM_WINDOW_MS);
+            if seen.len() >= REDEEM_SEEN_MAX_PEERS {
+                return false;
+            }
+        }
+        let entry = seen.entry(*peer).or_insert((now, 0));
+        if now.saturating_sub(entry.0) >= REDEEM_WINDOW_MS {
+            *entry = (now, 0);
+        }
+        if entry.1 >= REDEEM_MAX_PER_WINDOW {
+            return false;
+        }
+        entry.1 += 1;
+        true
     }
 
     // ---- Ingestion des messages réseau ----
@@ -768,6 +808,18 @@ impl Node {
             CoreMsg::InviteDecline { .. } => {
                 // Best-effort : aucun suivi local des invitations sortantes
                 // aujourd'hui, rien à effacer côté inviteur.
+                Ok(vec![])
+            }
+            CoreMsg::InviteRedeem {
+                group_id,
+                invite_id,
+                secret,
+            } => {
+                // Anti-abus : cadence par pair, silencieusement ignoré
+                // au-delà (entrée attaquant-contrôlée, aucun oracle).
+                if self.redeem_allowed(peer_pubkey, now_ms()) {
+                    self.ingest_invite_redeem(*peer_pubkey, group_id, invite_id, secret);
+                }
                 Ok(vec![])
             }
             // Signalisation vocale et autres éphémères : non persistées ici.

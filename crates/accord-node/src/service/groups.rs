@@ -352,6 +352,10 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             Ok(json!({ "group_id": node.group_create(name)? }))
         }
         "groups.list" => {
+            // Purge des appartenances `Accepted` fantômes (lien d'invitation
+            // mort/révoqué jamais abouti) avant de lister — balayage léger à la
+            // lecture, sans boucle de maintenance dédiée (MEDIUM).
+            node.purge_stale_pending_redeems(crate::node::now_ms())?;
             let ids = node.group_ids()?;
             // Non-lus par groupe : `{ group_id: { channel_id: n } }` (seuls les
             // salons portant au moins un non-lu figurent). Mentions non lues
@@ -719,6 +723,25 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let gid = param_id16(params, "group_id")?;
             let member = param_pubkey(params, "pubkey")?;
             Ok(json!({ "invite_id": node.group_invite_create(&gid, &member)? }))
+        }
+        "groups.invite_link_create" => {
+            let gid = param_id16(params, "group_id")?;
+            // `max_uses` : 0 (défaut) = illimité ; borné au filaire (u32).
+            let max_uses = u32::try_from(param_u64(params, "max_uses", 0)).unwrap_or(u32::MAX);
+            // `expires_h` : absent = TTL par défaut, 0 = n'expire jamais.
+            let expires_h = params.get("expires_h").and_then(Value::as_u64);
+            Ok(json!({
+                "code": node.group_invite_link_create(&gid, max_uses, expires_h)?
+            }))
+        }
+        "groups.invite_link_redeem" => {
+            let code = param_str(params, "code")?;
+            let (group_id, group_name) = node.group_invite_link_redeem(code)?;
+            Ok(json!({
+                "ok": true,
+                "group_id": hex::encode(&group_id),
+                "group_name": group_name,
+            }))
         }
         "groups.invites_list" => Ok(json!({
             "invites": node

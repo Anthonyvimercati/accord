@@ -154,6 +154,7 @@ pub fn is_queueable_offline(msg: &CoreMsg) -> bool {
         | CoreMsg::InviteTicket { .. }
         | CoreMsg::InviteAccept { .. }
         | CoreMsg::InviteDecline { .. }
+        | CoreMsg::InviteRedeem { .. }
         | CoreMsg::Profile { .. } => true,
         _ => false,
     }
@@ -943,6 +944,13 @@ mod tests {
         assert!(is_queueable_offline(&CoreMsg::InviteDecline {
             group_id: [0; 16],
             invite_id: [0; 16],
+        }));
+        // Rachat d'un lien d'invitation : l'inviteur peut être hors ligne au
+        // moment où le porteur du code le rachète — mis en file.
+        assert!(is_queueable_offline(&CoreMsg::InviteRedeem {
+            group_id: [0; 16],
+            invite_id: [0; 16],
+            secret: [0; 32],
         }));
         assert!(!is_queueable_offline(&CoreMsg::Presence {
             status: 0,

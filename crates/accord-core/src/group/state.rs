@@ -241,6 +241,14 @@ pub struct Invite {
     pub expires_ms: u64,
     /// Révoquée.
     pub revoked: bool,
+    /// Créateur de l'invitation (auteur de l'op `InviteCreate`). Seul ce nœud
+    /// finalise une acceptation/rachat et scelle la clé de groupe
+    /// (CRITICAL/HIGH liens publics) : la consommation des usages est ainsi
+    /// sérialisée sur son unique mutex, ce qui supprime la course
+    /// inter-nœuds où deux membres INVITE distincts scellaient la clé pour
+    /// deux invités concurrents. Reconstruit à chaque repli de l'op-log
+    /// (jamais sérialisé ni filaire) : aucune compat de persistance.
+    pub creator: [u8; 32],
 }
 
 /// Overrides de permissions d'un rôle sur un salon.
@@ -962,6 +970,7 @@ impl GroupState {
                         uses: 0,
                         expires_ms,
                         revoked: false,
+                        creator: author,
                     },
                 );
             }

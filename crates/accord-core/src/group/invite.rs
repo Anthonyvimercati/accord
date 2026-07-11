@@ -49,7 +49,8 @@ pub struct AuthoredInvite {
     pub invite_id: [u8; 16],
     /// Secret en clair (32 octets aléatoires) : préimage de `code_hash`.
     pub secret: [u8; 32],
-    /// Expiration murale ms effective (jamais 0 : toujours bornée).
+    /// Expiration murale ms effective (0 = n'expire jamais, uniquement via
+    /// [`author_invite_create_with`] ; toujours bornée sinon).
     pub expires_ms: u64,
 }
 
@@ -72,8 +73,26 @@ pub fn author_invite_create(
     now_ms: u64,
     ttl_ms: u64,
 ) -> Result<AuthoredInvite, CoreError> {
-    let ttl_ms = ttl_ms.clamp(MIN_INVITE_TTL_MS, MAX_INVITE_TTL_MS);
-    let expires_ms = now_ms.saturating_add(ttl_ms);
+    author_invite_create_with(db, identity, group_id, now_ms, 1, Some(ttl_ms))
+}
+
+/// Autorise une invitation paramétrable (op `InviteCreate`) pour `group_id` :
+/// `max_uses = 0` = illimité, `ttl_ms = None` = n'expire jamais
+/// (`expires_ms = 0`, forme déjà comprise par le repli
+/// [`super::state::GroupState::apply`]), `Some(ttl)` borné à
+/// `[MIN_INVITE_TTL_MS, MAX_INVITE_TTL_MS]` comme [`author_invite_create`].
+pub fn author_invite_create_with(
+    db: &Db,
+    identity: &Identity,
+    group_id: &[u8; 16],
+    now_ms: u64,
+    max_uses: u32,
+    ttl_ms: Option<u64>,
+) -> Result<AuthoredInvite, CoreError> {
+    let expires_ms = match ttl_ms {
+        None => 0,
+        Some(ttl) => now_ms.saturating_add(ttl.clamp(MIN_INVITE_TTL_MS, MAX_INVITE_TTL_MS)),
+    };
     let invite_id = new_id16();
     let (secret, code_hash) = new_invite_secret();
     let op = author_op(
@@ -83,7 +102,7 @@ pub fn author_invite_create(
         &GroupOpBody::InviteCreate {
             invite_id,
             code_hash,
-            max_uses: 1,
+            max_uses,
             expires_ms,
         },
         now_ms,
@@ -164,12 +183,23 @@ pub struct FinalizedInvite {
     pub sealed_key: [u8; SEALED_KEY_LEN],
 }
 
-/// Finalise une acceptation d'invitation (`CoreMsg::InviteAccept`) côté
-/// inviteur : re-vérifie que l'identité locale détient toujours `INVITE`,
-/// que l'invitation est encore valide (non révoquée/expirée/épuisée, selon
+/// Finalise une acceptation d'invitation (`CoreMsg::InviteAccept`/`InviteRedeem`)
+/// côté créateur : n'agit QUE si l'identité locale est le créateur de
+/// l'invitation, re-vérifie qu'elle détient toujours `INVITE`, que
+/// l'invitation est encore valide (non révoquée/expirée/épuisée, selon
 /// l'état replié — [`super::state::GroupState::invites`]) et que `secret`
-/// correspond bien à `code_hash` (seul le destinataire du ticket original
-/// peut le prouver), puis admet le membre.
+/// correspond bien à `code_hash` (seul le détenteur du ticket/lien peut le
+/// prouver), puis admet le membre.
+///
+/// CRITICAL/HIGH (liens publics) : un lien partagé peut être présenté par un
+/// attaquant à plusieurs membres INVITE en même temps. Chaque réplique locale
+/// verrait `uses < max_uses` et scellerait la clé, laissant fuiter une clé de
+/// groupe valide à un invité que le repli canonique rejettera pourtant.
+/// N'admettre et ne sceller que chez le créateur sérialise la consommation
+/// des usages sur son unique mutex : la course inter-nœuds disparaît. Un
+/// membre INVITE non créateur qui reçoit un redeem valide obtient donc un
+/// résultat neutre `Ok(None)` (ni op-log, ni clé), à ne pas confondre avec
+/// une entrée invalide (`Err`).
 ///
 /// N'échoue jamais par panique sur une entrée attaquant-contrôlée : toute
 /// invitation/secret invalide rend une erreur explicite, à ignorer
@@ -183,15 +213,20 @@ pub fn finalize_invite_accept(
     secret: &[u8; 32],
     invitee: &[u8; 32],
     now_ms: u64,
-) -> Result<FinalizedInvite, CoreError> {
+) -> Result<Option<FinalizedInvite>, CoreError> {
     let state = group_state(db, group_id)?;
-    if !state.can(&identity.public_key(), perms::INVITE) {
-        return Err(CoreError::OpRejected("droit d'invitation révoqué"));
-    }
     let invite = state
         .invites
         .get(invite_id)
         .ok_or(CoreError::NotFound("invitation inconnue"))?;
+    // Seul le créateur finalise et scelle (CRITICAL/HIGH) : cas neutre, pas
+    // une entrée invalide.
+    if identity.public_key() != invite.creator {
+        return Ok(None);
+    }
+    if !state.can(&identity.public_key(), perms::INVITE) {
+        return Err(CoreError::OpRejected("droit d'invitation révoqué"));
+    }
     if invite.revoked
         || (invite.max_uses > 0 && invite.uses >= invite.max_uses)
         || (invite.expires_ms > 0 && now_ms > invite.expires_ms)
@@ -216,11 +251,201 @@ pub fn finalize_invite_accept(
     )?;
     let ops = ops_for_pull(db, group_id, 0)?;
     let (key_epoch, sealed_key) = seal_current_key_for(db, group_id, invitee)?;
-    Ok(FinalizedInvite {
+    Ok(Some(FinalizedInvite {
         add_op,
         ops,
         key_epoch,
         sealed_key,
+    }))
+}
+
+// ---- Liens d'invitation publics partageables ----
+
+/// Préfixe lisible d'un lien d'invitation partageable.
+pub const INVITE_LINK_PREFIX: &str = "accord://invite/";
+
+/// Borne du nom de groupe embarqué dans un lien (octets UTF-8, tronqué à
+/// l'encodage sur une frontière de caractère).
+pub const MAX_LINK_NAME_BYTES: usize = 48;
+
+/// Version courante du format binaire d'un lien d'invitation.
+const INVITE_LINK_VERSION: u8 = 1;
+
+/// Taille des champs fixes du payload : version ‖ group_id ‖ invite_id ‖
+/// secret ‖ inviter.
+const INVITE_LINK_FIXED_LEN: usize = 1 + 16 + 16 + 32 + 32;
+
+/// Taille de la somme de contrôle (préfixe SHA-256 du payload) : détecte un
+/// code corrompu ou tronqué avant tout aller-retour réseau. Ce n'est PAS une
+/// protection d'intégrité cryptographique — le secret n'est validé que côté
+/// inviteur (hash contre l'op répliquée).
+const INVITE_LINK_CHECKSUM_LEN: usize = 4;
+
+/// Plafond de taille du texte encodé (base64url) accepté en entrée : une
+/// chaîne démesurée est rejetée AVANT tout décodage base64 (défense en
+/// profondeur, borne le coût CPU de l'allocation/décodage sur une entrée
+/// attaquant-contrôlée). Large devant le maximum réel (~200 octets pour le
+/// plus long nom embarqué) sans être exploitable.
+const MAX_INVITE_LINK_ENCODED_LEN: usize = 512;
+
+/// Contenu décodé d'un lien d'invitation partageable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InviteLink {
+    /// Groupe à rejoindre.
+    pub group_id: [u8; 16],
+    /// Invitation (op `InviteCreate` répliquée chez les membres).
+    pub invite_id: [u8; 16],
+    /// Secret d'invitation (préimage de `code_hash`).
+    pub secret: [u8; 32],
+    /// Clé publique de l'inviteur à contacter pour racheter le lien.
+    pub inviter: [u8; 32],
+    /// Nom du groupe au moment de la création du lien (affichage avant
+    /// adhésion uniquement — jamais une source d'autorité).
+    pub group_name: String,
+}
+
+/// Alphabet base64 URL-safe (RFC 4648 §5), sans padding.
+const B64URL_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/// Encode en base64 URL-safe sans padding.
+fn b64url_encode(data: &[u8]) -> String {
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let acc = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        let n_chars = chunk.len() + 1;
+        for i in 0..n_chars {
+            out.push(B64URL_ALPHABET[(acc >> (18 - 6 * i)) as usize & 0x3F] as char);
+        }
+    }
+    out
+}
+
+/// Valeur d'un caractère base64 URL-safe (rejet strict hors alphabet).
+fn b64url_val(c: u8) -> Option<u32> {
+    match c {
+        b'A'..=b'Z' => Some(u32::from(c - b'A')),
+        b'a'..=b'z' => Some(u32::from(c - b'a') + 26),
+        b'0'..=b'9' => Some(u32::from(c - b'0') + 52),
+        b'-' => Some(62),
+        b'_' => Some(63),
+        _ => None,
+    }
+}
+
+/// Décode du base64 URL-safe sans padding : rejette tout caractère hors
+/// alphabet, toute longueur impossible et tout encodage non canonique (bits
+/// de bourrage non nuls) — entrée potentiellement hostile, jamais de panique.
+fn b64url_decode(s: &str) -> Option<Vec<u8>> {
+    let bytes = s.as_bytes();
+    if bytes.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    for chunk in bytes.chunks(4) {
+        let mut acc = 0u32;
+        for (i, &c) in chunk.iter().enumerate() {
+            acc |= b64url_val(c)? << (18 - 6 * i);
+        }
+        match chunk.len() {
+            4 => out.extend_from_slice(&[(acc >> 16) as u8, (acc >> 8) as u8, acc as u8]),
+            3 => {
+                if acc & 0xFF != 0 {
+                    return None;
+                }
+                out.extend_from_slice(&[(acc >> 16) as u8, (acc >> 8) as u8]);
+            }
+            2 => {
+                if acc & 0xFFFF != 0 {
+                    return None;
+                }
+                out.push((acc >> 16) as u8);
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// Tronque `name` à [`MAX_LINK_NAME_BYTES`] octets UTF-8 sur une frontière de
+/// caractère (jamais de panique sur un multi-octets).
+fn truncate_link_name(name: &str) -> &str {
+    if name.len() <= MAX_LINK_NAME_BYTES {
+        return name;
+    }
+    let mut end = MAX_LINK_NAME_BYTES;
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    &name[..end]
+}
+
+/// Encode un lien d'invitation partageable : `accord://invite/<base64url>`
+/// où le payload est `version ‖ group_id ‖ invite_id ‖ secret ‖ inviter ‖
+/// nom (≤ 48 octets)` suivi d'une somme de contrôle de 4 octets.
+pub fn encode_invite_link(
+    group_id: &[u8; 16],
+    invite_id: &[u8; 16],
+    secret: &[u8; 32],
+    inviter: &[u8; 32],
+    group_name: &str,
+) -> String {
+    let name = truncate_link_name(group_name);
+    let mut payload = Vec::with_capacity(INVITE_LINK_FIXED_LEN + name.len());
+    payload.push(INVITE_LINK_VERSION);
+    payload.extend_from_slice(group_id);
+    payload.extend_from_slice(invite_id);
+    payload.extend_from_slice(secret);
+    payload.extend_from_slice(inviter);
+    payload.extend_from_slice(name.as_bytes());
+    let checksum: [u8; 32] = Sha256::digest(&payload).into();
+    payload.extend_from_slice(&checksum[..INVITE_LINK_CHECKSUM_LEN]);
+    format!("{INVITE_LINK_PREFIX}{}", b64url_encode(&payload))
+}
+
+/// Décode et valide un lien d'invitation (préfixe optionnel, espaces
+/// tolérés aux extrémités). Rejette tout code corrompu : base64 invalide,
+/// version inconnue, longueur hors bornes, somme de contrôle fausse, nom
+/// non-UTF-8 ou indigne d'affichage (caractères de contrôle/usurpateurs,
+/// [`super::state::is_valid_display_label`]). Entrée non fiable : erreurs
+/// explicites, jamais de panique.
+pub fn decode_invite_link(code: &str) -> Result<InviteLink, CoreError> {
+    let trimmed = code.trim();
+    let encoded = trimmed.strip_prefix(INVITE_LINK_PREFIX).unwrap_or(trimmed);
+    if encoded.len() > MAX_INVITE_LINK_ENCODED_LEN {
+        return Err(CoreError::Invalid("lien d'invitation trop long"));
+    }
+    let bytes = b64url_decode(encoded).ok_or(CoreError::Invalid("lien d'invitation illisible"))?;
+    let min = INVITE_LINK_FIXED_LEN + INVITE_LINK_CHECKSUM_LEN;
+    if bytes.len() < min || bytes.len() > min + MAX_LINK_NAME_BYTES {
+        return Err(CoreError::Invalid("lien d'invitation tronqué ou trop long"));
+    }
+    let (payload, checksum) = bytes.split_at(bytes.len() - INVITE_LINK_CHECKSUM_LEN);
+    let expected: [u8; 32] = Sha256::digest(payload).into();
+    if checksum != &expected[..INVITE_LINK_CHECKSUM_LEN] {
+        return Err(CoreError::Invalid("lien d'invitation corrompu"));
+    }
+    if payload[0] != INVITE_LINK_VERSION {
+        return Err(CoreError::Invalid("version de lien d'invitation inconnue"));
+    }
+    fn arr<const N: usize>(payload: &[u8], from: usize) -> [u8; N] {
+        payload[from..from + N]
+            .try_into()
+            .expect("bornes fixes vérifiées ci-dessus")
+    }
+    let group_name = core::str::from_utf8(&payload[INVITE_LINK_FIXED_LEN..])
+        .map_err(|_| CoreError::Invalid("nom de groupe du lien illisible"))?;
+    if !super::state::is_valid_display_label(group_name, MAX_LINK_NAME_BYTES) {
+        return Err(CoreError::Invalid("nom de groupe du lien invalide"));
+    }
+    Ok(InviteLink {
+        group_id: arr(payload, 1),
+        invite_id: arr(payload, 17),
+        secret: arr(payload, 33),
+        inviter: arr(payload, 65),
+        group_name: group_name.to_string(),
     })
 }
 
@@ -343,7 +568,8 @@ mod tests {
             &bob.public_key(),
             2,
         )
-        .unwrap();
+        .unwrap()
+        .expect("le créateur finalise l'admission");
         assert!(finalized.ops.iter().any(|o| o.kind == 0x07));
         assert!(group_state(&db, &created.group_id)
             .unwrap()
@@ -364,6 +590,75 @@ mod tests {
     }
 
     #[test]
+    fn invite_link_roundtrips_with_and_without_prefix() {
+        let code = encode_invite_link(&[1; 16], &[2; 16], &[3; 32], &[4; 32], "Guilde");
+        assert!(code.starts_with(INVITE_LINK_PREFIX));
+        let link = decode_invite_link(&code).unwrap();
+        assert_eq!(
+            link,
+            InviteLink {
+                group_id: [1; 16],
+                invite_id: [2; 16],
+                secret: [3; 32],
+                inviter: [4; 32],
+                group_name: "Guilde".into(),
+            }
+        );
+        // Sans préfixe et avec espaces parasites : toujours décodable.
+        let bare = code.strip_prefix(INVITE_LINK_PREFIX).unwrap();
+        assert_eq!(decode_invite_link(&format!("  {bare} \n")).unwrap(), link);
+    }
+
+    #[test]
+    fn invite_link_truncates_name_on_char_boundary() {
+        // 30 × 'é' = 60 octets UTF-8 : tronqué à ≤ 48 octets sans couper un
+        // caractère (48 impair pour un alphabet 2 octets → 47 octets utiles).
+        let long = "é".repeat(30);
+        let code = encode_invite_link(&[1; 16], &[2; 16], &[3; 32], &[4; 32], &long);
+        let link = decode_invite_link(&code).unwrap();
+        assert!(link.group_name.len() <= MAX_LINK_NAME_BYTES);
+        assert!(link.group_name.chars().all(|c| c == 'é'));
+    }
+
+    #[test]
+    fn corrupted_or_forged_invite_links_are_rejected() {
+        let code = encode_invite_link(&[1; 16], &[2; 16], &[3; 32], &[4; 32], "Guilde");
+        // Un caractère altéré : somme de contrôle fausse.
+        let mut chars: Vec<char> = code.chars().collect();
+        let last = chars.len() - 1;
+        chars[last] = if chars[last] == 'A' { 'B' } else { 'A' };
+        let altered: String = chars.into_iter().collect();
+        assert!(decode_invite_link(&altered).is_err());
+        // Tronqué : rejeté (longueur ou checksum, jamais de panique).
+        assert!(decode_invite_link(&code[..code.len() - 8]).is_err());
+        // Base64 invalide, vide, ou déchets : rejetés.
+        assert!(decode_invite_link("accord://invite/!!!!").is_err());
+        assert!(decode_invite_link("").is_err());
+        assert!(decode_invite_link("accord://invite/").is_err());
+        // Nom usurpateur (caractère de contrôle) forgé dans un code
+        // par ailleurs bien formé : rejeté au décodage.
+        let forged = encode_invite_link(&[1; 16], &[2; 16], &[3; 32], &[4; 32], "Gui\u{7}lde");
+        assert!(decode_invite_link(&forged).is_err());
+    }
+
+    #[test]
+    fn author_invite_create_with_supports_unlimited_and_never_expiring() {
+        let (db, founder) = setup();
+        let created = create_group(&db, &founder, "G", 0).unwrap();
+        let inv =
+            author_invite_create_with(&db, &founder, &created.group_id, 1_000, 0, None).unwrap();
+        assert_eq!(inv.expires_ms, 0, "0 = n'expire jamais");
+        let state = group_state(&db, &created.group_id).unwrap();
+        let entry = state.invites.get(&inv.invite_id).unwrap();
+        assert_eq!(entry.max_uses, 0, "0 = usages illimités");
+        assert_eq!(entry.expires_ms, 0);
+        // La forme bornée reste bornée.
+        let bounded =
+            author_invite_create_with(&db, &founder, &created.group_id, 1_000, 3, Some(0)).unwrap();
+        assert_eq!(bounded.expires_ms, 1_000 + MIN_INVITE_TTL_MS);
+    }
+
+    #[test]
     fn finalize_rejects_unknown_invite() {
         let (db, founder) = setup();
         let bob = Identity::generate_with_pow_bits(1);
@@ -378,5 +673,119 @@ mod tests {
             1,
         )
         .is_err());
+    }
+
+    /// Régression CRITICAL/HIGH (liens publics) : seul le créateur d'une
+    /// invitation la finalise. Un membre INVITE distinct qui reçoit un redeem
+    /// valide (l'attaquant peut le diffuser à plusieurs membres) ne produit ni
+    /// `AddMember` ni clé scellée — la course inter-nœuds de fuite de clé est
+    /// éliminée. Le créateur, lui, finalise normalement.
+    #[test]
+    fn only_creator_finalizes_redeem_not_other_invite_members() {
+        let (db, founder) = setup();
+        let alice = Identity::generate_with_pow_bits(1);
+        let bob = Identity::generate_with_pow_bits(1);
+        let created = create_group(&db, &founder, "Guilde", 0).unwrap();
+
+        // Le fondateur autorise une invitation (créateur = fondateur) et admet
+        // Alice comme membre.
+        let inv_alice = author_invite_create(&db, &founder, &created.group_id, 0, 0).unwrap();
+        finalize_invite_accept(
+            &db,
+            &founder,
+            &created.group_id,
+            &inv_alice.invite_id,
+            &inv_alice.secret,
+            &alice.public_key(),
+            1,
+        )
+        .unwrap()
+        .expect("le créateur admet Alice");
+
+        // Alice reçoit un rôle portant la permission INVITE : elle est donc un
+        // membre INVITE légitime, mais PAS la créatrice du lien ci-dessous.
+        let role_id = [0x33u8; 16];
+        author_op(
+            &db,
+            &founder,
+            &created.group_id,
+            &GroupOpBody::AddRole {
+                role_id,
+                name: "inviteurs".into(),
+                color: 0,
+                position: 1,
+                permissions: perms::INVITE,
+            },
+            2,
+        )
+        .unwrap();
+        author_op(
+            &db,
+            &founder,
+            &created.group_id,
+            &GroupOpBody::AssignRole {
+                member: alice.public_key(),
+                role_id,
+            },
+            3,
+        )
+        .unwrap();
+        assert!(group_state(&db, &created.group_id)
+            .unwrap()
+            .can(&alice.public_key(), perms::INVITE));
+
+        // Invitation « lien public » créée par le fondateur (usages illimités).
+        let link = author_invite_create_with(&db, &founder, &created.group_id, 4, 0, None).unwrap();
+
+        // Alice (membre INVITE, mais non créatrice) reçoit un redeem valide :
+        // cas neutre `Ok(None)`, aucun membre ajouté, aucune clé scellée.
+        let via_alice = finalize_invite_accept(
+            &db,
+            &alice,
+            &created.group_id,
+            &link.invite_id,
+            &link.secret,
+            &bob.public_key(),
+            5,
+        )
+        .unwrap();
+        assert!(
+            via_alice.is_none(),
+            "un membre INVITE non créateur ne finalise jamais"
+        );
+        assert!(!group_state(&db, &created.group_id)
+            .unwrap()
+            .is_member(&bob.public_key()));
+
+        // Le créateur (fondateur) finalise normalement : Bob est admis, clé
+        // scellée.
+        let via_founder = finalize_invite_accept(
+            &db,
+            &founder,
+            &created.group_id,
+            &link.invite_id,
+            &link.secret,
+            &bob.public_key(),
+            6,
+        )
+        .unwrap();
+        assert!(via_founder.is_some(), "le créateur finalise le rachat");
+        assert!(group_state(&db, &created.group_id)
+            .unwrap()
+            .is_member(&bob.public_key()));
+    }
+
+    /// Régression LOW : un texte encodé démesuré est rejeté proprement (erreur,
+    /// jamais de panique) AVANT tout décodage base64url.
+    #[test]
+    fn oversized_invite_link_is_rejected_before_decode() {
+        let huge = format!(
+            "{INVITE_LINK_PREFIX}{}",
+            "A".repeat(MAX_INVITE_LINK_ENCODED_LEN + 1)
+        );
+        assert!(decode_invite_link(&huge).is_err());
+        // Sans préfixe non plus.
+        let huge_bare = "A".repeat(MAX_INVITE_LINK_ENCODED_LEN + 100);
+        assert!(decode_invite_link(&huge_bare).is_err());
     }
 }

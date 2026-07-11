@@ -291,6 +291,13 @@ impl Db {
         }
     }
 
+    /// Supprime une métadonnée. Idempotent — sans effet si la clé est absente.
+    pub fn del_meta(&self, key: &str) -> Result<(), CoreError> {
+        self.conn
+            .execute("DELETE FROM meta WHERE key = ?1", [key])?;
+        Ok(())
+    }
+
     // ---- Horloge de Lamport persistante ----
 
     /// Valeur courante de l'horloge de Lamport.

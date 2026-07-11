@@ -1529,6 +1529,20 @@ pub enum CoreMsg {
         /// Appel terminé.
         call_id: [u8; 16],
     },
+    /// 0x15 — Rachat d'un lien d'invitation public : le porteur d'un code
+    /// partageable prouve qu'il détient le secret (préimage du `code_hash`
+    /// de l'op `InviteCreate` répliquée) et demande son admission à
+    /// l'inviteur. Même validation côté inviteur que `InviteAccept`
+    /// (secret, révocation, expiration, usages restants) — toute preuve
+    /// invalide est ignorée en silence.
+    InviteRedeem {
+        /// Groupe concerné.
+        group_id: [u8; 16],
+        /// Invitation correspondant à l'op `InviteCreate` répliquée.
+        invite_id: [u8; 16],
+        /// Secret extrait du lien d'invitation.
+        secret: [u8; 32],
+    },
 }
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
@@ -1737,6 +1751,16 @@ impl WireEncode for CoreMsg {
                 w.put_u8(0x14);
                 w.put_arr(call_id);
             }
+            CoreMsg::InviteRedeem {
+                group_id,
+                invite_id,
+                secret,
+            } => {
+                w.put_u8(0x15);
+                w.put_arr(group_id);
+                w.put_arr(invite_id);
+                w.put_arr(secret);
+            }
         }
     }
 }
@@ -1885,6 +1909,11 @@ impl WireDecode for CoreMsg {
                 },
             }),
             0x14 => Ok(CoreMsg::CallHangup { call_id: r.arr()? }),
+            0x15 => Ok(CoreMsg::InviteRedeem {
+                group_id: r.arr()?,
+                invite_id: r.arr()?,
+                secret: r.arr()?,
+            }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }
@@ -2053,6 +2082,34 @@ mod tests {
         ] {
             assert_eq!(core_roundtrip(&msg), msg);
         }
+    }
+
+    #[test]
+    fn invite_redeem_roundtrips_and_rejects_forged_bytes() {
+        let msg = CoreMsg::InviteRedeem {
+            group_id: [1; 16],
+            invite_id: [2; 16],
+            secret: [3; 32],
+        };
+        assert_eq!(core_roundtrip(&msg), msg);
+
+        // Truncated secret: decode fails cleanly (attacker-controlled input,
+        // never a panic).
+        let mut bytes = vec![0x15u8];
+        bytes.extend_from_slice(&[0u8; 16]); // group_id
+        bytes.extend_from_slice(&[0u8; 16]); // invite_id
+        bytes.extend_from_slice(&[0u8; 8]); // half a secret
+        let mut r = Reader::new(&bytes);
+        assert!(CoreMsg::decode(&mut r).is_err());
+
+        // Trailing garbage after a complete message is rejected by finish().
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let mut bytes = w.into_bytes();
+        bytes.push(0xAB);
+        let mut r = Reader::new(&bytes);
+        let _ = CoreMsg::decode(&mut r).expect("prefix decodes");
+        assert!(r.finish().is_err());
     }
 
     #[test]

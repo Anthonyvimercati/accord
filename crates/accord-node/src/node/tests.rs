@@ -574,6 +574,172 @@ fn group_replication_hierarchy_and_moderation_between_nodes() {
 }
 
 #[test]
+fn invite_link_redeem_happy_path_between_nodes() {
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+
+    let code = alice.group_invite_link_create(&gid, 0, None).unwrap();
+    assert!(code.starts_with("accord://invite/"));
+    // L'op InviteCreate part vers les membres ; Bob, sans consentement
+    // local, l'ignore encore (porte D-045).
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    assert!(bob.group_ids().unwrap().is_empty());
+
+    // Bob rachète le code : intention locale enregistrée, preuve envoyée.
+    let (link_gid, name) = bob.group_invite_link_redeem(&code).unwrap();
+    assert_eq!(link_gid, gid);
+    assert_eq!(name, "Guilde");
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+
+    assert!(alice.group_state(&gid).unwrap().is_member(&bob_pub));
+    assert!(bob.group_state(&gid).unwrap().is_member(&bob_pub));
+    assert!(bob.group_ids().unwrap().contains(&hex::encode(&gid)));
+    // Déjà membre : re-racheter le même code est refusé localement.
+    assert!(bob.group_invite_link_redeem(&code).is_err());
+    // Un code corrompu est refusé sans effet.
+    assert!(bob
+        .group_invite_link_redeem("accord://invite/pasunvraicode")
+        .is_err());
+}
+
+#[test]
+fn invite_link_redeem_rejects_wrong_secret_and_exhausted_invite() {
+    let (alice, _rx_a) = node_with_channel();
+    let bob = Identity::generate_with_pow_bits(1).public_key();
+    let carol = Identity::generate_with_pow_bits(1).public_key();
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+
+    // Lien à usage unique.
+    let code = alice.group_invite_link_create(&gid, 1, None).unwrap();
+    let link = accord_core::group::invite::decode_invite_link(&code).unwrap();
+
+    // Mauvais secret : ignoré en silence, aucun AddMember.
+    alice
+        .ingest_core(
+            &bob,
+            CoreMsg::InviteRedeem {
+                group_id: gid,
+                invite_id: link.invite_id,
+                secret: [0xAA; 32],
+            },
+        )
+        .unwrap();
+    assert!(!alice.group_state(&gid).unwrap().is_member(&bob));
+
+    // Bon secret : admis.
+    alice
+        .ingest_core(
+            &bob,
+            CoreMsg::InviteRedeem {
+                group_id: gid,
+                invite_id: link.invite_id,
+                secret: link.secret,
+            },
+        )
+        .unwrap();
+    assert!(alice.group_state(&gid).unwrap().is_member(&bob));
+
+    // Invitation épuisée (max_uses = 1) : la même preuve, pourtant valide,
+    // n'admet plus personne.
+    alice
+        .ingest_core(
+            &carol,
+            CoreMsg::InviteRedeem {
+                group_id: gid,
+                invite_id: link.invite_id,
+                secret: link.secret,
+            },
+        )
+        .unwrap();
+    assert!(!alice.group_state(&gid).unwrap().is_member(&carol));
+
+    // Invitation inconnue : ignorée sans panique.
+    alice
+        .ingest_core(
+            &carol,
+            CoreMsg::InviteRedeem {
+                group_id: gid,
+                invite_id: [0xEE; 16],
+                secret: link.secret,
+            },
+        )
+        .unwrap();
+    assert!(!alice.group_state(&gid).unwrap().is_member(&carol));
+}
+
+#[test]
+fn stale_pending_redeem_membership_is_purged_after_ttl() {
+    use accord_core::db::LocalMembership;
+    use accord_core::group::invite::encode_invite_link;
+
+    let bob = node();
+    let gid = [0x77u8; 16];
+    let inviter = Identity::generate_with_pow_bits(1).public_key();
+    // Lien bien formé pointant vers un groupe que Bob ne rejoindra jamais
+    // (inviteur mort/hors ligne) : le rachat pose une appartenance `Accepted`
+    // fantôme, sans op-log qui la matérialiserait.
+    let code = encode_invite_link(&gid, &[0x11; 16], &[0x22; 32], &inviter, "Fantome");
+    bob.group_invite_link_redeem(&code).unwrap();
+    assert_eq!(
+        bob.with_db(|db| Ok(db.group_membership(&gid)?)).unwrap(),
+        LocalMembership::Accepted
+    );
+
+    // Trop tôt (avant le TTL) : rien n'est purgé, l'attente reste ouverte.
+    assert_eq!(bob.purge_stale_pending_redeems(0).unwrap(), 0);
+    assert_eq!(
+        bob.with_db(|db| Ok(db.group_membership(&gid)?)).unwrap(),
+        LocalMembership::Accepted
+    );
+
+    // Au-delà du TTL : l'appartenance fantôme est purgée (retour à `None`).
+    assert_eq!(bob.purge_stale_pending_redeems(u64::MAX).unwrap(), 1);
+    assert_eq!(
+        bob.with_db(|db| Ok(db.group_membership(&gid)?)).unwrap(),
+        LocalMembership::None
+    );
+}
+
+#[test]
+fn invite_redeem_rate_limit_silently_drops_excess() {
+    let (alice, _rx_a) = node_with_channel();
+    let bob = Identity::generate_with_pow_bits(1).public_key();
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let code = alice.group_invite_link_create(&gid, 0, None).unwrap();
+    let link = accord_core::group::invite::decode_invite_link(&code).unwrap();
+
+    // Cinq preuves fausses épuisent la fenêtre de cadence du pair…
+    for _ in 0..5 {
+        alice
+            .ingest_core(
+                &bob,
+                CoreMsg::InviteRedeem {
+                    group_id: gid,
+                    invite_id: link.invite_id,
+                    secret: [0xAA; 32],
+                },
+            )
+            .unwrap();
+    }
+    // …et la sixième, pourtant valide, est silencieusement ignorée.
+    alice
+        .ingest_core(
+            &bob,
+            CoreMsg::InviteRedeem {
+                group_id: gid,
+                invite_id: link.invite_id,
+                secret: link.secret,
+            },
+        )
+        .unwrap();
+    assert!(!alice.group_state(&gid).unwrap().is_member(&bob));
+}
+
+#[test]
 fn group_edit_and_reaction_replicate_between_nodes() {
     let (alice, mut rx_a) = node_with_channel();
     let (bob, mut rx_b) = node_with_channel();
