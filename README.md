@@ -39,7 +39,7 @@ limits — is in [SECURITY.md](SECURITY.md).
 Version 0.2.0 (beta), **for the curious and for contributors**:
 
 - prebuilt installers for macOS, Windows and Linux are published on the
-  [Releases](https://github.com/Anthonyvimercati/accord/releases) page — you no
+  [Releases](https://github.com/Gomouu/accord/releases) page — you no
   longer have to compile from source (building from source stays available, see
   below);
 - NAT traversal is automatic (hole punching, with a decentralized relay
@@ -52,7 +52,7 @@ Version 0.2.0 (beta), **for the curious and for contributors**:
 ## Download & install
 
 Grab the installer for your system from the
-[latest release](https://github.com/Anthonyvimercati/accord/releases/latest) —
+[latest release](https://github.com/Gomouu/accord/releases/latest) —
 no compiling required.
 
 | System | File | How to install |
@@ -185,7 +185,7 @@ To go further:
 
 ## Official Repository & Authenticity
 
-This repository (https://github.com/Anthonyvimercati/accord) is the ONLY
+This repository (https://github.com/Gomouu/accord) is the ONLY
 official source of Accord. Any copy, fork, mirror, or distribution of the
 project found elsewhere is unofficial, unverified, fake, and potentially
 dangerous (it may have been modified to compromise security or privacy). Do
