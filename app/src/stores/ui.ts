@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import { type Lang } from '../i18n';
 import { type OwnPresenceStatus } from '../lib/api';
+import { registerCloseInterception, traySetEnabled } from '../lib/bridge';
 import {
   loadLastChannelByServer,
   loadLastDm,
@@ -153,6 +154,8 @@ const STORAGE_KEYS = {
   typingIndicatorEnabled: 'accord.privacy.typingIndicator',
   startupPresence: 'accord.privacy.startupPresence',
   timeFormat: 'accord.timeFormat',
+  keepInTray: 'accord.system.keepInTray',
+  closeToTray: 'accord.system.closeToTray',
 } as const;
 
 /** Touche d'appui-pour-parler par défaut (`KeyboardEvent.code`). */
@@ -420,6 +423,18 @@ interface UiState {
   /** Format des heures affichées (horodatages de messages). */
   timeFormat: TimeFormat;
   /**
+   * Icône permanente dans la barre des menus/systray. Appliquée en
+   * direct côté hôte (création/destruction de l'icône) par `setKeepInTray` —
+   * voir `lib/bridge.ts#traySetEnabled`.
+   */
+  keepInTray: boolean;
+  /**
+   * Fermer la fenêtre (croix/Cmd+W) la masque au lieu de quitter Accord ;
+   * sans effet si `keepInTray` est faux (voir `registerCloseInterception`,
+   * qui lit toujours la valeur courante au moment de la fermeture).
+   */
+  closeToTray: boolean;
+  /**
    * Dernier salon (texte/annonces) consulté par serveur — clé `groupId`.
    * Restauré au reclic sur l'icône du serveur ; l'appelant valide que le
    * salon existe encore avant de s'y fier (voir `ServerRail`).
@@ -473,6 +488,9 @@ interface UiState {
   setTypingIndicatorEnabled: (enabled: boolean) => void;
   setStartupPresence: (presence: StartupPresence) => void;
   setTimeFormat: (format: TimeFormat) => void;
+  /** Persiste et applique en direct (crée/détruit l'icône de tray). */
+  setKeepInTray: (enabled: boolean) => void;
+  setCloseToTray: (enabled: boolean) => void;
   /** Applique `width` bornée à `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`. */
   setSidebarWidth: (width: number) => void;
   /** Restaure `SIDEBAR_WIDTH_DEFAULT` (double-clic sur la poignée). */
@@ -496,11 +514,23 @@ export const useUi = create<UiState>((set) => {
   const fontScale = initialFontScale();
   const reducedMotion = initialReducedMotion();
   const saturation = initialSaturation();
+  const keepInTray = initialBool(STORAGE_KEYS.keepInTray, false);
   applyTheme(theme);
   applyDensity(density);
   applyFontScale(fontScale);
   applyReducedMotion(reducedMotion);
   applySaturation(saturation);
+  // Barre des menus/systray : la tray est créée/détruite côté hôte
+  // en fonction de la préférence persistée — jamais au démarrage de l'hôte
+  // lui-même (voir `src-tauri/src/tray.rs`), donc c'est ici, au premier
+  // montage de la webview, qu'on la synchronise. L'interception de
+  // fermeture est enregistrée une seule fois pour toute la durée de vie de
+  // l'app ; elle relit `closeToTray` à chaque fermeture demandée (via
+  // `useUi.getState()`, sûr même avant la fin de cette factory : le
+  // callback ne s'exécute qu'au premier événement de fermeture, bien après
+  // que `useUi` soit pleinement initialisé).
+  void traySetEnabled(keepInTray);
+  registerCloseInterception(() => useUi.getState().closeToTray);
 
   return {
     view: { kind: 'friends' },
@@ -528,6 +558,8 @@ export const useUi = create<UiState>((set) => {
     typingIndicatorEnabled: initialBool(STORAGE_KEYS.typingIndicatorEnabled, true),
     startupPresence: initialStartupPresence(),
     timeFormat: initialTimeFormat(),
+    keepInTray,
+    closeToTray: initialBool(STORAGE_KEYS.closeToTray, false),
     lastChannelByServer: loadLastChannelByServer(),
     lastDmPeer: loadLastDm(),
     sidebarWidth: initialWidth(
@@ -655,6 +687,21 @@ export const useUi = create<UiState>((set) => {
     setTimeFormat: (format) => {
       writeStored(STORAGE_KEYS.timeFormat, format);
       set({ timeFormat: format });
+    },
+    setKeepInTray: (enabled) => {
+      writeStored(STORAGE_KEYS.keepInTray, String(enabled));
+      void traySetEnabled(enabled);
+      set((s) => ({
+        keepInTray: enabled,
+        // Sans icône de tray, « fermer réduit » mènerait à une fenêtre
+        // introuvable : désactivé avec elle plutôt que laissé orphelin.
+        closeToTray: enabled ? s.closeToTray : false,
+      }));
+      if (!enabled) writeStored(STORAGE_KEYS.closeToTray, 'false');
+    },
+    setCloseToTray: (enabled) => {
+      writeStored(STORAGE_KEYS.closeToTray, String(enabled));
+      set({ closeToTray: enabled });
     },
 
     setSidebarWidth: (width) => {

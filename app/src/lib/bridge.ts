@@ -188,3 +188,78 @@ export async function sessionClose(): Promise<VaultStatus> {
   if (!isTauri()) return devSession() ? 'locked' : 'absent';
   return invoke<VaultStatus>('session_close');
 }
+
+/**
+ * Lancement au démarrage : état géré par l'OS (Registre Windows /
+ * LaunchAgent macOS / fichier .desktop Linux) via `tauri-plugin-autostart`,
+ * jamais un simple indicateur `localStorage` — c'est pourquoi ces fonctions
+ * interrogent/écrivent le système à chaque appel plutôt que de refléter une
+ * intention locale. Best effort : hors Tauri, ou si la plateforme ne prend
+ * pas en charge le lancement au démarrage, échoue silencieusement plutôt que
+ * de casser l'onglet Paramètres → Système.
+ */
+export async function autostartIsEnabled(): Promise<boolean> {
+  if (!isTauri()) return false;
+  try {
+    const { isEnabled } = await import('@tauri-apps/plugin-autostart');
+    return await isEnabled();
+  } catch {
+    return false;
+  }
+}
+
+/** Active ou désactive le lancement au démarrage ; best effort (voir ci-dessus). */
+export async function autostartSetEnabled(enabled: boolean): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const plugin = await import('@tauri-apps/plugin-autostart');
+    if (enabled) await plugin.enable();
+    else await plugin.disable();
+  } catch {
+    // Plateforme non prise en charge ou erreur OS : la case à cocher se
+    // resynchronisera sur l'état réel au prochain appel d'`autostartIsEnabled`.
+  }
+}
+
+/**
+ * Crée ou détruit l'icône de la barre des menus/systray, en direct —
+ * aucun redémarrage requis. Appelée une fois au montage de l'application avec
+ * la préférence persistée (`stores/ui.ts`), puis à chaque bascule du réglage
+ * « Garder Accord dans la barre des menus/systray ».
+ */
+export async function traySetEnabled(enabled: boolean): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke('tray_set_enabled', { enabled });
+  } catch {
+    // Best effort : une icône de tray manquante ne doit jamais bloquer l'UI.
+  }
+}
+
+/**
+ * Intercepte la demande de fermeture de la fenêtre principale (croix/Cmd+W) :
+ * si `shouldHideOnClose()` répond vrai *au moment de la fermeture*, la
+ * fenêtre se masque au lieu de se fermer (« fermer réduit dans la barre des
+ * menus ») — d'où un callback plutôt qu'un booléen figé, pour toujours lire
+ * la préférence courante sans avoir à réenregistrer l'écouteur à chaque
+ * bascule. « Quitter » depuis le menu de la tray (ou Cmd+Q) ne passe pas par
+ * cet événement : ces chemins quittent réellement l'application (voir
+ * `src-tauri/src/tray.rs`, `app.exit(0)`).
+ */
+export function registerCloseInterception(shouldHideOnClose: () => boolean): void {
+  if (!isTauri()) return;
+  void (async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const fenetre = getCurrentWindow();
+      await fenetre.onCloseRequested((event) => {
+        if (!shouldHideOnClose()) return;
+        event.preventDefault();
+        void fenetre.hide();
+      });
+    } catch {
+      // Best effort : indisponible hors Tauri ou erreur de plateforme —
+      // la fermeture reprend alors son comportement par défaut (quitter).
+    }
+  })();
+}

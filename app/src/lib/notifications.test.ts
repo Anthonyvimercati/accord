@@ -169,7 +169,13 @@ describe('sendNativeNotification — réglage « Notifications natives »', () =
   });
 
   it('ne fait rien quand le réglage est désactivé, même dans Tauri', async () => {
-    vi.doMock('./bridge', () => ({ isTauri: () => true }));
+    vi.doMock('./bridge', () => ({
+      isTauri: () => true,
+      // `stores/ui` les appelle au chargement (barre des
+      // menus/systray) — hors sujet pour ce test, réduites à des no-op.
+      traySetEnabled: async () => {},
+      registerCloseInterception: () => {},
+    }));
     const { sendNativeNotification } = await import('./notifications');
     const { useUi } = await import('../stores/ui');
 

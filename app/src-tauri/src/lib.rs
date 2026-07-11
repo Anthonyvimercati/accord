@@ -12,6 +12,7 @@
 pub mod commandes;
 pub mod erreur;
 pub mod etat;
+pub mod tray;
 
 use std::process::ExitCode;
 
@@ -33,6 +34,16 @@ pub fn executer() -> ExitCode {
         // Notifications système natives (D-028) : l'envoi se fait côté
         // webview via @tauri-apps/plugin-notification.
         .plugin(tauri_plugin_notification::init())
+        // Lancement au démarrage du système, état géré par l'OS
+        // (Registre Windows / LaunchAgent macOS / fichier .desktop Linux) —
+        // pilotage côté webview via @tauri-apps/plugin-autostart. Sur macOS,
+        // `LaunchAgent` (plutôt que le lancement caché natif de l'app elle-
+        // même) évite de dupliquer l'entrée si l'app est aussi installée
+        // via un vrai installeur.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             // Répertoire de données par plateforme (ex. ~/Library/Application
             // Support/fr.accord.desktop) : racine du registre multi-comptes
@@ -54,7 +65,8 @@ pub fn executer() -> ExitCode {
             commandes::account_create,
             commandes::account_restore,
             commandes::account_unlock,
-            commandes::session_close
+            commandes::session_close,
+            tray::tray_set_enabled
         ])
         .build(tauri::generate_context!());
 

@@ -17,9 +17,13 @@ serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 # Notifications système natives, envoyées depuis la webview (D-028).
 tauri-plugin-notification = "2"
+# Lancement au démarrage du système (D-047) : gestion officielle, pas de
+# flag `localStorage` seul — l'état vient de l'OS (Registre/LaunchAgent/
+# fichier .desktop selon la plateforme).
+tauri-plugin-autostart = "2"
 
 [dev-dependencies]
 serde_json.workspace = true

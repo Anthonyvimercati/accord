@@ -14,6 +14,7 @@ import { NetworkTab } from './NetworkTab';
 import { NotificationsTab } from './NotificationsTab';
 import { PrivacyTab } from './PrivacyTab';
 import { ShortcutsTab } from './ShortcutsTab';
+import { SystemTab } from './SystemTab';
 import { TextMediaTab } from './TextMediaTab';
 import { VoiceTab } from './VoiceTab';
 
@@ -28,6 +29,7 @@ export type SettingsTabId =
   | 'voice'
   | 'notifications'
   | 'network'
+  | 'system'
   | 'advanced';
 
 export interface SettingsTab {
@@ -82,6 +84,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         Content: NotificationsTab,
       },
       { id: 'network', label: (t) => t.settings.network, Content: NetworkTab },
+      { id: 'system', label: (t) => t.settings.system, Content: SystemTab },
       { id: 'advanced', label: (t) => t.settings.advanced, Content: AdvancedTab },
     ],
   },

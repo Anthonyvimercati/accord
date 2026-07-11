@@ -32,6 +32,10 @@ vi.mock('../lib/bridge', () => ({
   accountRestore: vi.fn(),
   accountUnlock: vi.fn(),
   sessionClose: vi.fn(),
+  // Appelées au chargement du module `stores/ui` (barre des
+  // menus/systray) — la vraie implémentation touche Tauri, sans intérêt ici.
+  traySetEnabled: vi.fn(async () => {}),
+  registerCloseInterception: vi.fn(),
 }));
 
 import { api, rpc } from '../lib/client';

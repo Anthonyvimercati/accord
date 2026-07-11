@@ -523,6 +523,7 @@ export const en: Dict = {
     voice: 'Voice',
     notifications: 'Notifications',
     network: 'Network',
+    system: 'System',
     advanced: 'Advanced',
     shortcuts: 'Keyboard shortcuts',
     theme: 'Theme',
@@ -683,6 +684,20 @@ export const en: Dict = {
     notifSoundModeAll: 'All messages',
     notifSoundModeMentions: 'Mentions only',
     notifSoundModeNone: 'None',
+    // System (startup, menu bar/systray).
+    systemStartupTitle: 'Startup',
+    systemStartupHint: 'Controlled by the operating system, not just by Accord.',
+    systemAutostart: 'Launch Accord at startup',
+    systemAutostartHint:
+      'Adds Accord to the apps launched at login. May not be supported on every Linux desktop environment.',
+    systemTrayTitle: 'Menu bar',
+    systemKeepInTray: 'Keep Accord in the menu bar/systray',
+    systemKeepInTrayHint:
+      'Shows a persistent icon; left-click to show or hide the window, right-click for the menu.',
+    systemCloseToTray: 'Closing the window minimizes it to the menu bar',
+    systemCloseToTrayHint:
+      'The window hides instead of quitting Accord; use "Quit" in the icon menu to actually close it.',
+    systemCloseToTrayDisabledHint: 'First enable "Keep Accord in the menu bar/systray".',
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logout: 'Log out',

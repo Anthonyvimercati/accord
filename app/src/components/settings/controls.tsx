@@ -26,16 +26,23 @@ export function SettingsSection({
   );
 }
 
-/** Rangée interrupteur : libellé + indice à gauche, bascule à droite. */
+/**
+ * Rangée interrupteur : libellé + indice à gauche, bascule à droite.
+ * `disabled` grise la rangée et bloque le clic (ex. « fermer réduit » tant
+ * que la tray elle-même n'est pas activée) sans changer sa forme — le
+ * réglage reste visible et lisible, juste inactivable.
+ */
 export function ToggleRow({
   label,
   hint,
   checked,
+  disabled = false,
   onChange,
 }: {
   label: string;
   hint?: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
@@ -43,9 +50,11 @@ export function ToggleRow({
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-disabled={disabled}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="mb-2 flex w-full items-center justify-between gap-4 rounded-lg bg-sidebar px-4 py-3 text-left transition-colors duration-150 hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+      className="mb-2 flex w-full items-center justify-between gap-4 rounded-lg bg-sidebar px-4 py-3 text-left transition-colors duration-150 hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-sidebar"
     >
       <span className="min-w-0">
         <span className="block text-sm font-medium text-header">{label}</span>

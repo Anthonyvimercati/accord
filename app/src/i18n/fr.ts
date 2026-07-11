@@ -527,6 +527,7 @@ export const fr = {
     voice: 'Voix',
     notifications: 'Notifications',
     network: 'Réseau',
+    system: 'Système',
     advanced: 'Avancé',
     shortcuts: 'Raccourcis clavier',
     theme: 'Thème',
@@ -690,6 +691,21 @@ export const fr = {
     notifSoundModeAll: 'Tous les messages',
     notifSoundModeMentions: 'Mentions seulement',
     notifSoundModeNone: 'Aucun',
+    // Système (démarrage, barre des menus/systray).
+    systemStartupTitle: 'Démarrage',
+    systemStartupHint: 'Contrôlé par le système d’exploitation, pas seulement par Accord.',
+    systemAutostart: 'Lancer Accord au démarrage',
+    systemAutostartHint:
+      'Ajoute Accord aux applications lancées à l’ouverture de session. Peut ne pas être pris en charge par tous les environnements Linux.',
+    systemTrayTitle: 'Barre des menus',
+    systemKeepInTray: 'Garder Accord dans la barre des menus/systray',
+    systemKeepInTrayHint:
+      'Affiche une icône permanente ; clic gauche pour afficher ou masquer la fenêtre, clic droit pour le menu.',
+    systemCloseToTray: 'Fermer la fenêtre la réduit dans la barre des menus',
+    systemCloseToTrayHint:
+      'La fenêtre se cache au lieu de quitter Accord ; utilisez « Quitter » dans le menu de l’icône pour fermer réellement.',
+    systemCloseToTrayDisabledHint:
+      'Activez d’abord « Garder Accord dans la barre des menus/systray ».',
     // Zone de danger (déconnexion).
     dangerZoneTitle: 'Zone de danger',
     logout: 'Se déconnecter',
