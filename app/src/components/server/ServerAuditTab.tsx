@@ -172,7 +172,7 @@ export function ServerAuditTab({ groupId }: { groupId: string }) {
           type="button"
           disabled={loading}
           onClick={() => void loadPage(oldest.op_id)}
-          className="mt-2 rounded bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-150 hover:bg-input disabled:opacity-50"
+          className="mt-2 rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat disabled:opacity-50"
         >
           {t.serveur.auditLoadMore}
         </button>

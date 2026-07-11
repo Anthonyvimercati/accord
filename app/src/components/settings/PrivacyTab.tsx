@@ -86,7 +86,7 @@ export function PrivacyTab() {
                         toast('error', t.errors.actionFailed),
                       );
                     }}
-                    className="rounded bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-150 hover:bg-red hover:text-white"
+                    className="rounded-md bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-red hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                   >
                     {t.friends.unblock}
                   </button>

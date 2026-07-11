@@ -143,7 +143,7 @@ export function ServerEmojisTab({ groupId }: { groupId: string }) {
                   type="button"
                   disabled={plein || busy}
                   onClick={() => fileRef.current?.click()}
-                  className="rounded bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input disabled:opacity-50"
+                  className="rounded-lg bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
                 >
                   {t.serveur.emojiChooseImage}
                 </button>
@@ -158,7 +158,7 @@ export function ServerEmojisTab({ groupId }: { groupId: string }) {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') void ajouter();
                     }}
-                    className="min-w-0 flex-1 rounded bg-rail px-2 py-1 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                    className="min-w-0 flex-1 rounded-md bg-input px-2 py-1 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                   />
                   <span aria-hidden>:</span>
                 </div>
@@ -167,7 +167,7 @@ export function ServerEmojisTab({ groupId }: { groupId: string }) {
                 type="button"
                 disabled={!peutAjouter}
                 onClick={() => void ajouter()}
-                className="shrink-0 rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+                className="shrink-0 rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
               >
                 {t.serveur.emojiAdd}
               </button>

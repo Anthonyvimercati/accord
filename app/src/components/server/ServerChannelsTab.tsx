@@ -81,7 +81,7 @@ function ChannelPermsEditor({
   }
 
   return (
-    <div className="mt-2 rounded bg-rail p-3">
+    <div className="mt-2 rounded-lg bg-rail p-3">
       <p className="mb-2 text-xs text-faint">{t.serveur.channelPermsHint}</p>
       {roles.map((role) => {
         const current = overrideOf(state, channel.channel_id, role.role_id);
@@ -103,7 +103,7 @@ function ChannelPermsEditor({
                     onChange={(e) =>
                       applyChange(role.role_id, bit, e.target.value as TriState)
                     }
-                    className="rounded bg-sidebar px-1.5 py-1 text-xs text-norm outline-none"
+                    className="rounded-md bg-input px-1.5 py-1 text-xs text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                   >
                     <option value="inherit">{t.serveur.permInherit}</option>
                     <option value="allow">{t.serveur.permAllow}</option>
@@ -191,13 +191,13 @@ function ChannelEditor({
   }
 
   return (
-    <div className="mb-2 rounded-lg bg-sidebar p-3">
+    <div className="mb-2 rounded-lg bg-sidebar p-4">
       <div className="flex items-center gap-3">
         <input
           aria-label={t.serveur.channelNameLabel}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="min-w-0 flex-1 rounded bg-rail px-3 py-2 text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+          className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
         />
         <span className="shrink-0 text-xs text-faint">{kindLabel(t, channel.kind)}</span>
       </div>
@@ -207,7 +207,7 @@ function ChannelEditor({
           placeholder={t.serveur.topicPlaceholder}
           value={topic}
           onChange={(e) => setTopicDraft(e.target.value)}
-          className="mt-2 w-full rounded bg-rail px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+          className="mt-2 w-full rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
         />
       )}
       {state.categories.length > 0 && (
@@ -219,7 +219,7 @@ function ChannelEditor({
             aria-label={t.serveur.categoryLabel}
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="rounded bg-rail px-2 py-1.5 text-sm text-norm outline-none"
+            className="rounded-md bg-input px-2 py-1.5 text-sm text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
             <option value="">{t.serveur.noCategory}</option>
             {state.categories.map((c) => (
@@ -236,7 +236,7 @@ function ChannelEditor({
             type="button"
             aria-expanded={permsOpen}
             onClick={() => setPermsOpen((open) => !open)}
-            className="rounded bg-rail px-3 py-1.5 text-xs font-medium text-norm transition-colors duration-150 hover:bg-input"
+            className="rounded-lg bg-rail px-3 py-1.5 text-xs font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
             {t.serveur.channelPermsToggle}
           </button>
@@ -261,7 +261,7 @@ function ChannelEditor({
           type="button"
           disabled={busy || !dirty}
           onClick={() => void save()}
-          className="rounded bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+          className="rounded-lg bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
         >
           {t.serveur.channelSave}
         </button>
@@ -302,18 +302,18 @@ function CategoryEditor({
   };
 
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg bg-sidebar p-2">
+    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg bg-sidebar p-3">
       <input
         aria-label={interpolate(t.serveur.categoryRenameLabel, { name: category.name })}
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="min-w-0 flex-1 rounded bg-rail px-3 py-1.5 text-sm text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        className="min-w-0 flex-1 rounded-md bg-input px-3 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
       />
       <button
         type="button"
         disabled={busy || !dirty}
         onClick={() => void save()}
-        className="rounded bg-blurple px-3 py-1.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+        className="rounded-lg bg-blurple px-3 py-1.5 text-xs font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
       >
         {t.serveur.categoryRename}
       </button>
@@ -397,13 +397,13 @@ export function ServerChannelsTab({ groupId }: { groupId: string }) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void createChannel();
                 }}
-                className="min-w-0 flex-1 rounded bg-rail px-3 py-2 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               />
               <select
                 aria-label={t.serveur.kindLabel}
                 value={newKind}
                 onChange={(e) => setNewKind(e.target.value as GroupChannelKind)}
-                className="rounded bg-rail px-2 py-2 text-sm text-norm outline-none"
+                className="rounded-md bg-input px-2 py-2 text-sm text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
                 {KINDS.map(({ kind, label }) => (
                   <option key={kind} value={kind}>
@@ -415,7 +415,7 @@ export function ServerChannelsTab({ groupId }: { groupId: string }) {
                 aria-label={t.serveur.categoryLabel}
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
-                className="rounded bg-rail px-2 py-2 text-sm text-norm outline-none"
+                className="rounded-md bg-input px-2 py-2 text-sm text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
                 <option value="">{t.serveur.noCategory}</option>
                 {state.categories.map((c) => (
@@ -428,7 +428,7 @@ export function ServerChannelsTab({ groupId }: { groupId: string }) {
                 type="button"
                 disabled={newName.trim() === '' || busy}
                 onClick={() => void createChannel()}
-                className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+                className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
               >
                 {t.groups.addChannelAction}
               </button>
@@ -445,13 +445,13 @@ export function ServerChannelsTab({ groupId }: { groupId: string }) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void createCategory();
                 }}
-                className="min-w-0 flex-1 rounded bg-rail px-3 py-2 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               />
               <button
                 type="button"
                 disabled={newCategoryName.trim() === '' || busy}
                 onClick={() => void createCategory()}
-                className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+                className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
               >
                 {t.serveur.createCategoryAction}
               </button>

@@ -94,7 +94,7 @@ export function NetworkTab() {
                   <button
                     type="button"
                     onClick={() => copier(addr)}
-                    className="shrink-0 rounded bg-blurple px-3 py-1 text-xs font-medium text-white transition-colors duration-150 hover:bg-blurple-hover"
+                    className="shrink-0 rounded-md bg-blurple px-3 py-1 text-xs font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                   >
                     {copiee === addr ? t.app.copied : t.reseau.copy}
                   </button>
@@ -116,7 +116,7 @@ export function NetworkTab() {
       </SettingsSection>
 
       <SettingsSection title={t.reseau.addPeer}>
-        <div className="flex gap-2">
+        <div className="flex gap-2 rounded-lg bg-sidebar p-3">
           <input
             type="text"
             value={saisie}
@@ -129,13 +129,13 @@ export function NetworkTab() {
             }}
             placeholder={t.reseau.addPeerPlaceholder}
             aria-label={t.reseau.addPeer}
-            className="min-w-0 flex-1 rounded-lg bg-input px-3 py-2 font-mono text-sm text-norm outline-none placeholder:text-faint focus:ring-2 focus:ring-blurple"
+            className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 font-mono text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
           <button
             type="button"
             onClick={ajouter}
             disabled={enCours || saisie.trim() === ''}
-            className="shrink-0 rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+            className="shrink-0 rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
           >
             {t.reseau.addPeerButton}
           </button>
@@ -155,7 +155,7 @@ export function NetworkTab() {
                 <button
                   type="button"
                   onClick={() => retirer(addr)}
-                  className="shrink-0 rounded px-2 py-1 text-xs font-medium text-red transition-colors duration-150 hover:bg-red hover:text-white"
+                  className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red transition-colors duration-fast hover:bg-red hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                 >
                   {t.reseau.remove}
                 </button>
@@ -191,7 +191,7 @@ export function NetworkTab() {
                 <button
                   type="button"
                   onClick={() => copier(externalAddr)}
-                  className="shrink-0 rounded bg-blurple px-3 py-1 text-xs font-medium text-white transition-colors duration-150 hover:bg-blurple-hover"
+                  className="shrink-0 rounded-md bg-blurple px-3 py-1 text-xs font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                 >
                   {copiee === externalAddr ? t.app.copied : t.reseau.copy}
                 </button>

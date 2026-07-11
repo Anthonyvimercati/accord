@@ -25,6 +25,9 @@ export const NAME_MAX = 32;
 /** Longueur maximale de la bio (contrat profile.set : 2048 caractères). */
 export const BIO_MAX = 2048;
 
+/** Longueur maximale des pronoms (contrat profile.set : 40 caractères). */
+export const PRONOUNS_MAX = 40;
+
 /** Vrai si le pseudo (une fois épuré) respecte les bornes du contrat. */
 export function isValidName(name: string): boolean {
   const trimmed = name.trim();
@@ -60,6 +63,12 @@ interface SessionState {
   setName: (name: string) => Promise<void>;
   /** Définit la bio (profile.set ; chaîne vide = effacer) puis rafraîchit. */
   setBio: (bio: string) => Promise<void>;
+  /** Définit les pronoms (profile.set ; chaîne vide = effacer) puis rafraîchit. */
+  setPronouns: (pronouns: string) => Promise<void>;
+  /** Fixe ou efface la couleur d'accent (profile.set ; `null` = effacer). */
+  setAccentColor: (color: number | null) => Promise<void>;
+  /** Fixe ou efface la couleur de fond de bannière (profile.set ; `null` = effacer). */
+  setBannerColor: (color: number | null) => Promise<void>;
   /**
    * Publie l'avatar (profile.set_avatar, PNG/JPEG/WebP en base64) puis
    * rafraîchit le profil local ; `null` retire l'avatar.
@@ -181,6 +190,24 @@ export const useSession = create<SessionState>((set) => {
 
     setBio: async (bio) => {
       await api.profileSet({ bio: bio.trim() });
+      const self = await api.identitySelf();
+      set({ self });
+    },
+
+    setPronouns: async (pronouns) => {
+      await api.profileSet({ pronouns: pronouns.trim() });
+      const self = await api.identitySelf();
+      set({ self });
+    },
+
+    setAccentColor: async (color) => {
+      await api.profileSet({ accent_color: color });
+      const self = await api.identitySelf();
+      set({ self });
+    },
+
+    setBannerColor: async (color) => {
+      await api.profileSet({ banner_color: color });
       const self = await api.identitySelf();
       set({ self });
     },

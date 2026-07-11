@@ -42,7 +42,7 @@ export function ToggleRow({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className="mb-2 flex w-full items-center justify-between gap-4 rounded-lg bg-sidebar px-4 py-3 text-left transition-colors duration-150 hover:bg-chat-hover"
+      className="mb-2 flex w-full items-center justify-between gap-4 rounded-lg bg-sidebar px-4 py-3 text-left transition-colors duration-150 hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
     >
       <span className="min-w-0">
         <span className="block text-sm font-medium text-header">{label}</span>
@@ -81,7 +81,7 @@ export function OptionPill({
       type="button"
       aria-pressed={selected}
       onClick={onSelect}
-      className={`rounded px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
+      className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
         selected
           ? 'bg-blurple text-white'
           : 'bg-rail text-norm hover:bg-input hover:text-header'

@@ -126,7 +126,7 @@ function RoleEditor({
             aria-label={t.serveur.roleNameLabel}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="min-w-0 flex-1 rounded bg-rail px-3 py-1.5 text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+            className="min-w-0 flex-1 rounded-md bg-input px-3 py-1.5 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
         ) : (
           <span className="flex-1 truncate font-medium text-header">{role.name}</span>
@@ -138,22 +138,26 @@ function RoleEditor({
               aria-label={interpolate(t.serveur.roleMoveUp, { name: role.name })}
               disabled={!canMoveUp}
               onClick={() => move('up')}
-              className="flex h-7 w-7 items-center justify-center rounded bg-rail text-norm transition-colors duration-150 hover:bg-input disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-rail text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                <path d="M12 5.8 4.9 13l1.4 1.4 4.7-4.7V19h2v-9.3l4.7 4.7 1.4-1.4L12 5.8Z" />
-              </svg>
+              <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 5.8 4.9 13l1.4 1.4 4.7-4.7V19h2v-9.3l4.7 4.7 1.4-1.4L12 5.8Z" />
+                </svg>
+              </span>
             </button>
             <button
               type="button"
               aria-label={interpolate(t.serveur.roleMoveDown, { name: role.name })}
               disabled={!canMoveDown}
               onClick={() => move('down')}
-              className="flex h-7 w-7 items-center justify-center rounded bg-rail text-norm transition-colors duration-150 hover:bg-input disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-rail text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                <path d="m12 18.2 7.1-7.2-1.4-1.4-4.7 4.7V5h-2v9.3L6.3 9.6 4.9 11l7.1 7.2Z" />
-              </svg>
+              <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="m12 18.2 7.1-7.2-1.4-1.4-4.7 4.7V5h-2v9.3L6.3 9.6 4.9 11l7.1 7.2Z" />
+                </svg>
+              </span>
             </button>
           </span>
         )}
@@ -172,14 +176,14 @@ function RoleEditor({
               aria-label={t.serveur.roleColor}
               value={roleColorCss(color === 0 ? DEFAULT_PICKER_COLOR : color)}
               onChange={(e) => setColor(parseInt(e.target.value.slice(1), 16))}
-              className="h-7 w-10 cursor-pointer rounded bg-rail"
+              className="h-7 w-10 cursor-pointer rounded-md bg-rail focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             />
             <button
               type="button"
               aria-pressed={color === 0}
               onClick={() => setColor(0)}
-              className={`rounded px-2 py-1 text-xs font-medium ${
-                color === 0 ? 'bg-blurple text-white' : 'bg-rail text-norm'
+              className={`rounded-lg px-2 py-1 text-xs font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+                color === 0 ? 'bg-blurple text-white' : 'bg-rail text-norm hover:bg-input'
               }`}
             >
               {t.serveur.roleNoColor}
@@ -194,7 +198,7 @@ function RoleEditor({
               {PERM_ITEMS.map(({ bit, label }) => (
                 <label
                   key={bit}
-                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm text-norm hover:bg-chat-hover"
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-norm hover:bg-chat-hover"
                 >
                   <input
                     type="checkbox"
@@ -202,7 +206,7 @@ function RoleEditor({
                     onChange={(e) =>
                       setPerms((p) => (e.target.checked ? p | bit : p & ~bit))
                     }
-                    className="accent-blurple"
+                    className="rounded-xs accent-blurple focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                   />
                   {label(t)}
                 </label>
@@ -219,7 +223,7 @@ function RoleEditor({
               return (
                 <div
                   key={member.pubkey}
-                  className="flex items-center justify-between gap-2 rounded px-1 py-1 hover:bg-chat-hover"
+                  className="flex items-center justify-between gap-2 rounded-md px-1 py-1 hover:bg-chat-hover"
                 >
                   <span className="min-w-0 truncate text-sm text-norm">
                     {nameOf(member.pubkey)}
@@ -228,7 +232,7 @@ function RoleEditor({
                     type="button"
                     aria-pressed={assigned}
                     onClick={() => toggleMember(member.pubkey, assigned)}
-                    className={`shrink-0 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                    className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                       assigned
                         ? 'bg-blurple text-white hover:bg-blurple-hover'
                         : 'bg-rail text-norm hover:bg-input'
@@ -255,7 +259,7 @@ function RoleEditor({
               type="button"
               disabled={!dirty || busy}
               onClick={() => void save()}
-              className="rounded bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+              className="rounded-lg bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
             >
               {t.serveur.roleSave}
             </button>
@@ -312,13 +316,13 @@ export function ServerRolesTab({ groupId }: { groupId: string }) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void createRole();
               }}
-              className="min-w-0 flex-1 rounded bg-rail px-3 py-2 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+              className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             />
             <button
               type="button"
               disabled={newName.trim() === '' || busy}
               onClick={() => void createRole()}
-              className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+              className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
             >
               {t.serveur.createRoleAction}
             </button>

@@ -31,7 +31,7 @@ function ThemeSwatch({
       type="button"
       aria-pressed={selected}
       onClick={onSelect}
-      className={`group rounded-lg text-left ${
+      className={`group rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
         selected ? '' : 'opacity-90 hover:opacity-100'
       }`}
     >

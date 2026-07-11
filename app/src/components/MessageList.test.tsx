@@ -30,6 +30,9 @@ const SELF = {
   bio: null,
   avatar: null,
   banner: null,
+  pronouns: null,
+  accent_color: null,
+  banner_color: null,
 };
 
 function textMsg(

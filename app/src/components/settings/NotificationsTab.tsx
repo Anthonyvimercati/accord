@@ -59,7 +59,7 @@ export function NotificationsTab() {
             <button
               type="button"
               onClick={askPermission}
-              className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover"
+              className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             >
               {t.settings.notifAllow}
             </button>

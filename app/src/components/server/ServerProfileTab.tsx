@@ -99,14 +99,14 @@ export function ServerProfileTab({ groupId }: { groupId: string }) {
             onKeyDown={(e) => {
               if (e.key === 'Enter') void save();
             }}
-            className="min-w-0 flex-1 rounded bg-rail px-3 py-2 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple disabled:opacity-60"
+            className="min-w-0 flex-1 rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-60"
           />
           {canManage && (
             <button
               type="button"
               disabled={!valid || !dirty || busy}
               onClick={() => void save()}
-              className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+              className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
             >
               {t.serveur.rename}
             </button>
@@ -148,7 +148,7 @@ export function ServerProfileTab({ groupId }: { groupId: string }) {
                 type="button"
                 disabled={busy}
                 onClick={() => fileRef.current?.click()}
-                className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover disabled:opacity-50"
+                className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
               >
                 {t.serveur.chooseImage}
               </button>

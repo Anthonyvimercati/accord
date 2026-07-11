@@ -50,7 +50,7 @@ function durationLabel(t: Dict, key: TimeoutKey): string {
 }
 
 const CONTROL_CLASS =
-  'rounded border border-input px-3 py-1 text-sm font-medium text-muted transition-colors hover:text-norm';
+  'rounded-lg border border-input px-3 py-1 text-sm font-medium text-muted transition-colors hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar';
 
 /**
  * Contrôle de sourdine d'un membre : choix de durée puis application quand il
@@ -82,7 +82,7 @@ function MemberTimeout({
         aria-label={t.serveur.timeoutDuration}
         value={choice}
         onChange={(e) => setChoice(e.target.value as TimeoutKey)}
-        className="rounded bg-input px-1.5 py-1 text-xs text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        className="rounded-md bg-input px-1.5 py-1 text-xs text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
       >
         {TIMEOUT_OPTIONS.map((option) => (
           <option key={option.key} value={option.key}>

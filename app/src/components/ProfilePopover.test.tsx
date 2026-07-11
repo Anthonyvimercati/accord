@@ -23,6 +23,9 @@ const MOI: SelfProfile = {
   bio: 'ma bio',
   avatar: null,
   banner: null,
+  pronouns: null,
+  accent_color: null,
+  banner_color: null,
 };
 
 const AMI: Contact = {
@@ -213,5 +216,62 @@ describe('ProfilePopover — pseudos de serveur', () => {
     render(<ProfilePopover />);
 
     expect(screen.queryByLabelText('Pseudo de serveur')).not.toBeInTheDocument();
+  });
+});
+
+describe('ProfilePopover — pronoms et couleurs de profil', () => {
+  it('affiche les pronoms sous le pseudo pour un ami', () => {
+    useFriends.setState({ contacts: [{ ...AMI, pronouns: 'iel/iel' }] });
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    expect(screen.getByText('iel/iel')).toBeInTheDocument();
+  });
+
+  it('affiche les pronoms sous son propre pseudo', () => {
+    useSession.setState({ self: { ...MOI, pronouns: 'il/lui' } });
+    openFor('moi');
+    render(<ProfilePopover />);
+
+    expect(screen.getByText('il/lui')).toBeInTheDocument();
+  });
+
+  it('n’affiche rien quand les pronoms sont absents', () => {
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    expect(screen.queryByText('iel/iel')).not.toBeInTheDocument();
+  });
+
+  it('remplit la bannière avec la couleur de profil quand aucune image n’est définie', () => {
+    useFriends.setState({ contacts: [{ ...AMI, banner_color: 0x5865f2 }] });
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    expect(screen.getByTestId('profile-banner-fill')).toHaveStyle({
+      backgroundColor: '#5865f2',
+    });
+  });
+
+  it('l’image de bannière l’emporte toujours sur la couleur', () => {
+    useFriends.setState({
+      contacts: [{ ...AMI, banner: 'ab'.repeat(32), banner_color: 0x5865f2 }],
+    });
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    // Bannière encore en chargement (fichier non résolu en test) : fond
+    // neutre, jamais la couleur, tant qu'une image est annoncée.
+    expect(screen.getByTestId('profile-banner-fill')).not.toHaveStyle({
+      backgroundColor: '#5865f2',
+    });
+  });
+
+  it('teinte le pseudo avec la couleur d’accent quand elle est définie', () => {
+    useSession.setState({ self: { ...MOI, accent_color: 0xed4245 } });
+    openFor('moi');
+    render(<ProfilePopover />);
+
+    expect(screen.getByText('Moi')).toHaveStyle({ color: '#ed4245' });
   });
 });

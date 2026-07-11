@@ -78,7 +78,7 @@ function DeviceSelect({
       <select
         value={selected ?? ''}
         onChange={(e) => onSelect(e.target.value === '' ? null : e.target.value)}
-        className="w-full rounded bg-rail px-3 py-2 text-sm text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        className="w-full rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
       >
         <option value="">{t.settings.defaultDevice}</option>
         {options.map((name) => (
@@ -201,7 +201,7 @@ export function VoiceTab() {
   return (
     <div>
       <SettingsSection title={t.settings.devicesTitle}>
-        <div className="space-y-3">
+        <div className="space-y-3 rounded-lg bg-sidebar p-4">
           <DeviceSelect
             label={t.settings.inputDevice}
             options={devices?.inputs ?? []}
@@ -230,7 +230,7 @@ export function VoiceTab() {
             value={masterVolume}
             aria-label={t.settings.outputVolumeLabel}
             onChange={(e) => onMasterVolume(Number(e.target.value))}
-            className="h-1 w-full accent-blurple"
+            className="h-1 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
           <span className="w-12 shrink-0 text-right text-sm tabular-nums text-norm">
             {masterVolume}%
@@ -244,10 +244,10 @@ export function VoiceTab() {
             type="button"
             aria-pressed={testing}
             onClick={testing ? stopTest : startTest}
-            className={`shrink-0 rounded px-4 py-2 text-sm font-medium text-white transition-colors duration-150 ${
+            className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
               testing
-                ? 'bg-red hover:brightness-110'
-                : 'bg-blurple hover:bg-blurple-hover'
+                ? 'bg-red hover:brightness-110 focus-visible:ring-red'
+                : 'bg-blurple hover:bg-blurple-hover focus-visible:ring-blurple'
             }`}
           >
             {testing ? t.settings.micTestStop : t.settings.micTestStart}
@@ -269,7 +269,7 @@ export function VoiceTab() {
             type="button"
             aria-label={t.settings.pttKey}
             onClick={() => setCapturing(true)}
-            className={`min-w-[96px] rounded px-3 py-1.5 text-center text-sm font-medium transition-colors duration-150 ${
+            className={`min-w-[96px] rounded-md px-3 py-1.5 text-center text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
               capturing
                 ? 'bg-blurple text-white'
                 : 'bg-rail font-mono text-norm hover:bg-input hover:text-header'

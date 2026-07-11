@@ -18,6 +18,15 @@ export interface SelfProfile {
   avatar: string | null;
   /** Racine Merkle de la bannière de profil (hex 64), ou `null` sans bannière. */
   banner: string | null;
+  /** Pronoms libres (`null` tant qu'aucun n'est défini). */
+  pronouns: string | null;
+  /** Couleur d'accent du profil (entier 0xRRGGBB), ou `null` sans accent. */
+  accent_color: number | null;
+  /**
+   * Couleur de fond de la bannière (entier 0xRRGGBB), utilisée tant qu'aucune
+   * image de bannière n'est définie ; `null` sans couleur.
+   */
+  banner_color: number | null;
 }
 
 export type ContactState = 'pending_out' | 'pending_in' | 'friend' | 'blocked';
@@ -39,6 +48,16 @@ export interface Contact {
   avatar: string | null;
   /** Racine Merkle de la bannière annoncée (hex 64), ou `null` sans bannière. */
   banner: string | null;
+  /** Pronoms annoncés par le pair (`null` si inconnus ou effacés). */
+  pronouns?: string | null;
+  /** Couleur d'accent annoncée par le pair (entier 0xRRGGBB), ou `null` sans accent. */
+  accent_color?: number | null;
+  /**
+   * Couleur de fond de bannière annoncée par le pair (entier 0xRRGGBB),
+   * utilisée tant qu'aucune image de bannière n'est définie ; `null` sans
+   * couleur.
+   */
+  banner_color?: number | null;
   state: ContactState;
   last_seen_ms: number;
   /** Présence best-effort du pair (`friends.list`, D-027) ; absente = inconnue. */
@@ -415,6 +434,12 @@ export type AccordEvent =
         bio: string | null;
         avatar: string | null;
         banner: string | null;
+        /** Absent : nœud pair ancien, pronoms inconnus (conservés tels quels). */
+        pronouns?: string | null;
+        /** Absent : nœud pair ancien, accent inconnu (conservé tel quel). */
+        accent_color?: number | null;
+        /** Absent : nœud pair ancien, couleur de bannière inconnue (conservée telle quelle). */
+        banner_color?: number | null;
       };
     }
   | {
@@ -452,18 +477,36 @@ export class Api {
     bio: string | null;
     avatar: string | null;
     banner: string | null;
+    pronouns: string | null;
+    accent_color: number | null;
+    banner_color: number | null;
   }> {
     return this.rpc.call('profile.get');
   }
 
   /**
-   * Définit le pseudo (2 à 32 caractères) et/ou la bio (≤ 2048 caractères,
-   * chaîne vide = effacer) — au moins un des deux champs requis, tout ou rien.
+   * Définit le pseudo (2 à 32 caractères), la bio (≤ 2048 caractères, chaîne
+   * vide = effacer) et/ou les pronoms (≤ 40 caractères, chaîne vide =
+   * effacer) — au moins un champ requis, tout ou rien.
+   *
+   * `accent_color`/`banner_color` sont tri-états : absent du sous-objet =
+   * inchangé, `null` = effacé, entier `0xRRGGBB` = fixé. Utiliser `'key' in
+   * changes` (et non `!== undefined`, que `exactOptionalPropertyTypes`
+   * interdit d'ailleurs pour ces champs) pour distinguer absent de `null`.
    */
-  profileSet(changes: { name?: string; bio?: string }): Promise<Record<string, never>> {
+  profileSet(changes: {
+    name?: string;
+    bio?: string;
+    pronouns?: string;
+    accent_color?: number | null;
+    banner_color?: number | null;
+  }): Promise<Record<string, never>> {
     return this.rpc.call('profile.set', {
       ...(changes.name !== undefined ? { name: changes.name } : {}),
       ...(changes.bio !== undefined ? { bio: changes.bio } : {}),
+      ...(changes.pronouns !== undefined ? { pronouns: changes.pronouns } : {}),
+      ...('accent_color' in changes ? { accent_color: changes.accent_color } : {}),
+      ...('banner_color' in changes ? { banner_color: changes.banner_color } : {}),
     });
   }
 

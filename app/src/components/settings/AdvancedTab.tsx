@@ -28,17 +28,21 @@ export function AdvancedTab() {
   return (
     <div>
       <SettingsSection title={t.settings.version}>
-        <p className="text-sm text-norm">
-          {t.app.name}{' '}
-          <span className="selectable font-mono text-muted">{APP_VERSION}</span>
-        </p>
+        <div className="rounded-lg bg-sidebar p-4">
+          <p className="text-sm text-norm">
+            {t.app.name}{' '}
+            <span className="selectable font-mono text-muted">{APP_VERSION}</span>
+          </p>
+        </div>
       </SettingsSection>
 
       <SettingsSection title={t.settings.license}>
-        <p className="text-sm leading-relaxed text-muted">
-          {interpolate(t.settings.licenseText, { file: THIRD_PARTY_FILE })}{' '}
-          <span className="font-mono text-xs text-faint">({APP_LICENSE})</span>
-        </p>
+        <div className="rounded-lg bg-sidebar p-4">
+          <p className="text-sm leading-relaxed text-muted">
+            {interpolate(t.settings.licenseText, { file: THIRD_PARTY_FILE })}{' '}
+            <span className="font-mono text-xs text-faint">({APP_LICENSE})</span>
+          </p>
+        </div>
       </SettingsSection>
 
       {self && (
@@ -56,7 +60,7 @@ export function AdvancedTab() {
               <button
                 type="button"
                 onClick={copyCode}
-                className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-blurple-hover"
+                className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
                 {copied ? t.app.copied : t.settings.copyFriendCode}
               </button>

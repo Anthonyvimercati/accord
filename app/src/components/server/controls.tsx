@@ -44,14 +44,14 @@ export function ConfirmButton({
             setConfirming(false);
             onConfirm();
           }}
-          className="rounded bg-red px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red/80"
+          className="rounded-md bg-red px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
         >
           {t.app.confirm}
         </button>
         <button
           type="button"
           onClick={() => setConfirming(false)}
-          className="px-1 py-1 text-xs font-medium text-norm hover:underline"
+          className="rounded-md px-1 py-1 text-xs font-medium text-norm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
         >
           {t.app.cancel}
         </button>
@@ -64,7 +64,7 @@ export function ConfirmButton({
       type="button"
       disabled={disabled}
       onClick={() => setConfirming(true)}
-      className="rounded border border-red px-3 py-1 text-sm font-medium text-red transition-colors enabled:hover:bg-red enabled:hover:text-white disabled:opacity-50"
+      className="rounded-lg border border-red px-3 py-1 text-sm font-medium text-red transition-colors enabled:hover:bg-red enabled:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
     >
       {action}
     </button>

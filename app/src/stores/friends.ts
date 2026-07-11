@@ -15,6 +15,12 @@ export interface ProfilAmi {
   bio: string | null;
   avatar: string | null;
   banner: string | null;
+  /** Absent : nœud pair ancien, pronoms inconnus (conservés tels quels). */
+  pronouns?: string | null;
+  /** Absent : nœud pair ancien, accent inconnu (conservé tel quel). */
+  accent_color?: number | null;
+  /** Absent : nœud pair ancien, couleur de bannière inconnue (conservée telle quelle). */
+  banner_color?: number | null;
 }
 
 interface FriendsState {
@@ -133,6 +139,15 @@ export const useFriends = create<FriendsState>((set, get) => ({
               bio: profil.bio,
               avatar: profil.avatar,
               banner: profil.banner,
+              // Pronoms/couleurs absents (nœud pair ancien) : valeurs connues
+              // conservées telles quelles, comme la présence riche.
+              ...(profil.pronouns !== undefined ? { pronouns: profil.pronouns } : {}),
+              ...('accent_color' in profil
+                ? { accent_color: profil.accent_color }
+                : {}),
+              ...('banner_color' in profil
+                ? { banner_color: profil.banner_color }
+                : {}),
             }
           : c,
       ),

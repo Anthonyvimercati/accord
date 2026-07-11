@@ -31,6 +31,9 @@ const self: SelfProfile = {
   bio: null,
   avatar: null,
   banner: null,
+  pronouns: null,
+  accent_color: null,
+  banner_color: null,
 };
 
 beforeEach(() => {
@@ -41,6 +44,9 @@ beforeEach(() => {
     setName: vi.fn(async () => {}),
     setBio: vi.fn(async () => {}),
     setAvatar: vi.fn(async () => {}),
+    setPronouns: vi.fn(async () => {}),
+    setAccentColor: vi.fn(async () => {}),
+    setBannerColor: vi.fn(async () => {}),
   });
 });
 
@@ -234,5 +240,87 @@ describe('AccountTab — identité et phrase de récupération', () => {
 
     expect(screen.getByText(/affichée une seule fois/)).toBeInTheDocument();
     expect(screen.getByText(/ne peut pas être ré-affichée/)).toBeInTheDocument();
+  });
+});
+
+describe('AccountTab — pronoms', () => {
+  it('préremplit le champ avec les pronoms courants', () => {
+    useSession.setState({ self: { ...self, pronouns: 'iel/iel' } });
+    render(<AccountTab />);
+
+    expect(screen.getByRole('textbox', { name: 'Pronoms' })).toHaveValue('iel/iel');
+  });
+
+  it('désactive Enregistrer tant que les pronoms sont inchangés', () => {
+    render(<AccountTab />);
+
+    expect(saveButtonOf('Pronoms')).toBeDisabled();
+  });
+
+  it('enregistre les pronoms épurés et confirme par un toast', async () => {
+    const setPronouns = vi.fn(async () => {});
+    useSession.setState({ setPronouns });
+    render(<AccountTab />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pronoms' }), {
+      target: { value: '  il/lui  ' },
+    });
+    fireEvent.click(saveButtonOf('Pronoms'));
+
+    await waitFor(() => expect(setPronouns).toHaveBeenCalledWith('il/lui'));
+    await waitFor(() => {
+      expect(
+        useUi.getState().toasts.some((t) => t.kind === 'info' && /Pronoms/.test(t.text)),
+      ).toBe(true);
+    });
+  });
+
+  it('permet d’effacer les pronoms (chaîne vide)', async () => {
+    const setPronouns = vi.fn(async () => {});
+    useSession.setState({ self: { ...self, pronouns: 'iel/iel' }, setPronouns });
+    render(<AccountTab />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pronoms' }), {
+      target: { value: '' },
+    });
+    fireEvent.click(saveButtonOf('Pronoms'));
+
+    await waitFor(() => expect(setPronouns).toHaveBeenCalledWith(''));
+  });
+});
+
+describe('AccountTab — couleurs de profil', () => {
+  it('choisit un préréglage comme couleur d’accent et confirme par un toast', async () => {
+    const setAccentColor = vi.fn(async () => {});
+    useSession.setState({ setAccentColor });
+    render(<AccountTab />);
+
+    const group = screen.getByRole('group', { name: 'Couleur d’accent' });
+    fireEvent.click(within(group).getByRole('button', { name: 'Couleur #5865f2' }));
+
+    await waitFor(() => expect(setAccentColor).toHaveBeenCalledWith(0x5865f2));
+    await waitFor(() => {
+      expect(
+        useUi.getState().toasts.some((t) => t.kind === 'info' && /accent/i.test(t.text)),
+      ).toBe(true);
+    });
+  });
+
+  it('efface la couleur de bannière via la pastille « Aucune couleur »', async () => {
+    const setBannerColor = vi.fn(async () => {});
+    useSession.setState({ self: { ...self, banner_color: 0x3ba55c }, setBannerColor });
+    render(<AccountTab />);
+
+    const group = screen.getByRole('group', { name: 'Couleur de bannière' });
+    fireEvent.click(within(group).getByRole('button', { name: 'Aucune couleur' }));
+
+    await waitFor(() => expect(setBannerColor).toHaveBeenCalledWith(null));
+  });
+
+  it('désactive la pastille « Aucune couleur » tant qu’aucune couleur n’est fixée', () => {
+    render(<AccountTab />);
+
+    const group = screen.getByRole('group', { name: 'Couleur de bannière' });
+    expect(within(group).getByRole('button', { name: 'Aucune couleur' })).toBeDisabled();
   });
 });

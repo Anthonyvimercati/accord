@@ -282,6 +282,9 @@ const SELF = {
   bio: null,
   avatar: null,
   banner: null,
+  pronouns: null,
+  accent_color: null,
+  banner_color: null,
 };
 
 const GROUP_TARGET = { kind: 'group', groupId: 'g1', channelId: 'c1' } as const;

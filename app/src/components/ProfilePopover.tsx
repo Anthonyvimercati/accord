@@ -8,6 +8,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PresenceStatus } from '../lib/api';
+import { profileColorCss } from '../lib/color';
 import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
 import { nicknameOf, roleColorCss, sortRoles, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
@@ -25,10 +26,20 @@ const MARGE = 8;
 
 /**
  * Bandeau de bannière en tête de carte : charge le blob par son hash Merkle
- * (comme `Avatar`) et l'affiche en paysage ; repli sur un fond neutre tant que
- * l'image est absente, en cours de chargement, ou indisponible.
+ * (comme `Avatar`) et l'affiche en paysage ; repli sur la couleur de
+ * bannière tant qu'aucune image n'est définie (l'image l'emporte toujours,
+ * y compris pendant son chargement ou en cas d'échec) ; fond neutre si ni
+ * image ni couleur.
  */
-function BanniereProfil({ hash, hint }: { hash: string | null; hint: string }) {
+function BanniereProfil({
+  hash,
+  hint,
+  color,
+}: {
+  hash: string | null;
+  hint: string;
+  color: number | null;
+}) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,10 +58,21 @@ function BanniereProfil({ hash, hint }: { hash: string | null; hint: string }) {
     };
   }, [hash, hint]);
 
+  // Aucune image annoncée (`hash === null`) : la couleur de bannière tient
+  // lieu de repli. Une image annoncée mais encore en chargement ou en échec
+  // garde le fond neutre — jamais la couleur, pour ne pas laisser croire que
+  // l'image a été remplacée.
+  const colorHex = hash === null ? profileColorCss(color) : null;
+
   return (
     <div className="relative h-20 overflow-hidden">
       {url === null ? (
-        <div className="h-full bg-rail" aria-hidden />
+        <div
+          aria-hidden
+          data-testid="profile-banner-fill"
+          className={colorHex === null ? 'h-full bg-rail' : 'h-full'}
+          style={colorHex !== null ? { backgroundColor: colorHex } : undefined}
+        />
       ) : (
         <img src={url} alt="" aria-hidden className="h-full w-full object-cover" />
       )}
@@ -224,6 +246,12 @@ export function ProfilePopover() {
   const avatarHash = isSelf && self !== null ? self.avatar : (contact?.avatar ?? null);
   const bannerHash = isSelf && self !== null ? self.banner : (contact?.banner ?? null);
   const bio = isSelf && self !== null ? self.bio : (contact?.bio ?? null);
+  const pronouns = isSelf && self !== null ? self.pronouns : (contact?.pronouns ?? null);
+  const accentColor =
+    isSelf && self !== null ? self.accent_color : (contact?.accent_color ?? null);
+  const bannerColor =
+    isSelf && self !== null ? self.banner_color : (contact?.banner_color ?? null);
+  const accentHex = profileColorCss(accentColor);
   // Statut riche : le sien (invisible affiché hors ligne) ou celui annoncé
   // par l'ami ; `null` masque la pastille (présence inconnue : non-ami).
   const status: PresenceStatus | null = isSelf
@@ -300,7 +328,7 @@ export function ProfilePopover() {
       }}
       className="glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl"
     >
-      <BanniereProfil hash={bannerHash} hint={pubkey} />
+      <BanniereProfil hash={bannerHash} hint={pubkey} color={bannerColor} />
       <div className="-mt-8 px-4 pb-4">
         <div className="mb-2 flex items-end justify-between">
           <div className="rounded-full ring-4 ring-modal">
@@ -321,14 +349,29 @@ export function ProfilePopover() {
         </div>
 
         <div className="rounded-lg bg-sidebar/90 p-3">
+          {accentHex !== null && (
+            <div
+              aria-hidden
+              className="mb-2 h-1 w-10 rounded-full"
+              style={{ backgroundColor: accentHex }}
+            />
+          )}
           <div className="flex items-center gap-2">
-            <span className="truncate text-lg font-bold text-header">{name}</span>
+            <span
+              className="truncate text-lg font-bold text-header"
+              style={accentHex !== null ? { color: accentHex } : undefined}
+            >
+              {name}
+            </span>
             {isFounder && (
               <span className="shrink-0 text-[10px] uppercase text-yellow">
                 {t.groups.founder}
               </span>
             )}
           </div>
+          {pronouns !== null && pronouns !== '' && (
+            <p className="mt-0.5 truncate text-xs text-muted">{pronouns}</p>
+          )}
           {statusText !== null && statusText !== '' && (
             <p className="mt-0.5 truncate text-sm text-muted">{statusText}</p>
           )}
