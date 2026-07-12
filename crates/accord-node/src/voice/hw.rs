@@ -25,6 +25,11 @@ use accord_voice::{AudioInput, AudioOutput};
 const QUEUE_FRAMES: usize = 32;
 /// Période de scrutation du thread audio.
 const POLL: Duration = Duration::from_millis(5);
+/// Délai maximal d'ouverture confirmée d'un périphérique ([`MicCapture`])
+/// avant abandon : si l'ouverture pend (pilote récalcitrant, dialogue de
+/// permission micro sans réponse…), le moteur voix rend la main à l'appelant
+/// au lieu de se bloquer. Large devant une ouverture réelle (quelques ms).
+const DEVICE_OPEN_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Session matérielle d'un salon : micro + haut-parleur en thread dédié.
 pub(crate) struct HardwareIo {
@@ -141,10 +146,19 @@ impl MicCapture {
             .name("accord-voix-test-micro".into())
             .spawn(move || mic_test_thread(&flag, input.as_deref(), &capture_tx, ready_tx))
             .map_err(|e| format!("thread audio non démarré : {e}"))?;
-        match ready_rx.await {
-            Ok(Ok(())) => Ok(Self { stop, capture_rx }),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err("thread audio interrompu".into()),
+        // Attente BORNÉE de la confirmation d'ouverture : un périphérique qui
+        // ne répond pas (pilote bloqué, permission micro macOS en attente) ne
+        // doit pas figer le moteur voix. Le thread reçoit le signal d'arrêt (il
+        // sortira dès que l'appel système rend la main — un appel pilote
+        // bloquant n'est pas interruptible de l'extérieur).
+        match tokio::time::timeout(DEVICE_OPEN_TIMEOUT, ready_rx).await {
+            Ok(Ok(Ok(()))) => Ok(Self { stop, capture_rx }),
+            Ok(Ok(Err(e))) => Err(e),
+            Ok(Err(_)) => Err("thread audio interrompu".into()),
+            Err(_) => {
+                stop.store(true, Ordering::Relaxed);
+                Err("ouverture du périphérique audio expirée".into())
+            }
         }
     }
 
