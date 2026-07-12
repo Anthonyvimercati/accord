@@ -52,6 +52,14 @@ pub const MAX_EVENTS: usize = 25;
 /// gonfler l'état répliqué sans limite via des `PollCreate` répétés.
 pub const MAX_POLLS: usize = 25;
 
+/// Nombre maximal de fils de discussion par salon parent (au-delà, un
+/// `CreateThread` supplémentaire visant ce parent est ignoré ; les fils
+/// existants restent utilisables/archivables sans limite). Borne anti-abus :
+/// le `thread_id` étant réutilisé comme `channel_id`, un membre malveillant
+/// pourrait sinon gonfler l'état répliqué sans limite via des `CreateThread`
+/// répétés sur un même salon.
+pub const MAX_THREADS_PER_CHANNEL: usize = 500;
+
 /// Bornes du titre d'un événement (caractères, après trim).
 const MIN_EVENT_TITLE_CHARS: usize = 2;
 /// Borne haute du titre d'un événement (caractères, après trim).
@@ -61,6 +69,10 @@ pub const MAX_EVENT_DESC_CHARS: usize = 1024;
 
 /// Longueur maximale d'un pseudo de serveur (en caractères, après trim).
 pub const MAX_NICKNAME_CHARS: usize = 32;
+
+/// Longueur maximale du nom d'un fil (en caractères) — alignée sur la borne
+/// des libellés authorés localement (`accord-node`, `MAX_LABEL_CHARS`).
+pub const MAX_THREAD_NAME_CHARS: usize = 100;
 
 /// Longueur maximale d'un mot AutoMod (en caractères, après normalisation
 /// en minuscules) — même politique que [`MAX_NICKNAME_CHARS`]. Le nombre de
@@ -321,6 +333,31 @@ pub struct Poll {
     pub votes: BTreeMap<[u8; 32], u8>,
 }
 
+/// Fil de discussion ancré à un salon textuel (op 0x2D-0x2E). Un fil est un
+/// mini-salon éphémère : son identifiant (clé de [`GroupState::threads`])
+/// sert de `channel_id` pour les messages qui y transitent, et ses
+/// permissions sont intégralement héritées de `parent_channel` (aucune table
+/// d'overrides propre au fil — voir [`GroupState::resolve_channel_for_perms`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Thread {
+    /// Salon textuel parent : source des permissions (VIEW/SEND/MANAGE) et du
+    /// mode lent appliqués aux messages du fil.
+    pub parent_channel: [u8; 16],
+    /// Message racine auquel le fil est ancré (informatif ; le fil survit à
+    /// la suppression de son message racine).
+    pub root_msg: [u8; 16],
+    /// Nom affiché.
+    pub name: String,
+    /// Archivé : drapeau indicatif basculé par `SetThreadArchived`. Comme le
+    /// mode lent ou AutoMod, ce drapeau est une config répliquée que le
+    /// client honnête applique au rendu — l'ingestion des messages n'est PAS
+    /// bloquée sur lui (voir `accord_core::group::msg`).
+    pub archived: bool,
+    /// Auteur du fil (peut toujours l'archiver/désarchiver, comme
+    /// [`Event::author`]).
+    pub creator: [u8; 32],
+}
+
 /// État matérialisé d'un groupe après repli de l'op-log.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GroupState {
@@ -370,6 +407,11 @@ pub struct GroupState {
     /// groupe à la création via `PollCreate`). La question/les options
     /// vivent dans le message, jamais ici.
     pub polls: BTreeMap<[u8; 16], Poll>,
+    /// Fils de discussion `thread_id → détails` (op 0x2D-0x2E), bornés à
+    /// [`MAX_THREADS_PER_CHANNEL`] par salon parent à la création. Reconstruit
+    /// à chaque repli de l'op-log comme tout autre champ (jamais sérialisé ni
+    /// filaire). Le `thread_id` sert de `channel_id` aux messages du fil.
+    pub threads: BTreeMap<[u8; 16], Thread>,
     /// Avatars par serveur `membre → racine Merkle` (op 0x26, self-service
     /// uniquement — aucun retrait par un modérateur).
     pub member_avatars: BTreeMap<[u8; 32], [u8; 32]>,
@@ -511,16 +553,39 @@ impl GroupState {
         })
     }
 
+    /// Résout `id` en le salon dont les permissions et le mode lent
+    /// s'appliquent : `id` lui-même si c'est un salon, le `parent_channel` si
+    /// c'est un fil de discussion (les fils héritent intégralement du parent),
+    /// `None` sinon (identifiant inconnu, ou fil dont le parent a été
+    /// supprimé). Sert de point unique de résolution aux portes VIEW/SEND et
+    /// au mode lent (`accord_core::group::msg`) : un salon ordinaire est
+    /// rendu inchangé, donc aucun comportement existant n'est modifié.
+    pub fn resolve_channel_for_perms(&self, id: &[u8; 16]) -> Option<[u8; 16]> {
+        if self.channels.contains_key(id) {
+            Some(*id)
+        } else {
+            let parent = self.threads.get(id)?.parent_channel;
+            // Un fil orphelin (parent supprimé) ne résout plus : ses messages
+            // ne peuvent plus être autorisés (fail-closed).
+            self.channels.contains_key(&parent).then_some(parent)
+        }
+    }
+
     /// Vrai si `who` peut publier un message dans `channel_id` à l'instant
     /// mural `when` : VIEW+SEND effectifs (overrides compris), non en sourdine,
     /// et — dans un salon d'annonces — porteur de `MANAGE_CHANNELS`. Reflète
     /// exactement la porte d'émission (`require_send`) pour que composition et
-    /// ingestion restent symétriques.
+    /// ingestion restent symétriques. Si `channel_id` est un fil de
+    /// discussion, les permissions sont résolues sur son salon parent
+    /// ([`Self::resolve_channel_for_perms`]).
     pub fn can_send_message(&self, who: &[u8; 32], channel_id: &[u8; 16], when: u64) -> bool {
-        let Some(channel) = self.channels.get(channel_id) else {
+        let Some(effective) = self.resolve_channel_for_perms(channel_id) else {
             return false;
         };
-        let eff = self.permissions_in(who, channel_id);
+        let Some(channel) = self.channels.get(&effective) else {
+            return false;
+        };
+        let eff = self.permissions_in(who, &effective);
         if eff & (perms::VIEW | perms::SEND) != (perms::VIEW | perms::SEND) {
             return false;
         }
@@ -621,7 +686,14 @@ impl GroupState {
                 if !has(perms::MANAGE_CHANNELS) {
                     return self.ignore("ADD_CHANNEL refusé");
                 }
-                if self.channels.contains_key(&channel_id) {
+                // Le `channel_id` doit être globalement frais : il partage
+                // l'espace de noms des fils (`thread_id` sert de `channel_id`).
+                // Miroir exact de la garde de `CreateThread` — sans le second
+                // test, un `AddChannel` visant un `thread_id` existant ferait
+                // coexister `channels[X]` et `threads[X]`, et
+                // `resolve_channel_for_perms` masquerait le fil.
+                if self.channels.contains_key(&channel_id) || self.threads.contains_key(&channel_id)
+                {
                     return self.ignore("salon existant");
                 }
                 self.channels.insert(
@@ -923,7 +995,19 @@ impl GroupState {
                 if !has(perms::MANAGE_MESSAGES) {
                     return self.ignore("PIN refusé");
                 }
-                let Some(ch) = self.channels.get_mut(&channel_id) else {
+                // Un message de fil porte le `thread_id` comme `channel_id` ;
+                // un fil n'a pas d'entrée propre dans `channels` et hérite de
+                // tout son parent. On résout donc le salon effectif (le fil →
+                // son parent, un salon ordinaire → lui-même) et on y stocke
+                // l'épingle : les épingles d'un fil vivent sur le salon parent,
+                // seul support cohérent (même modèle d'héritage que les
+                // permissions et le mode lent, cf. `resolve_channel_for_perms`).
+                // Un salon inconnu — ou un fil orphelin dont le parent a été
+                // supprimé — ne résout pas et l'op est ignorée.
+                let Some(effective) = self.resolve_channel_for_perms(&channel_id) else {
+                    return self.ignore("salon inconnu");
+                };
+                let Some(ch) = self.channels.get_mut(&effective) else {
                     return self.ignore("salon inconnu");
                 };
                 if op.kind == 0x11 {
@@ -936,7 +1020,13 @@ impl GroupState {
                 if !has(perms::MANAGE_MESSAGES) {
                     return self.ignore("DELETE_MSG refusé");
                 }
-                if !self.channels.contains_key(&channel_id) {
+                // Résout le salon effectif : un message de fil porte le
+                // `thread_id`, jamais une clé de `channels`. Sans cette
+                // résolution, la modération d'un message de fil serait toujours
+                // ignorée (« salon inconnu ») et le contenu abusif y resterait
+                // insupprimable. Le tombstone est indexé par `msg_id` seul —
+                // rien d'autre à réindexer sur le parent.
+                if self.resolve_channel_for_perms(&channel_id).is_none() {
                     return self.ignore("salon inconnu");
                 }
                 self.moderated_deletions.insert(msg_id);
@@ -1398,6 +1488,93 @@ impl GroupState {
                     return self.ignore("salon inconnu");
                 };
                 ch.slowmode_secs = seconds;
+            }
+            GroupOpBody::CreateThread {
+                thread_id,
+                parent_channel,
+                root_msg,
+                name,
+            } => {
+                // Défense en profondeur : rejette un nom de fil hostile
+                // (caractères de contrôle ou de format trompeur — bidi,
+                // largeur nulle —, vide ou trop long) même si l'op provient
+                // d'un pair malveillant ayant contourné la validation locale.
+                // Même garde anti-usurpation que les pseudos de serveur.
+                if !is_valid_display_label(&name, MAX_THREAD_NAME_CHARS) {
+                    return self.ignore("nom de fil invalide");
+                }
+                // Parent must exist and be a text channel (a thread hangs off
+                // a `#` channel, never a voice/announcement one).
+                let Some(parent) = self.channels.get(&parent_channel) else {
+                    return self.ignore("salon parent inconnu");
+                };
+                if parent.kind != ChannelKind::Text {
+                    return self.ignore("salon parent non textuel");
+                }
+                // Gated on effective VIEW+SEND in the parent, exactly like a
+                // plain message send / `PollCreate` — bare membership is NOT
+                // enough (a member who cannot write to the parent must not be
+                // able to spawn threads under it and squat the per-parent cap).
+                // Timeout is intentionally NOT checked here (an op's `wall_ms`
+                // is informative only; timeout enforcement is a message-layer
+                // concern against the receiver's local clock), consistent with
+                // `PollCreate`.
+                let eff = self.permissions_in(&author, &parent_channel);
+                if eff & (perms::VIEW | perms::SEND) != (perms::VIEW | perms::SEND) {
+                    return self.ignore("CREATE_THREAD refusé (droit d'écriture)");
+                }
+                // `thread_id` must be globally fresh: it doubles as a
+                // `channel_id`, so it must collide with neither an existing
+                // channel nor an existing thread. Dedup by id (Lamport order)
+                // makes the first `CreateThread` for a given id the winner, so
+                // a racing forgery can never hijack an established thread.
+                if self.channels.contains_key(&thread_id) || self.threads.contains_key(&thread_id) {
+                    return self.ignore("identifiant de fil déjà utilisé");
+                }
+                // Anti-abuse: bound the number of threads per parent channel.
+                let count = self
+                    .threads
+                    .values()
+                    .filter(|t| t.parent_channel == parent_channel)
+                    .count();
+                if count >= MAX_THREADS_PER_CHANNEL {
+                    return self.ignore("trop de fils (500 max par salon)");
+                }
+                self.threads.insert(
+                    thread_id,
+                    Thread {
+                        parent_channel,
+                        root_msg,
+                        name,
+                        archived: false,
+                        creator: author,
+                    },
+                );
+            }
+            GroupOpBody::SetThreadArchived {
+                thread_id,
+                archived,
+            } => {
+                // Ordre-indépendance : si le `CreateThread` correspondant n'a
+                // pas encore été replié (livraison non ordonnée), le fil est
+                // inconnu et l'op est ignorée — état final identique quel que
+                // soit l'ordre (voir le test `thread_*_order_independent`).
+                let Some(thread) = self.threads.get(&thread_id) else {
+                    return self.ignore("fil inconnu");
+                };
+                // Author-owns-or-manager-overrides: the thread's creator, or a
+                // holder of effective MANAGE_CHANNELS on the parent channel
+                // (founder/ADMIN included via `permissions_in`).
+                let is_creator = thread.creator == author;
+                let parent_channel = thread.parent_channel;
+                if !is_creator
+                    && self.permissions_in(&author, &parent_channel) & perms::MANAGE_CHANNELS == 0
+                {
+                    return self.ignore("SET_THREAD_ARCHIVED refusé");
+                }
+                if let Some(thread) = self.threads.get_mut(&thread_id) {
+                    thread.archived = archived;
+                }
             }
         }
         self.applied_ops += 1;
@@ -4094,5 +4271,326 @@ mod tests {
         let mut shuffled = at_cap.clone();
         shuffled.reverse();
         assert_eq!(GroupState::fold(&at_cap), GroupState::fold(&shuffled));
+    }
+
+    /// Threads (0x2D-0x2E): a plain member with VIEW+SEND in the parent may
+    /// create one; archiving is creator-or-MANAGE_CHANNELS only; the fold is
+    /// order-independent (a `SetThreadArchived` landing before its
+    /// `CreateThread` in Lamport order is ignored, and any replay order
+    /// converges to the same state).
+    #[test]
+    fn thread_create_archive_perms_and_order_independence() {
+        const THREAD: [u8; 16] = [0x7D; 16];
+        const ROOT: [u8; 16] = [0x11; 16];
+
+        // Base group + a text channel every member can write to.
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 4); // POLL_CHAN (text), founder-added
+                                       // Alice (default VIEW+SEND, no elevated perms) creates a thread.
+        ops.push(signed(
+            GroupOpBody::CreateThread {
+                thread_id: THREAD,
+                parent_channel: POLL_CHAN,
+                root_msg: ROOT,
+                name: "fil".into(),
+            },
+            ALICE,
+            5,
+        ));
+        let st = GroupState::fold(&ops);
+        let thread = st.threads.get(&THREAD).expect("fil créé");
+        assert_eq!(thread.parent_channel, POLL_CHAN);
+        assert_eq!(thread.creator, ALICE);
+        assert!(!thread.archived);
+        // A thread resolves to its parent for permission/slow-mode purposes,
+        // and a member with VIEW+SEND in the parent may send in the thread.
+        assert_eq!(st.resolve_channel_for_perms(&THREAD), Some(POLL_CHAN));
+        assert!(st.can_send_message(&BOB, &THREAD, 0));
+
+        // Bob (not creator, no MANAGE_CHANNELS) cannot archive it.
+        let mut bob_archives = ops.clone();
+        bob_archives.push(signed(
+            GroupOpBody::SetThreadArchived {
+                thread_id: THREAD,
+                archived: true,
+            },
+            BOB,
+            6,
+        ));
+        assert!(
+            !GroupState::fold(&bob_archives)
+                .threads
+                .get(&THREAD)
+                .unwrap()
+                .archived
+        );
+
+        // The creator (Alice) and the founder (MANAGE_CHANNELS via ALL_PERMS)
+        // both can.
+        for who in [ALICE, FOUNDER] {
+            let mut archived = ops.clone();
+            archived.push(signed(
+                GroupOpBody::SetThreadArchived {
+                    thread_id: THREAD,
+                    archived: true,
+                },
+                who,
+                6,
+            ));
+            assert!(
+                GroupState::fold(&archived)
+                    .threads
+                    .get(&THREAD)
+                    .unwrap()
+                    .archived
+            );
+        }
+
+        // A duplicate id colliding with an existing CHANNEL is ignored (the
+        // thread_id doubles as a channel_id, so it must be globally fresh).
+        let mut collision = base_ops();
+        add_poll_channel(&mut collision, 4);
+        collision.push(signed(
+            GroupOpBody::CreateThread {
+                thread_id: POLL_CHAN,
+                parent_channel: POLL_CHAN,
+                root_msg: ROOT,
+                name: "collision".into(),
+            },
+            FOUNDER,
+            5,
+        ));
+        assert!(GroupState::fold(&collision).threads.is_empty());
+
+        // Order-independence: an archive op at a LOWER Lamport than its create
+        // is ignored (thread unknown), and reversing the log converges.
+        let mut ooo = base_ops();
+        add_poll_channel(&mut ooo, 4);
+        ooo.push(signed(
+            GroupOpBody::SetThreadArchived {
+                thread_id: THREAD,
+                archived: true,
+            },
+            ALICE,
+            5,
+        ));
+        ooo.push(signed(
+            GroupOpBody::CreateThread {
+                thread_id: THREAD,
+                parent_channel: POLL_CHAN,
+                root_msg: ROOT,
+                name: "fil".into(),
+            },
+            ALICE,
+            6,
+        ));
+        let st_ooo = GroupState::fold(&ooo);
+        assert!(st_ooo.threads.contains_key(&THREAD));
+        assert!(
+            !st_ooo.threads.get(&THREAD).unwrap().archived,
+            "l'archivage précédant la création est ignoré"
+        );
+        let mut shuffled = ooo.clone();
+        shuffled.reverse();
+        assert_eq!(GroupState::fold(&ooo), GroupState::fold(&shuffled));
+    }
+
+    /// F1 — un message posté DANS un fil (`channel_id == thread_id`) doit
+    /// rester modérable : un porteur de `MANAGE_MESSAGES` (perms héritées du
+    /// parent) supprime le message d'autrui posté dans le fil. Avant le
+    /// correctif, `DeleteMsg` vérifiait `channels.contains_key(thread_id)` —
+    /// toujours faux pour un fil — et la modération était silencieusement
+    /// ignorée.
+    #[test]
+    fn thread_message_is_moderatable_by_manage_messages_holder() {
+        const THREAD: [u8; 16] = [0x7D; 16];
+        const ROOT: [u8; 16] = [0x11; 16];
+        const VICTIM_MSG: [u8; 16] = [0xDD; 16];
+
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 4); // POLL_CHAN (texte)
+                                       // Bob (membre standard) crée un fil sous le salon parent.
+        ops.push(signed(
+            GroupOpBody::CreateThread {
+                thread_id: THREAD,
+                parent_channel: POLL_CHAN,
+                root_msg: ROOT,
+                name: "fil".into(),
+            },
+            BOB,
+            5,
+        ));
+        // Alice devient modératrice (rôle MANAGE_MESSAGES), sans être fondatrice.
+        ops.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [2; 16],
+                name: "Modo".into(),
+                color: 0,
+                position: 10,
+                permissions: perms::MANAGE_MESSAGES,
+            },
+            FOUNDER,
+            6,
+        ));
+        ops.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [2; 16],
+            },
+            FOUNDER,
+            7,
+        ));
+        // Alice supprime le message de Bob posté DANS le fil.
+        ops.push(signed(
+            GroupOpBody::DeleteMsg {
+                channel_id: THREAD,
+                msg_id: VICTIM_MSG,
+            },
+            ALICE,
+            8,
+        ));
+        assert!(
+            GroupState::fold(&ops)
+                .moderated_deletions
+                .contains(&VICTIM_MSG),
+            "un message de fil doit être supprimable avec MANAGE_MESSAGES du parent (F1)"
+        );
+
+        // Épingler un message de fil : l'épingle est stockée sur le salon
+        // PARENT (support cohérent — un fil n'a pas de table `pins` propre).
+        let mut pinned = ops.clone();
+        pinned.push(signed(
+            GroupOpBody::Pin {
+                channel_id: THREAD,
+                msg_id: VICTIM_MSG,
+            },
+            ALICE,
+            9,
+        ));
+        let st_pin = GroupState::fold(&pinned);
+        assert!(
+            st_pin
+                .channels
+                .get(&POLL_CHAN)
+                .unwrap()
+                .pins
+                .contains(&VICTIM_MSG),
+            "l'épingle d'un message de fil vit sur le salon parent"
+        );
+
+        // Garde-fou : une cible totalement inconnue (ni salon ni fil) reste
+        // ignorée (aucun tombstone créé).
+        let mut unknown = ops.clone();
+        unknown.push(signed(
+            GroupOpBody::DeleteMsg {
+                channel_id: [0x99; 16],
+                msg_id: [0xEE; 16],
+            },
+            ALICE,
+            9,
+        ));
+        assert!(!GroupState::fold(&unknown)
+            .moderated_deletions
+            .contains(&[0xEE; 16]));
+
+        // Un membre sans MANAGE_MESSAGES ne peut pas supprimer un message de fil.
+        let mut nonmod = base_ops();
+        add_poll_channel(&mut nonmod, 4);
+        nonmod.push(signed(
+            GroupOpBody::CreateThread {
+                thread_id: THREAD,
+                parent_channel: POLL_CHAN,
+                root_msg: ROOT,
+                name: "fil".into(),
+            },
+            BOB,
+            5,
+        ));
+        nonmod.push(signed(
+            GroupOpBody::DeleteMsg {
+                channel_id: THREAD,
+                msg_id: VICTIM_MSG,
+            },
+            BOB,
+            6,
+        ));
+        assert!(!GroupState::fold(&nonmod)
+            .moderated_deletions
+            .contains(&VICTIM_MSG));
+    }
+
+    /// F2 — un `AddChannel` visant un `thread_id` existant est ignoré (miroir
+    /// de la garde de collision de `CreateThread`) : le fil reste intact et
+    /// n'est jamais masqué par un salon homonyme.
+    #[test]
+    fn add_channel_cannot_shadow_existing_thread() {
+        const THREAD: [u8; 16] = [0x7D; 16];
+        const ROOT: [u8; 16] = [0x11; 16];
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 4);
+        ops.push(signed(
+            GroupOpBody::CreateThread {
+                thread_id: THREAD,
+                parent_channel: POLL_CHAN,
+                root_msg: ROOT,
+                name: "fil".into(),
+            },
+            ALICE,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: THREAD,
+                name: "pirate".into(),
+                category: None,
+                kind: ChannelKind::Text,
+                position: 0,
+            },
+            FOUNDER,
+            6,
+        ));
+        let st = GroupState::fold(&ops);
+        assert!(
+            !st.channels.contains_key(&THREAD),
+            "AddChannel ne doit pas créer un salon sur un thread_id existant (F2)"
+        );
+        assert!(st.threads.contains_key(&THREAD), "le fil reste intact");
+        assert_eq!(
+            st.resolve_channel_for_perms(&THREAD),
+            Some(POLL_CHAN),
+            "le fil n'est pas masqué par un salon homonyme"
+        );
+    }
+
+    /// F4 — le nom d'un fil est validé au repli (défense en profondeur) : un
+    /// nom vide, avec caractère de contrôle ou de format trompeur (bidi) est
+    /// rejeté, un nom propre est accepté.
+    #[test]
+    fn create_thread_rejects_hostile_name() {
+        const THREAD: [u8; 16] = [0x7D; 16];
+        const ROOT: [u8; 16] = [0x11; 16];
+        let make = |name: &str| {
+            let mut o = base_ops();
+            add_poll_channel(&mut o, 4);
+            o.push(signed(
+                GroupOpBody::CreateThread {
+                    thread_id: THREAD,
+                    parent_channel: POLL_CHAN,
+                    root_msg: ROOT,
+                    name: name.into(),
+                },
+                ALICE,
+                5,
+            ));
+            o
+        };
+        // Contrôle, bidi, vide → refusés.
+        assert!(GroupState::fold(&make("fil\u{0007}")).threads.is_empty());
+        assert!(GroupState::fold(&make("fil\u{202E}")).threads.is_empty());
+        assert!(GroupState::fold(&make("")).threads.is_empty());
+        // Nom propre → accepté.
+        assert!(GroupState::fold(&make("discussion"))
+            .threads
+            .contains_key(&THREAD));
     }
 }

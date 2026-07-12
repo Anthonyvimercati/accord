@@ -853,6 +853,42 @@ pub enum GroupOpBody {
         /// seconds. `0` disables slow mode.
         seconds: u32,
     },
+    /// 0x2D — Create a discussion thread anchored to a root message of a
+    /// text channel. A thread reuses the channel infrastructure: its
+    /// `thread_id` doubles as the `channel_id` its messages travel under
+    /// (see `accord_core::group::msg`), and its permissions are inherited
+    /// from the parent channel (there is no separate override table for a
+    /// thread). Gated at replay on effective `VIEW`+`SEND` in
+    /// `parent_channel`, exactly like a plain message send / `PollCreate`
+    /// (bare membership is not enough); `parent_channel` must exist and be
+    /// [`ChannelKind::Text`]; `thread_id` must collide with neither an
+    /// existing channel nor an existing thread; capped at
+    /// `accord_core::group::state::MAX_THREADS_PER_CHANNEL` per parent.
+    CreateThread {
+        /// New thread identifier, minted by the caller (random, like
+        /// [`crate::new_id16`]) — also the `channel_id` its messages use.
+        thread_id: [u8; 16],
+        /// Parent text channel the thread hangs off (permissions/slow mode
+        /// are resolved through it).
+        parent_channel: [u8; 16],
+        /// Root message the thread is anchored to (informative; the thread
+        /// survives if the root is later deleted).
+        root_msg: [u8; 16],
+        /// Display name (bounded like a channel name).
+        name: String,
+    },
+    /// 0x2E — Archive or unarchive a thread. Allowed at replay for the
+    /// thread's creator or any holder of effective `MANAGE_CHANNELS` on the
+    /// parent channel; idempotent. If the corresponding `CreateThread` has
+    /// not been folded yet (unordered delivery), the op is ignored — the
+    /// thread is simply unknown, which is acceptable and order-independent
+    /// (see `accord_core::group::state`).
+    SetThreadArchived {
+        /// Target thread.
+        thread_id: [u8; 16],
+        /// New archived flag.
+        archived: bool,
+    },
 }
 
 impl GroupOpBody {
@@ -903,6 +939,8 @@ impl GroupOpBody {
             Self::PollDelete { .. } => 0x2A,
             Self::SetAutoModWords { .. } => 0x2B,
             Self::SetChannelSlowmode { .. } => 0x2C,
+            Self::CreateThread { .. } => 0x2D,
+            Self::SetThreadArchived { .. } => 0x2E,
         }
     }
 
@@ -1120,6 +1158,24 @@ impl GroupOpBody {
                 w.put_arr(channel_id);
                 w.put_u32(*seconds);
             }
+            Self::CreateThread {
+                thread_id,
+                parent_channel,
+                root_msg,
+                name,
+            } => {
+                w.put_arr(thread_id);
+                w.put_arr(parent_channel);
+                w.put_arr(root_msg);
+                w.put_str(name);
+            }
+            Self::SetThreadArchived {
+                thread_id,
+                archived,
+            } => {
+                w.put_arr(thread_id);
+                w.put_u8(u8::from(*archived));
+            }
         }
         w.into_bytes()
     }
@@ -1307,6 +1363,16 @@ impl GroupOpBody {
                     seconds,
                 }
             }
+            0x2D => Self::CreateThread {
+                thread_id: r.arr()?,
+                parent_channel: r.arr()?,
+                root_msg: r.arr()?,
+                name: r.str(MAX_NAME, "op.thread.name")?,
+            },
+            0x2E => Self::SetThreadArchived {
+                thread_id: r.arr()?,
+                archived: decode_bool(&mut r, "op.thread.archived")?,
+            },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
         r.finish()?;
@@ -2513,6 +2579,47 @@ mod tests {
         let mut over = encoded.clone();
         over.push(0xFF);
         assert!(GroupOpBody::decode_body(0x2C, &over).is_err());
+    }
+
+    #[test]
+    fn thread_op_bodies_roundtrip_and_reject_forged_archived_byte() {
+        let create = GroupOpBody::CreateThread {
+            thread_id: [1; 16],
+            parent_channel: [2; 16],
+            root_msg: [3; 16],
+            name: "sujet du fil".into(),
+        };
+        assert_eq!(create.kind(), 0x2D);
+        assert_eq!(roundtrip(&create), create);
+
+        for archived in [false, true] {
+            let arch = GroupOpBody::SetThreadArchived {
+                thread_id: [4; 16],
+                archived,
+            };
+            assert_eq!(arch.kind(), 0x2E);
+            assert_eq!(roundtrip(&arch), arch);
+        }
+
+        // Adversarial: the archived flag is a strict 0/1 bool — any other
+        // byte rejects the whole body (never silently coerced to true).
+        let mut w = Writer::new();
+        w.put_arr(&[4u8; 16]);
+        w.put_u8(2);
+        assert!(GroupOpBody::decode_body(0x2E, &w.into_bytes()).is_err());
+
+        // Truncation fuzz: every prefix of a valid CreateThread encoding
+        // fails to decode, and trailing garbage is rejected.
+        let encoded = create.encode_body();
+        for cut in 0..encoded.len() {
+            assert!(
+                GroupOpBody::decode_body(0x2D, &encoded[..cut]).is_err(),
+                "cut={cut}"
+            );
+        }
+        let mut over = encoded.clone();
+        over.push(0xFF);
+        assert!(GroupOpBody::decode_body(0x2D, &over).is_err());
     }
 
     /// Round-trips a `MsgBody::Poll` and fuzzes the wire bounds mandated by

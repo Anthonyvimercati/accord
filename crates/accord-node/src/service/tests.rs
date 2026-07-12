@@ -927,7 +927,8 @@ async fn group_state_enriched_exact_shape() {
             "overrides",
             "polls",
             "roles",
-            "stickers"
+            "stickers",
+            "threads"
         ]
     );
     assert_eq!(state["group_id"], json!(gid));
@@ -940,6 +941,7 @@ async fn group_state_enriched_exact_shape() {
     assert_eq!(state["stickers"], json!([]));
     assert_eq!(state["events"], json!([]));
     assert_eq!(state["polls"], json!([]));
+    assert_eq!(state["threads"], json!([]));
     assert_eq!(state["automod_words"], json!([]));
     let me = s.call("identity.self", json!({})).await.unwrap();
     assert_eq!(

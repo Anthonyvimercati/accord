@@ -662,6 +662,76 @@ impl Node {
         )
     }
 
+    // ---- Fils de discussion ----
+
+    /// Crée un fil de discussion ancré à un message racine d'un salon textuel
+    /// (op `CreateThread`, 0x2D). Un fil réutilise l'infra des salons : son
+    /// `thread_id` (généré ici, 16 octets aléatoires) sert de `channel_id`
+    /// aux messages du fil, avec des permissions et un mode lent hérités du
+    /// salon parent (vérifiés au rejeu : droit d'écriture effectif dans le
+    /// parent, parent textuel existant, borne anti-abus par salon). Rend le
+    /// `thread_id` (hex).
+    pub fn group_thread_create(
+        &self,
+        group_id: &[u8; 16],
+        parent_channel: &[u8; 16],
+        root_msg: &[u8; 16],
+        name: &str,
+    ) -> Result<String, NodeError> {
+        validate_label(name)?;
+        let state = self.group_state(group_id)?;
+        match state.channels.get(parent_channel) {
+            Some(ch) if ch.kind == ChannelKind::Text => {}
+            Some(_) => return Err(NodeError::Invalid("salon parent non textuel")),
+            None => return Err(NodeError::NotFound("salon parent inconnu")),
+        }
+        // Anti-spam : la création de fil est soumise au mode lent du salon
+        // parent (comme l'envoi d'un message), pour empêcher un membre standard
+        // de créer des centaines de fils d'un coup et de gonfler l'état
+        // répliqué. Les porteurs de MANAGE_CHANNELS/MANAGE_MESSAGES sont
+        // exemptés.
+        self.with_db(|db| {
+            group::check_thread_create_slowmode(
+                db,
+                &state,
+                group_id,
+                parent_channel,
+                &self.identity.public_key(),
+                now_ms(),
+            )?;
+            Ok(())
+        })?;
+        let thread_id = group::new_id16();
+        self.group_author(
+            group_id,
+            GroupOpBody::CreateThread {
+                thread_id,
+                parent_channel: *parent_channel,
+                root_msg: *root_msg,
+                name: name.trim().to_string(),
+            },
+        )?;
+        Ok(hex::encode(&thread_id))
+    }
+
+    /// Archive ou désarchive un fil (op `SetThreadArchived`, 0x2E ; auteur du
+    /// fil ou porteur de `MANAGE_CHANNELS` effectif sur le parent, vérifié au
+    /// rejeu).
+    pub fn group_thread_archive(
+        &self,
+        group_id: &[u8; 16],
+        thread_id: &[u8; 16],
+        archived: bool,
+    ) -> Result<(), NodeError> {
+        self.group_author(
+            group_id,
+            GroupOpBody::SetThreadArchived {
+                thread_id: *thread_id,
+                archived,
+            },
+        )
+    }
+
     // ---- Émojis de serveur ----
 
     /// Ajoute (ou remplace) un émoji de serveur : publie l'image dans le

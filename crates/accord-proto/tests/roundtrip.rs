@@ -493,6 +493,16 @@ fn group_op_bodies_roundtrip() {
             words: vec!["spam".into(), "vilain-mot".into()],
         },
         GroupOpBody::SetAutoModWords { words: vec![] },
+        GroupOpBody::CreateThread {
+            thread_id: [19; 16],
+            parent_channel: [2; 16],
+            root_msg: [20; 16],
+            name: "Discussion annexe".into(),
+        },
+        GroupOpBody::SetThreadArchived {
+            thread_id: [19; 16],
+            archived: true,
+        },
     ];
     for body in bodies {
         let enc = body.encode_body();

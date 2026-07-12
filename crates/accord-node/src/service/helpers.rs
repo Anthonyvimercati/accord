@@ -493,6 +493,20 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
                 "my_vote": p.votes.get(me),
             })
         }).collect::<Vec<_>>(),
+        // Discussion threads (op 0x2D-0x2E). A thread's `thread_id` doubles as
+        // the `channel_id` its messages travel under (via `groups.send` /
+        // `groups.history`); permissions and slow mode are inherited from
+        // `parent_channel`. `archived` is an advisory replicated flag — an
+        // honest client hides archived threads; message ingestion is not
+        // gated on it.
+        "threads": s.threads.iter().map(|(id, t)| json!({
+            "thread_id": hex::encode(id),
+            "parent_channel": hex::encode(&t.parent_channel),
+            "root_msg": hex::encode(&t.root_msg),
+            "name": t.name,
+            "archived": t.archived,
+            "creator": hex::encode(&t.creator),
+        })).collect::<Vec<_>>(),
         "my_permissions": s.base_permissions(me),
     })
 }

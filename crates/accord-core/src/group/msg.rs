@@ -72,13 +72,21 @@ fn require_send(
 ) -> Result<GroupState, CoreError> {
     let state = group_state(db, group_id)?;
     let me = identity.public_key();
-    let Some(channel) = state.channels.get(channel_id) else {
+    // Threads reuse the channel message path: a message may target either a
+    // channel id or a thread id. Resolve the channel that owns the effective
+    // permissions and slow mode — a plain channel resolves to itself (so
+    // behaviour is unchanged for non-thread messages), a thread resolves to
+    // its text parent, and an unknown/orphaned id resolves to nothing.
+    let Some(effective) = state.resolve_channel_for_perms(channel_id) else {
+        return Err(CoreError::Invalid("salon inconnu"));
+    };
+    let Some(channel) = state.channels.get(&effective) else {
         return Err(CoreError::Invalid("salon inconnu"));
     };
     // Writing requires both VIEW and SEND once channel overrides are folded
     // in: a channel hidden from a role cannot be written to either.
     let needed = perms::VIEW | perms::SEND;
-    let eff = state.permissions_in(&me, channel_id);
+    let eff = state.permissions_in(&me, &effective);
     if eff & needed != needed {
         return Err(CoreError::OpRejected("droit d'écriture refusé"));
     }
@@ -125,13 +133,21 @@ fn check_slowmode(
     author: &[u8; 32],
     at_ms: u64,
 ) -> Result<bool, CoreError> {
-    let Some(channel) = state.channels.get(channel_id) else {
+    // A thread inherits its parent channel's configured slow mode; a plain
+    // channel resolves to itself. The per-author last-send tracking below
+    // stays keyed on the message's own `channel_id` (the thread id for a
+    // thread), so each thread keeps an independent cooldown window while
+    // sharing the parent's configured cooldown.
+    let Some(effective) = state.resolve_channel_for_perms(channel_id) else {
+        return Ok(true);
+    };
+    let Some(channel) = state.channels.get(&effective) else {
         return Ok(true);
     };
     if channel.slowmode_secs == 0 {
         return Ok(true);
     }
-    if !state.slowmode_exempt(author, channel_id) {
+    if !state.slowmode_exempt(author, &effective) {
         if let Some(last) = db.slowmode_last_ms(group_id, channel_id, author)? {
             let cooldown_ms = u64::from(channel.slowmode_secs) * 1000;
             if at_ms.saturating_sub(last) < cooldown_ms {
@@ -141,6 +157,35 @@ fn check_slowmode(
     }
     db.bump_slowmode_last_ms(group_id, channel_id, author, at_ms)?;
     Ok(true)
+}
+
+/// Applique le mode lent du salon **parent** à la CRÉATION d'un fil
+/// (`GroupOpBody::CreateThread`). Sans cette garde, un membre standard (SEND,
+/// sans `MANAGE_CHANNELS`/`MANAGE_MESSAGES`) pourrait créer des centaines de
+/// fils d'un coup et gonfler l'op-log répliqué : on le soumet donc au même
+/// cooldown que l'envoi d'un message dans le salon parent. Renvoie
+/// [`CoreError::OpRejected`] tant que le cooldown n'est pas écoulé, sinon
+/// enregistre l'horodatage (via [`check_slowmode`]) et renvoie `Ok(())`. La
+/// fenêtre de cooldown est celle du salon parent (`parent_channel` comme clé
+/// de suivi) : elle est donc partagée avec les messages du parent, ce qui
+/// reflète le comportement Discord où la création de fil est bridée par le
+/// mode lent du salon. Les porteurs de `MANAGE_CHANNELS`/`MANAGE_MESSAGES`
+/// sont exemptés, comme pour l'envoi.
+pub fn check_thread_create_slowmode(
+    db: &Db,
+    state: &GroupState,
+    group_id: &[u8; 16],
+    parent_channel: &[u8; 16],
+    author: &[u8; 32],
+    at_ms: u64,
+) -> Result<(), CoreError> {
+    if check_slowmode(db, state, group_id, parent_channel, author, at_ms)? {
+        Ok(())
+    } else {
+        Err(CoreError::OpRejected(
+            "mode lent actif : patiente avant de créer un fil",
+        ))
+    }
 }
 
 /// Chiffre un corps par la clé de groupe courante et rend le `CoreMsg` à
@@ -2004,6 +2049,55 @@ mod tests {
             13_000,
         )
         .expect("après expiration du cooldown");
+    }
+
+    /// F3 — la création d'un fil est soumise au mode lent du salon parent :
+    /// un membre standard qui vient d'« utiliser » le cooldown ne peut pas
+    /// enchaîner une nouvelle création tant qu'il n'est pas écoulé (anti-spam
+    /// contre le gonflement de l'op-log par des centaines de fils instantanés).
+    /// Un porteur de MANAGE_CHANNELS/MANAGE_MESSAGES en est exempté.
+    #[test]
+    fn thread_create_is_rate_limited_by_parent_slowmode() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        // Alice (fondatrice) pose un mode lent de 10s sur le salon parent.
+        let set = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::SetChannelSlowmode {
+                channel_id: chan,
+                seconds: 10,
+            },
+            2_000,
+        )
+        .expect("SetChannelSlowmode");
+        ingest_op(&db_b, &set).expect("réplication du mode lent");
+
+        let state = crate::group::group_state(&db_b, &gid).expect("état");
+        let bob_pk = bob.public_key();
+
+        // Première création : passe et démarre le cooldown.
+        check_thread_create_slowmode(&db_b, &state, &gid, &chan, &bob_pk, 3_000)
+            .expect("première création autorisée");
+        // 2s plus tard (< 10s) : refusée.
+        let err = check_thread_create_slowmode(&db_b, &state, &gid, &chan, &bob_pk, 5_000);
+        assert!(matches!(err, Err(CoreError::OpRejected(_))));
+        // Après expiration (>= 10s) : de nouveau autorisée.
+        check_thread_create_slowmode(&db_b, &state, &gid, &chan, &bob_pk, 13_000)
+            .expect("après expiration du cooldown");
+
+        // Un porteur de MANAGE_CHANNELS (la fondatrice) n'est jamais bridé,
+        // même deux créations coup sur coup.
+        let alice_pk = alice.public_key();
+        check_thread_create_slowmode(&db_a, &state, &gid, &chan, &alice_pk, 3_000)
+            .expect("exempt 1");
+        check_thread_create_slowmode(&db_a, &state, &gid, &chan, &alice_pk, 3_100)
+            .expect("exempt 2");
     }
 
     #[test]

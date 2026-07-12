@@ -319,6 +319,27 @@ fn audit_entry_json(op: &GroupOp) -> Value {
                 "set_channel_slowmode",
                 json!({ "channel_id": hex::encode(&channel_id), "seconds": seconds }),
             ),
+            GroupOpBody::CreateThread {
+                thread_id,
+                parent_channel,
+                root_msg,
+                name,
+            } => (
+                "create_thread",
+                json!({
+                    "thread_id": hex::encode(&thread_id),
+                    "parent_channel": hex::encode(&parent_channel),
+                    "root_msg": hex::encode(&root_msg),
+                    "name": name,
+                }),
+            ),
+            GroupOpBody::SetThreadArchived {
+                thread_id,
+                archived,
+            } => (
+                "set_thread_archived",
+                json!({ "thread_id": hex::encode(&thread_id), "archived": archived }),
+            ),
         },
         Err(_) => ("unknown", json!({})),
     };
@@ -451,6 +472,25 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let cid = param_id16(params, "channel_id")?;
             let seconds = param_u32(params, "seconds")?;
             node.group_channel_slowmode(&gid, &cid, seconds)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.thread.create" => {
+            let gid = param_id16(params, "group_id")?;
+            let parent = param_id16(params, "parent_channel")?;
+            let root = param_id16(params, "root_msg")?;
+            let name = param_str(params, "name")?;
+            Ok(json!({
+                "thread_id": node.group_thread_create(&gid, &parent, &root, name)?
+            }))
+        }
+        "groups.thread.archive" => {
+            let gid = param_id16(params, "group_id")?;
+            let tid = param_id16(params, "thread_id")?;
+            let archived = params
+                .get("archived")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            node.group_thread_archive(&gid, &tid, archived)?;
             Ok(json!({ "ok": true }))
         }
         "groups.channel.perms" => {
