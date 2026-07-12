@@ -2159,6 +2159,21 @@ impl Node {
         })
     }
 
+    /// Nos marques de lecture locales par salon : `(channel_id, lamport)` pour
+    /// chaque salon du groupe (lamport `0` si jamais lu). Sert au séparateur
+    /// « nouveaux messages » de l'UI (capturé à l'ouverture, avant marquage).
+    pub fn group_read_marks(&self, group_id: &[u8; 16]) -> Result<Vec<([u8; 16], u64)>, NodeError> {
+        let state = self.group_state(group_id)?;
+        self.with_db(|db| {
+            let mut out = Vec::with_capacity(state.channels.len());
+            for channel_id in state.channels.keys() {
+                let mark = read_u64(db.meta(&group_mark_key(group_id, channel_id))?);
+                out.push((*channel_id, mark));
+            }
+            Ok(out)
+        })
+    }
+
     /// Offre de synchronisation anti-entropie d'un groupe (SPEC §6.3).
     pub fn group_sync_offer(&self, group_id: &[u8; 16]) -> Result<group::SyncOffer, NodeError> {
         self.with_db(|db| Ok(group::sync_offer(db, group_id)?))

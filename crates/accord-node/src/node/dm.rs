@@ -222,6 +222,13 @@ impl Node {
         })
     }
 
+    /// Notre propre marque de lecture locale dans cette conversation (lamport
+    /// du dernier message lu, `0` si jamais marquée) — sert au séparateur
+    /// « nouveaux messages » de l'UI, capturé à l'ouverture avant le marquage.
+    pub fn dm_read_lamport(&self, peer_pubkey: &[u8; 32]) -> Result<u64, NodeError> {
+        self.with_db(|db| Ok(read_u64(db.meta(&dm_mark_key(peer_pubkey))?)))
+    }
+
     /// Édite un de nos messages directs (auteur seul, refusé sinon) puis
     /// route l'édition vers le pair, sur le même chemin que [`Node::dm_send`].
     pub fn dm_edit(

@@ -415,6 +415,15 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let mut value = group_state_json(&gid, &state, &me);
             if let Value::Object(map) = &mut value {
                 map.insert("overrides".into(), overrides_json(&state));
+                // Our local read marks per channel (`{ channel_id: lamport }`)
+                // for the UI "new messages" divider — captured on open before
+                // the client advances the mark.
+                let read_marks: serde_json::Map<String, Value> = node
+                    .group_read_marks(&gid)?
+                    .into_iter()
+                    .map(|(cid, mark)| (crate::hex::encode(&cid), json!(mark)))
+                    .collect();
+                map.insert("read_marks".into(), Value::Object(read_marks));
                 // Optional channel scope: my_permissions then folds in the
                 // channel overrides (deny > allow).
                 if let Some(cid) = param_opt_id16(params, "channel_id")? {

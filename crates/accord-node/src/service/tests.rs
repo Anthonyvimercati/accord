@@ -926,6 +926,7 @@ async fn group_state_enriched_exact_shape() {
             "name",
             "overrides",
             "polls",
+            "read_marks",
             "roles",
             "sounds",
             "stickers",
@@ -945,6 +946,8 @@ async fn group_state_enriched_exact_shape() {
     assert_eq!(state["polls"], json!([]));
     assert_eq!(state["threads"], json!([]));
     assert_eq!(state["automod_words"], json!([]));
+    // Read marks: the seeded group has one channel, never read → lamport 0.
+    assert!(state["read_marks"].is_object());
     let me = s.call("identity.self", json!({})).await.unwrap();
     assert_eq!(
         state["members"],

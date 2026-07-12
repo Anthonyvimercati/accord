@@ -54,6 +54,9 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     v["status"] = json!(presence::status_str(status));
                     v["status_text"] = json!(status_text);
                     v["unread"] = json!(node.dm_unread(&c.pubkey)?);
+                    // Notre marque de lecture locale (lamport) pour placer le
+                    // séparateur « nouveaux messages » à l'ouverture.
+                    v["read_lamport"] = json!(node.dm_read_lamport(&c.pubkey)?);
                     // Unread mentions in this DM (local detection) + private,
                     // local-only note attached to this contact.
                     v["mention_count"] = json!(node.dm_mention_count(&c.pubkey)?);
