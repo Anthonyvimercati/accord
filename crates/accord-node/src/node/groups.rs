@@ -55,6 +55,8 @@ const MAX_AVATAR_BYTES: usize = MAX_ICON_BYTES;
 
 /// Taille maximale d'un clip de soundboard décodé (256 Kio, comme un émoji).
 const MAX_SOUND_BYTES: usize = 256 * 1024;
+/// Nombre maximal de messages supprimés en une seule purge de modération.
+const MAX_PURGE: usize = 100;
 
 /// Types MIME audio acceptés pour un son de soundboard de serveur.
 const SOUND_MIMES: [&str; 5] = [
@@ -1610,6 +1612,37 @@ impl Node {
                 msg_id: *target,
             },
         )
+    }
+
+    /// Supprime en lot jusqu'à [`MAX_PURGE`] messages d'un salon (purge de
+    /// modération). Chaque suppression réutilise la même logique que
+    /// [`Self::group_delete_msg`] — message propre effacé par composition,
+    /// message d'autrui par op `DeleteMsg` signée (permission
+    /// `MANAGE_MESSAGES` vérifiée au repli du fold, chez tous les membres).
+    /// Les identifiants inconnus ou hors du salon sont ignorés silencieusement
+    /// (best-effort : une purge ne doit pas échouer sur un message déjà
+    /// disparu). Rend le nombre de suppressions effectivement émises.
+    pub fn group_purge(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        msg_ids: &[[u8; 16]],
+    ) -> Result<usize, NodeError> {
+        if msg_ids.len() > MAX_PURGE {
+            return Err(NodeError::Invalid("purge : trop de messages (100 max)"));
+        }
+        let mut deleted = 0usize;
+        for target in msg_ids {
+            match self.group_delete_msg(group_id, channel_id, target) {
+                Ok(()) => deleted += 1,
+                // Message déjà supprimé, inconnu ou hors du salon : on continue
+                // la purge sans la faire échouer. Un refus de permission
+                // (op non autorisée) remonte, lui, comme erreur franche.
+                Err(NodeError::NotFound(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(deleted)
     }
 
     /// Ajoute (`add = true`) ou retire une réaction sur un message de groupe,

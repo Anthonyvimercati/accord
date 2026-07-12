@@ -574,6 +574,51 @@ fn group_replication_hierarchy_and_moderation_between_nodes() {
 }
 
 #[test]
+fn group_purge_deletes_many_messages_and_skips_unknown() {
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
+
+    // Bob poste trois messages, tous répliqués chez Alice.
+    let mut ids = Vec::new();
+    for n in 0..3 {
+        let mid =
+            hex::decode::<16>(&bob.group_send(&gid, &chan, &format!("spam {n}")).unwrap()).unwrap();
+        deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+        ids.push(mid);
+    }
+    assert_eq!(
+        alice
+            .group_history(&gid, &chan, u64::MAX, 10)
+            .unwrap()
+            .len(),
+        3
+    );
+
+    // Alice (MANAGE_MESSAGES) purge les deux premiers + un identifiant inconnu
+    // (ignoré) : deux suppressions émises, répliquées chez Bob.
+    let purge = [ids[0], ids[1], [0xEE; 16]];
+    let deleted = alice.group_purge(&gid, &chan, &purge).unwrap();
+    assert_eq!(deleted, 2, "seuls les deux messages connus sont purgés");
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    let hist_b = bob.group_history(&gid, &chan, u64::MAX, 10).unwrap();
+    let deleted_b = hist_b.iter().filter(|m| m.deleted).count();
+    assert_eq!(deleted_b, 2, "les deux tombstones se répliquent chez Bob");
+
+    // Au-delà de la borne, la purge est refusée en bloc (rien n'est émis).
+    let too_many = vec![[0u8; 16]; 101];
+    assert!(alice.group_purge(&gid, &chan, &too_many).is_err());
+}
+
+#[test]
 fn invite_link_redeem_happy_path_between_nodes() {
     let (alice, mut rx_a) = node_with_channel();
     let (bob, mut rx_b) = node_with_channel();

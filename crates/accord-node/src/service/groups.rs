@@ -741,6 +741,23 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             node.group_delete_msg(&gid, &cid, &mid)?;
             Ok(json!({ "ok": true }))
         }
+        "groups.purge" => {
+            let gid = param_id16(params, "group_id")?;
+            let cid = param_id16(params, "channel_id")?;
+            let raw = params
+                .get("msg_ids")
+                .and_then(Value::as_array)
+                .ok_or(NodeError::Invalid("msg_ids : tableau attendu"))?;
+            let mut ids = Vec::with_capacity(raw.len());
+            for v in raw {
+                let hex = v
+                    .as_str()
+                    .ok_or(NodeError::Invalid("msg_ids : identifiants hexadécimaux"))?;
+                ids.push(hex::decode::<16>(hex).ok_or(NodeError::Invalid("identifiant invalide"))?);
+            }
+            let deleted = node.group_purge(&gid, &cid, &ids)?;
+            Ok(json!({ "deleted": deleted }))
+        }
         "groups.react" => {
             let gid = param_id16(params, "group_id")?;
             let cid = param_id16(params, "channel_id")?;
