@@ -53,6 +53,18 @@ const MAX_STICKER_BYTES: usize = 512 * 1024;
 /// [`MAX_ICON_BYTES`], D-047).
 const MAX_AVATAR_BYTES: usize = MAX_ICON_BYTES;
 
+/// Taille maximale d'un clip de soundboard décodé (256 Kio, comme un émoji).
+const MAX_SOUND_BYTES: usize = 256 * 1024;
+
+/// Types MIME audio acceptés pour un son de soundboard de serveur.
+const SOUND_MIMES: [&str; 5] = [
+    "audio/ogg",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/webm",
+    "audio/wav",
+];
+
 /// Âge maximal (ms) au-delà duquel un événement déjà commencé n'est plus
 /// (re)signalé par `event.group_event_started`, y compris après un
 /// redémarrage (D-047) : un événement qui a démarré il y a plus d'une heure
@@ -773,6 +785,98 @@ impl Node {
                 name: name.to_string(),
             },
         )
+    }
+
+    // ---- Sons de soundboard de serveur (op de groupe, calqués sur les émojis) ----
+
+    /// Ajoute (ou remplace) un son de soundboard de serveur : publie le clip
+    /// audio dans le magasin de fichiers puis émet l'op `AddSound`. Miroir de
+    /// [`Self::group_emoji_add`] (même permission `MANAGE_EMOJIS` au repli,
+    /// nom validé comme un émoji). Rend la racine Merkle (hex) du clip.
+    pub fn group_sound_add(
+        &self,
+        group_id: &[u8; 16],
+        name: &str,
+        mime: &str,
+        bytes: Vec<u8>,
+    ) -> Result<String, NodeError> {
+        validate_emoji_name(name)?;
+        if bytes.is_empty() || bytes.len() > MAX_SOUND_BYTES {
+            return Err(NodeError::Invalid("son vide ou trop lourd (256 Kio max)"));
+        }
+        if !SOUND_MIMES.contains(&mime) {
+            return Err(NodeError::Invalid(
+                "type de son non pris en charge (ogg, mpeg, mp4, webm, wav)",
+            ));
+        }
+        let file: FileRef = self.files_publish_bytes("sound", mime, bytes)?;
+        self.group_author(
+            group_id,
+            GroupOpBody::AddSound {
+                name: name.to_string(),
+                file: file.merkle_root,
+            },
+        )?;
+        Ok(hex::encode(&file.merkle_root))
+    }
+
+    /// Supprime un son de soundboard de serveur par son nom (op `DelSound`).
+    pub fn group_sound_del(&self, group_id: &[u8; 16], name: &str) -> Result<(), NodeError> {
+        validate_emoji_name(name)?;
+        self.group_author(
+            group_id,
+            GroupOpBody::DelSound {
+                name: name.to_string(),
+            },
+        )
+    }
+
+    /// Déclenche la lecture d'un son de soundboard dans un salon vocal :
+    /// diffuse un [`CoreMsg::SoundboardPlay`] ÉPHÉMÈRE aux membres du groupe
+    /// (jamais mis en file hors ligne). Gate à l'émission : l'appelant doit
+    /// être membre, `channel_id` doit désigner un salon **vocal** existant du
+    /// groupe où il détient au moins le droit d'accès (`VIEW`). La présence
+    /// vocale (être effectivement connecté à CE salon) est exigée en amont,
+    /// à la frontière service ([`crate::service`]), seule à détenir la
+    /// poignée voix ; ce `VIEW` reste une défense en profondeur.
+    ///
+    /// `sound_name` est résolu en racine Merkle via l'état répliqué du groupe
+    /// (`state.sounds`) — la racine n'est JAMAIS fournie par l'appelant, donc
+    /// une diffusion ne peut porter qu'un son de serveur enregistré : le
+    /// vecteur d'amplification DoS (racine arbitraire) est structurellement
+    /// exclu à l'émission. Rend la racine Merkle (hex) du son diffusé.
+    pub fn group_soundboard_play(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        sound_name: &str,
+    ) -> Result<String, NodeError> {
+        let me = self.identity.public_key();
+        let state = self.group_state(group_id)?;
+        if !state.is_member(&me) {
+            return Err(NodeError::Invalid("non membre du groupe"));
+        }
+        match state.channels.get(channel_id) {
+            Some(ch) if ch.kind == ChannelKind::Voice => {}
+            Some(_) => return Err(NodeError::Invalid("salon non vocal")),
+            None => return Err(NodeError::NotFound("salon vocal inconnu")),
+        }
+        if state.permissions_in(&me, channel_id) & perms::VIEW == 0 {
+            return Err(NodeError::Invalid("accès au salon vocal refusé"));
+        }
+        let sound = *state
+            .sounds
+            .get(sound_name)
+            .ok_or(NodeError::NotFound("son inconnu"))?;
+        self.outbound.send(Outbound::GroupCast {
+            group_id: *group_id,
+            msg: Box::new(CoreMsg::SoundboardPlay {
+                group_id: *group_id,
+                channel_id: *channel_id,
+                sound,
+            }),
+        });
+        Ok(hex::encode(&sound))
     }
 
     // ---- Stickers de serveur (D-047) ----

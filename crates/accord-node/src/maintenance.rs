@@ -956,6 +956,12 @@ mod tests {
             status: 0,
             custom: None
         }));
+        // Déclenchement de soundboard : purement éphémère, jamais mis en file.
+        assert!(!is_queueable_offline(&CoreMsg::SoundboardPlay {
+            group_id: [0; 16],
+            channel_id: [0; 16],
+            sound: [0; 32],
+        }));
         assert!(!is_queueable_offline(&CoreMsg::GroupSync {
             group_id: [0; 16],
             max_lamport: 0,

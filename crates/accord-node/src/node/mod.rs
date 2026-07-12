@@ -44,6 +44,17 @@ const REDEEM_MAX_PER_WINDOW: u32 = 5;
 /// ignorés (dégradation sûre plutôt que croissance non bornée).
 const REDEEM_SEEN_MAX_PEERS: usize = 1024;
 
+/// Fenêtre de cadence des `SoundboardPlay` entrants par pair (anti-DoS sonore).
+const SOUNDBOARD_WINDOW_MS: u64 = 10_000;
+
+/// Lectures de soundboard acceptées par pair et par fenêtre : au-delà, le
+/// message est silencieusement ignoré (aucun retour vers l'attaquant).
+const SOUNDBOARD_MAX_PER_WINDOW: u32 = 10;
+
+/// Borne mémoire du suivi de cadence des lectures de soundboard (même
+/// dégradation sûre que [`REDEEM_SEEN_MAX_PEERS`]).
+const SOUNDBOARD_SEEN_MAX_PEERS: usize = 1024;
+
 /// Décode une valeur `u64` big-endian d'une métadonnée (0 si absente ou
 /// malformée). Support des marques de lecture DM et de salon.
 pub(super) fn read_u64(v: Option<Vec<u8>>) -> u64 {
@@ -105,6 +116,34 @@ pub fn now_ms() -> u64 {
 /// Rich presence announced by a friend: wire status (0-2) + custom text.
 type RichPresence = (u8, Option<String>);
 
+/// Décide si un [`CoreMsg::SoundboardPlay`] entrant est diffusable à l'UI :
+/// l'émetteur est membre du groupe, `channel_id` désigne un salon **vocal**
+/// existant, et `sound` correspond à la racine Merkle d'un son de serveur
+/// **enregistré** (répliqué dans [`GroupState::sounds`]).
+///
+/// Cette dernière condition est le correctif anti-DoS d'amplification : sans
+/// elle, un pair modifié forgerait un `SoundboardPlay` portant une racine
+/// arbitraire (jusqu'à 2 Gio, non-audio) que tous les membres en ligne iraient
+/// chercher. En n'acceptant que les racines déjà répliquées (bornées par
+/// `MAX_SOUNDS`, gate `MANAGE_EMOJIS` à l'ajout), la fenêtre se réduit aux
+/// clips audio légitimes du groupe.
+///
+/// La cadence anti-spam par pair est un effet de bord vérifié séparément par
+/// l'appelant (jamais dans ce prédicat pur).
+fn soundboard_play_broadcastable(
+    state: &group::GroupState,
+    peer: &[u8; 32],
+    channel_id: &[u8; 16],
+    sound: &[u8; 32],
+) -> bool {
+    let is_voice = matches!(
+        state.channels.get(channel_id),
+        Some(ch) if ch.kind == accord_proto::core_msg::ChannelKind::Voice
+    );
+    let is_registered_sound = state.sounds.values().any(|root| root == sound);
+    state.is_member(peer) && is_voice && is_registered_sound
+}
+
 /// Nœud Accord déverrouillé.
 pub struct Node {
     identity: Arc<Identity>,
@@ -127,6 +166,9 @@ pub struct Node {
     /// Cadence des `InviteRedeem` entrants par pair : `(début de fenêtre ms,
     /// compte)`. Anti-abus en mémoire, borné ([`REDEEM_SEEN_MAX_PEERS`]).
     redeem_seen: Mutex<HashMap<[u8; 32], (u64, u32)>>,
+    /// Cadence des `SoundboardPlay` entrants par pair : `(début de fenêtre ms,
+    /// compte)`. Anti-DoS sonore en mémoire, borné ([`SOUNDBOARD_SEEN_MAX_PEERS`]).
+    soundboard_seen: Mutex<HashMap<[u8; 32], (u64, u32)>>,
 }
 
 impl Node {
@@ -155,6 +197,7 @@ impl Node {
             peer_status: Mutex::new(HashMap::new()),
             typing_seen: Mutex::new(HashMap::new()),
             redeem_seen: Mutex::new(HashMap::new()),
+            soundboard_seen: Mutex::new(HashMap::new()),
         }
     }
 
@@ -372,6 +415,32 @@ impl Node {
             *entry = (now, 0);
         }
         if entry.1 >= REDEEM_MAX_PER_WINDOW {
+            return false;
+        }
+        entry.1 += 1;
+        true
+    }
+
+    /// Anti-DoS sonore : au plus [`SOUNDBOARD_MAX_PER_WINDOW`] `SoundboardPlay`
+    /// traités par pair et par fenêtre de [`SOUNDBOARD_WINDOW_MS`] ms. Rend
+    /// vrai si le message doit être traité (et crédite la fenêtre). Même
+    /// dégradation sûre bornée que [`Self::redeem_allowed`].
+    fn soundboard_play_allowed(&self, peer: &[u8; 32], now: u64) -> bool {
+        let mut seen = self
+            .soundboard_seen
+            .lock()
+            .expect("verrou soundboard empoisonné");
+        if seen.len() >= SOUNDBOARD_SEEN_MAX_PEERS && !seen.contains_key(peer) {
+            seen.retain(|_, (start, _)| now.saturating_sub(*start) < SOUNDBOARD_WINDOW_MS);
+            if seen.len() >= SOUNDBOARD_SEEN_MAX_PEERS {
+                return false;
+            }
+        }
+        let entry = seen.entry(*peer).or_insert((now, 0));
+        if now.saturating_sub(entry.0) >= SOUNDBOARD_WINDOW_MS {
+            *entry = (now, 0);
+        }
+        if entry.1 >= SOUNDBOARD_MAX_PER_WINDOW {
             return false;
         }
         entry.1 += 1;
@@ -819,6 +888,47 @@ impl Node {
                 // au-delà (entrée attaquant-contrôlée, aucun oracle).
                 if self.redeem_allowed(peer_pubkey, now_ms()) {
                     self.ingest_invite_redeem(*peer_pubkey, group_id, invite_id, secret);
+                }
+                Ok(vec![])
+            }
+            CoreMsg::SoundboardPlay {
+                group_id,
+                channel_id,
+                sound,
+            } => {
+                // Purement éphémère : jamais rejoué comme une op, jamais mis en
+                // file. Entrée attaquant-contrôlée ⇒ toute validation qui
+                // échoue est ignorée en silence (aucun oracle).
+                //
+                // Gate à la réception : l'émetteur doit être membre du groupe,
+                // `channel_id` doit être un salon vocal existant, et `sound`
+                // doit correspondre à un son de serveur ENREGISTRÉE (racine
+                // répliquée dans `state.sounds`) — voir
+                // `soundboard_play_broadcastable` : sans ce dernier point, un
+                // pair modifié forgerait une racine arbitraire (jusqu'à 2 Gio,
+                // non-audio) que tous les membres iraient chercher
+                // (amplification DoS). Cadence par pair en dernier pour
+                // empêcher le spam sonore.
+                //
+                // La présence vocale du RÉCEPTEUR n'est délibérément PAS
+                // vérifiée ici : le statut du salon actif vit dans l'acteur
+                // voix (tâche séparée), injoignable de façon synchrone depuis
+                // `Node`. Ce contrôle est appliqué en amont par le routeur
+                // (`Runtime::route_core`), seul détenteur de la poignée voix.
+                if let Ok(state) = self.group_state(&group_id) {
+                    if soundboard_play_broadcastable(&state, peer_pubkey, &channel_id, &sound)
+                        && self.soundboard_play_allowed(peer_pubkey, now_ms())
+                    {
+                        self.emit(
+                            "event.soundboard_play",
+                            json!({
+                                "group_id": hex::encode(&group_id),
+                                "channel_id": hex::encode(&channel_id),
+                                "sound": hex::encode(&sound),
+                                "from": hex::encode(peer_pubkey),
+                            }),
+                        );
+                    }
                 }
                 Ok(vec![])
             }

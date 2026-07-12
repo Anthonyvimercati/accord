@@ -449,6 +449,10 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
             "name": name,
             "merkle_root": hex::encode(hash),
         })).collect::<Vec<_>>(),
+        "sounds": s.sounds.iter().map(|(name, hash)| json!({
+            "name": name,
+            "merkle_root": hex::encode(hash),
+        })).collect::<Vec<_>>(),
         // AutoMod blocked-word list (server config, replicated, lowercased
         // — see docs/COMMUNITY.md for the honest-P2P enforcement caveat:
         // this backend only stores/replicates the list, an honest client

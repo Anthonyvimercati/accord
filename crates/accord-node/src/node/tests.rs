@@ -1316,3 +1316,86 @@ fn twenty_first_incoming_invite_from_same_inviter_is_dropped_but_other_inviters_
         "un inviteur différent n'est pas soumis au plafond de l'attaquant"
     );
 }
+
+// ---- Soundboard : validation de diffusion à la réception (anti-DoS) ----
+
+/// Construit un salon de nature `kind`.
+#[cfg(test)]
+fn test_channel(kind: accord_proto::core_msg::ChannelKind) -> accord_core::group::state::Channel {
+    accord_core::group::state::Channel {
+        name: "Salon".into(),
+        category: None,
+        kind,
+        position: 0,
+        topic: String::new(),
+        pins: Default::default(),
+        slowmode_secs: 0,
+    }
+}
+
+#[test]
+fn soundboard_play_broadcastable_requires_registered_sound() {
+    use accord_proto::core_msg::ChannelKind;
+
+    let member = [7u8; 32];
+    let voice_chan = [1u8; 16];
+    let text_chan = [2u8; 16];
+    let registered = [0xAAu8; 32];
+
+    let mut state = group::GroupState::default();
+    state.members.insert(
+        member,
+        accord_core::group::state::Member {
+            roles: Default::default(),
+            joined_lamport: 1,
+        },
+    );
+    state
+        .channels
+        .insert(voice_chan, test_channel(ChannelKind::Voice));
+    state
+        .channels
+        .insert(text_chan, test_channel(ChannelKind::Text));
+    state.sounds.insert("tada".into(), registered);
+
+    // Cas nominal : membre, salon vocal, racine enregistrée → diffusable.
+    assert!(soundboard_play_broadcastable(
+        &state,
+        &member,
+        &voice_chan,
+        &registered
+    ));
+
+    // CRITICAL : une racine arbitraire absente de `state.sounds` n'est JAMAIS
+    // diffusée (un pair modifié ne peut pas forcer un fetch d'amplification).
+    assert!(!soundboard_play_broadcastable(
+        &state,
+        &member,
+        &voice_chan,
+        &[0xFFu8; 32]
+    ));
+
+    // Non-membre → refusé même avec une racine enregistrée.
+    assert!(!soundboard_play_broadcastable(
+        &state,
+        &[9u8; 32],
+        &voice_chan,
+        &registered
+    ));
+
+    // Salon non vocal → refusé.
+    assert!(!soundboard_play_broadcastable(
+        &state,
+        &member,
+        &text_chan,
+        &registered
+    ));
+
+    // Salon inexistant → refusé.
+    assert!(!soundboard_play_broadcastable(
+        &state,
+        &member,
+        &[3u8; 16],
+        &registered
+    ));
+}

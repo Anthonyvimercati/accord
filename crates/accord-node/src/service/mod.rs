@@ -92,6 +92,40 @@ impl Service for NodeService {
                 .await
                 .map_err(node_error_to_rpc);
         }
+        // Soundboard : ne diffuser un son que si l'appelant est connecté AU
+        // salon vocal ciblé. Le statut du salon actif vit dans l'acteur voix,
+        // interrogé ici (le service détient la poignée) et non dans
+        // `Node::group_soundboard_play` (le `Node` n'a aucune poignée voix).
+        // Un membre hors du vocal ne peut pas déclencher de son. Les
+        // identifiants malformés retombent sur `dispatch`, qui rend l'erreur
+        // de paramètre précise.
+        if method == "groups.soundboard.play" {
+            if let (Some(gid), Some(cid)) = (
+                params
+                    .get("group_id")
+                    .and_then(Value::as_str)
+                    .and_then(crate::hex::decode::<16>),
+                params
+                    .get("channel_id")
+                    .and_then(Value::as_str)
+                    .and_then(crate::hex::decode::<16>),
+            ) {
+                let connected = match &self.voice {
+                    Some(voice) => voice
+                        .status()
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some_and(|s| s.is_room(&gid, &cid)),
+                    None => false,
+                };
+                if !connected {
+                    return Err(node_error_to_rpc(NodeError::Invalid(
+                        "pas connecté à ce salon vocal",
+                    )));
+                }
+            }
+        }
         let result = dispatch(&self.node, method, &params).map_err(node_error_to_rpc)?;
         // Une modération vocale émise localement doit s'appliquer sans
         // attendre : le moteur voix rafraîchit son cache immédiatement.

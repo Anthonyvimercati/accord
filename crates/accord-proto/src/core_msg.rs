@@ -889,6 +889,22 @@ pub enum GroupOpBody {
         /// New archived flag.
         archived: bool,
     },
+    /// 0x2F — Ajout ou remplacement d'un son de soundboard de serveur (comme
+    /// [`GroupOpBody::AddEmoji`]). Un `AddSound` sur un nom existant met à jour
+    /// le clip associé. Gated on `MANAGE_EMOJIS` at replay (même permission que
+    /// les émojis), nom validé comme un émoji, borné par `MAX_SOUNDS`.
+    AddSound {
+        /// Nom court `[a-z0-9_]` (2-32 caractères, validé au repli).
+        name: String,
+        /// Racine Merkle du clip audio (publié dans le magasin de fichiers).
+        file: [u8; 32],
+    },
+    /// 0x30 — Suppression d'un son de soundboard de serveur (mirrors
+    /// [`GroupOpBody::DelEmoji`]).
+    DelSound {
+        /// Nom du son retiré.
+        name: String,
+    },
 }
 
 impl GroupOpBody {
@@ -941,6 +957,8 @@ impl GroupOpBody {
             Self::SetChannelSlowmode { .. } => 0x2C,
             Self::CreateThread { .. } => 0x2D,
             Self::SetThreadArchived { .. } => 0x2E,
+            Self::AddSound { .. } => 0x2F,
+            Self::DelSound { .. } => 0x30,
         }
     }
 
@@ -1176,6 +1194,11 @@ impl GroupOpBody {
                 w.put_arr(thread_id);
                 w.put_u8(u8::from(*archived));
             }
+            Self::AddSound { name, file } => {
+                w.put_str(name);
+                w.put_arr(file);
+            }
+            Self::DelSound { name } => w.put_str(name),
         }
         w.into_bytes()
     }
@@ -1372,6 +1395,13 @@ impl GroupOpBody {
             0x2E => Self::SetThreadArchived {
                 thread_id: r.arr()?,
                 archived: decode_bool(&mut r, "op.thread.archived")?,
+            },
+            0x2F => Self::AddSound {
+                name: r.str(MAX_EMOJI_NAME, "op.sound.name")?,
+                file: r.arr()?,
+            },
+            0x30 => Self::DelSound {
+                name: r.str(MAX_EMOJI_NAME, "op.sound.name")?,
             },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
@@ -1609,6 +1639,19 @@ pub enum CoreMsg {
         /// Secret extrait du lien d'invitation.
         secret: [u8; 32],
     },
+    /// 0x16 — Déclenchement de lecture d'un son de soundboard. Purement
+    /// ÉPHÉMÈRE : diffusé aux membres présents dans le salon vocal, jamais mis
+    /// en file hors ligne. Champs fixes ; les récepteurs récupèrent le clip via
+    /// le magasin de fichiers à partir de sa racine Merkle (`sound`). Toute
+    /// entrée invalide (non-membre, salon inconnu, spam) est ignorée en silence.
+    SoundboardPlay {
+        /// Groupe concerné.
+        group_id: [u8; 16],
+        /// Salon vocal où le son est joué.
+        channel_id: [u8; 16],
+        /// Racine Merkle du son de serveur à jouer.
+        sound: [u8; 32],
+    },
 }
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
@@ -1827,6 +1870,16 @@ impl WireEncode for CoreMsg {
                 w.put_arr(invite_id);
                 w.put_arr(secret);
             }
+            CoreMsg::SoundboardPlay {
+                group_id,
+                channel_id,
+                sound,
+            } => {
+                w.put_u8(0x16);
+                w.put_arr(group_id);
+                w.put_arr(channel_id);
+                w.put_arr(sound);
+            }
         }
     }
 }
@@ -1979,6 +2032,11 @@ impl WireDecode for CoreMsg {
                 group_id: r.arr()?,
                 invite_id: r.arr()?,
                 secret: r.arr()?,
+            }),
+            0x16 => Ok(CoreMsg::SoundboardPlay {
+                group_id: r.arr()?,
+                channel_id: r.arr()?,
+                sound: r.arr()?,
             }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
@@ -2179,6 +2237,34 @@ mod tests {
     }
 
     #[test]
+    fn soundboard_play_roundtrips_and_rejects_forged_bytes() {
+        let msg = CoreMsg::SoundboardPlay {
+            group_id: [1; 16],
+            channel_id: [2; 16],
+            sound: [3; 32],
+        };
+        assert_eq!(core_roundtrip(&msg), msg);
+
+        // Truncated sound root: decode fails cleanly (attacker-controlled
+        // input, never a panic).
+        let mut bytes = vec![0x16u8];
+        bytes.extend_from_slice(&[0u8; 16]); // group_id
+        bytes.extend_from_slice(&[0u8; 16]); // channel_id
+        bytes.extend_from_slice(&[0u8; 8]); // half a sound root
+        let mut r = Reader::new(&bytes);
+        assert!(CoreMsg::decode(&mut r).is_err());
+
+        // Trailing garbage after a complete message is rejected by finish().
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let mut bytes = w.into_bytes();
+        bytes.push(0xAB);
+        let mut r = Reader::new(&bytes);
+        let _ = CoreMsg::decode(&mut r).expect("prefix decodes");
+        assert!(r.finish().is_err());
+    }
+
+    #[test]
     fn forged_call_messages_are_rejected_without_panic() {
         // Truncated call_id on each call kind: decode fails cleanly.
         for kind in [0x11u8, 0x12, 0x13, 0x14] {
@@ -2353,6 +2439,28 @@ mod tests {
         w.put_str(&"x".repeat(33));
         w.put_arr(&[0u8; 32]);
         assert!(GroupOpBody::decode_body(0x24, &w.into_bytes()).is_err());
+    }
+
+    #[test]
+    fn sound_op_bodies_roundtrip_and_share_emoji_name_bound() {
+        let add = GroupOpBody::AddSound {
+            name: "airhorn".into(),
+            file: [7; 32],
+        };
+        assert_eq!(add.kind(), 0x2F);
+        assert_eq!(roundtrip(&add), add);
+        let del = GroupOpBody::DelSound {
+            name: "airhorn".into(),
+        };
+        assert_eq!(del.kind(), 0x30);
+        assert_eq!(roundtrip(&del), del);
+
+        // A name beyond 32 bytes is rejected at decode (shared bound with
+        // AddEmoji/DelEmoji — MAX_EMOJI_NAME).
+        let mut w = Writer::new();
+        w.put_str(&"x".repeat(33));
+        w.put_arr(&[0u8; 32]);
+        assert!(GroupOpBody::decode_body(0x2F, &w.into_bytes()).is_err());
     }
 
     #[test]

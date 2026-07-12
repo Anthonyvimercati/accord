@@ -1072,6 +1072,31 @@ impl Runtime {
             }
             return;
         }
+        // Soundboard : un son ne doit se jouer que chez les participants du
+        // salon vocal ciblé. La présence vocale locale vit dans l'acteur voix
+        // (injoignable de façon synchrone depuis `Node::ingest_core`) : c'est
+        // ici, au routeur — seul détenteur de la poignée voix — qu'on la
+        // vérifie. Hors de CE salon (ou sans salon actif) le message n'est
+        // jamais ingéré, donc `event.soundboard_play` n'est jamais émis.
+        if let CoreMsg::SoundboardPlay {
+            group_id,
+            channel_id,
+            ..
+        } = &core_msg
+        {
+            let in_room = match self.voice.get() {
+                Some(voice) => voice
+                    .status()
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some_and(|s| s.is_room(group_id, channel_id)),
+                None => false,
+            };
+            if !in_room {
+                return;
+            }
+        }
         // Un accusé applicatif solde l'élément d'outbox correspondant.
         if let CoreMsg::MsgAck { msg_id } = &core_msg {
             if let Err(e) = self.node.outbox_ack(static_pub, msg_id) {

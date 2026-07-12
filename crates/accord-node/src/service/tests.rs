@@ -927,6 +927,7 @@ async fn group_state_enriched_exact_shape() {
             "overrides",
             "polls",
             "roles",
+            "sounds",
             "stickers",
             "threads"
         ]
@@ -939,6 +940,7 @@ async fn group_state_enriched_exact_shape() {
     assert_eq!(state["my_permissions"], json!(0x3FFu32));
     assert_eq!(state["emojis"], json!([]));
     assert_eq!(state["stickers"], json!([]));
+    assert_eq!(state["sounds"], json!([]));
     assert_eq!(state["events"], json!([]));
     assert_eq!(state["polls"], json!([]));
     assert_eq!(state["threads"], json!([]));

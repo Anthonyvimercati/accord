@@ -38,6 +38,11 @@ pub const MAX_EMOJIS: usize = 50;
 /// possible).
 pub const MAX_STICKERS: usize = 30;
 
+/// Nombre maximal de sons de soundboard de serveur (même politique que les
+/// émojis : au-delà, un nouvel ajout est ignoré, le remplacement reste
+/// possible).
+pub const MAX_SOUNDS: usize = 48;
+
 /// Nombre maximal d'événements planifiés par groupe (D-047 ; au-delà, un
 /// `EventCreate` supplémentaire est ignoré — les événements existants
 /// restent modifiables/supprimables sans limite).
@@ -400,6 +405,11 @@ pub struct GroupState {
     /// Stickers de serveur `nom → racine Merkle de l'image` (D-047, mêmes
     /// règles que [`GroupState::emojis`]). Ordre du `BTreeMap` stable.
     pub stickers: BTreeMap<String, [u8; 32]>,
+    /// Sons de soundboard de serveur `nom → racine Merkle du clip audio`
+    /// (mêmes règles que [`GroupState::emojis`] : gate `MANAGE_EMOJIS`, nom
+    /// validé comme un émoji, borné par [`MAX_SOUNDS`]). Ordre du `BTreeMap`
+    /// (lexicographique par nom) stable et déterministe.
+    pub sounds: BTreeMap<String, [u8; 32]>,
     /// Événements planifiés `id → détails` (D-047, bornés à [`MAX_EVENTS`]
     /// par groupe à la création).
     pub events: BTreeMap<[u8; 16], Event>,
@@ -1112,6 +1122,29 @@ impl GroupState {
                 }
                 if self.emojis.remove(&name).is_none() {
                     return self.ignore("émoji inconnu");
+                }
+            }
+            GroupOpBody::AddSound { name, file } => {
+                // Miroir exact d'AddEmoji : même permission (MANAGE_EMOJIS),
+                // nom validé comme un émoji, remplacement-sur-nom-existant
+                // toujours permis, seul un ajout dépassant la borne est ignoré.
+                if !has(perms::MANAGE_EMOJIS) {
+                    return self.ignore("ADD_SOUND refusé");
+                }
+                if !is_valid_emoji_name(&name) {
+                    return self.ignore("nom de son invalide");
+                }
+                if !self.sounds.contains_key(&name) && self.sounds.len() >= MAX_SOUNDS {
+                    return self.ignore("trop de sons (48 max)");
+                }
+                self.sounds.insert(name, file);
+            }
+            GroupOpBody::DelSound { name } => {
+                if !has(perms::MANAGE_EMOJIS) {
+                    return self.ignore("DEL_SOUND refusé");
+                }
+                if self.sounds.remove(&name).is_none() {
+                    return self.ignore("son inconnu");
                 }
             }
             GroupOpBody::TimeoutMember { member, until_ms } => {
@@ -1976,6 +2009,61 @@ mod tests {
             8,
         ));
         assert!(GroupState::fold(&ops2).emojis.is_empty());
+    }
+
+    #[test]
+    fn sounds_add_replace_delete_and_permission() {
+        let mut ops = base_ops();
+        // Le fondateur (MANAGE_EMOJIS via ADMIN) ajoute un son.
+        ops.push(signed(
+            GroupOpBody::AddSound {
+                name: "airhorn".into(),
+                file: [1; 32],
+            },
+            FOUNDER,
+            4,
+        ));
+        // Remplacement du même nom : mise à jour du clip, pas de doublon.
+        ops.push(signed(
+            GroupOpBody::AddSound {
+                name: "airhorn".into(),
+                file: [2; 32],
+            },
+            FOUNDER,
+            5,
+        ));
+        // Alice, simple membre, ne peut ni ajouter ni supprimer.
+        ops.push(signed(
+            GroupOpBody::AddSound {
+                name: "boom".into(),
+                file: [3; 32],
+            },
+            ALICE,
+            6,
+        ));
+        // Nom invalide (majuscule) : ignoré (même validation que les émojis).
+        ops.push(signed(
+            GroupOpBody::AddSound {
+                name: "Bad".into(),
+                file: [4; 32],
+            },
+            FOUNDER,
+            7,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.sounds.get("airhorn"), Some(&[2; 32]));
+        assert_eq!(st.sounds.len(), 1, "ni Alice ni le nom invalide n'ont pris");
+
+        // Suppression par le fondateur.
+        let mut ops2 = ops.clone();
+        ops2.push(signed(
+            GroupOpBody::DelSound {
+                name: "airhorn".into(),
+            },
+            FOUNDER,
+            8,
+        ));
+        assert!(GroupState::fold(&ops2).sounds.is_empty());
     }
 
     #[test]

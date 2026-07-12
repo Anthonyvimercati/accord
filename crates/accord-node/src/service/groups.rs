@@ -235,6 +235,8 @@ fn audit_entry_json(op: &GroupOp) -> Value {
             GroupOpBody::Leave => ("leave", json!({})),
             GroupOpBody::AddEmoji { name, .. } => ("add_emoji", json!({ "name": name })),
             GroupOpBody::DelEmoji { name } => ("del_emoji", json!({ "name": name })),
+            GroupOpBody::AddSound { name, .. } => ("add_sound", json!({ "name": name })),
+            GroupOpBody::DelSound { name } => ("del_sound", json!({ "name": name })),
             GroupOpBody::TimeoutMember { member, until_ms } => (
                 "timeout",
                 json!({ "member": hex::encode(&member), "until_ms": until_ms }),
@@ -815,6 +817,27 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
         "groups.emoji.del" => {
             let gid = param_id16(params, "group_id")?;
             node.group_emoji_del(&gid, param_str(params, "name")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.sounds.add" => {
+            let gid = param_id16(params, "group_id")?;
+            let name = param_str(params, "name")?;
+            let mime = param_str(params, "mime")?;
+            let data = b64_decode(param_str(params, "data_b64")?)
+                .ok_or(NodeError::Invalid("data_b64 : base64 invalide"))?;
+            Ok(json!({
+                "merkle_root": node.group_sound_add(&gid, name, mime, data)?
+            }))
+        }
+        "groups.sounds.del" => {
+            let gid = param_id16(params, "group_id")?;
+            node.group_sound_del(&gid, param_str(params, "name")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.soundboard.play" => {
+            let gid = param_id16(params, "group_id")?;
+            let cid = param_id16(params, "channel_id")?;
+            node.group_soundboard_play(&gid, &cid, param_str(params, "sound_name")?)?;
             Ok(json!({ "ok": true }))
         }
         "groups.stickers.add" => {

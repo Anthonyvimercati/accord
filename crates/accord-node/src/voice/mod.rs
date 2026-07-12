@@ -81,6 +81,17 @@ pub struct VoiceStatus {
     pub participants: Vec<VoiceParticipant>,
 }
 
+impl VoiceStatus {
+    /// Vrai si la session active est exactement le salon vocal de groupe
+    /// `(group_id, channel_id)` — jamais un appel 1-à-1. Prédicat partagé par
+    /// le gate d'ÉMISSION du soundboard (l'appelant doit être connecté à ce
+    /// salon) et par le gate de RÉCEPTION (le son ne se joue que pour les
+    /// participants de CE salon).
+    pub(crate) fn is_room(&self, group_id: &[u8; 16], channel_id: &[u8; 16]) -> bool {
+        !self.is_call && &self.group_id == group_id && &self.channel_id == channel_id
+    }
+}
+
 /// Périphériques audio exposés par `voice.devices` (contrat gelé, D-029).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VoiceDevices {
@@ -550,4 +561,34 @@ pub(crate) fn spawn(deps: VoiceDeps) -> VoiceHandle {
     let engine = engine::Engine::new(deps, rx);
     tokio::spawn(engine.run());
     VoiceHandle { tx }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::VoiceStatus;
+
+    fn status(group_id: [u8; 16], channel_id: [u8; 16], is_call: bool) -> VoiceStatus {
+        VoiceStatus {
+            group_id,
+            channel_id,
+            is_call,
+            muted: false,
+            deafened: false,
+            participants: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn is_room_matches_exact_group_and_channel_only() {
+        let g = [1u8; 16];
+        let c = [2u8; 16];
+        // Salon vocal de groupe exact → vrai (émission et réception permises).
+        assert!(status(g, c, false).is_room(&g, &c));
+        // Mauvais salon ou mauvais groupe → faux.
+        assert!(!status(g, c, false).is_room(&g, &[9u8; 16]));
+        assert!(!status(g, c, false).is_room(&[9u8; 16], &c));
+        // Un appel 1-à-1 n'est jamais un salon de groupe, même identifiants
+        // égaux : le soundboard y est exclu.
+        assert!(!status(g, c, true).is_room(&g, &c));
+    }
 }
