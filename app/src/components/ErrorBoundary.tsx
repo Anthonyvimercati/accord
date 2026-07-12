@@ -32,7 +32,6 @@ class ErrorBoundaryInner extends Component<InnerProps, InnerState> {
 
   componentDidCatch(error: unknown, info: ErrorInfo): void {
     // Trace de diagnostic volontaire : l'erreur serait sinon invisible.
-    // eslint-disable-next-line no-console
     console.error('[ErrorBoundary]', error, info.componentStack);
   }
 
