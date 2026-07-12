@@ -638,7 +638,8 @@ impl Node {
                         .chain(applied.banner.iter().filter(|_| applied.banner_changed))
                     {
                         if let Ok(None) = self.files_local_path(hash) {
-                            let _ = self.files_fetch(hash, Some(*peer_pubkey));
+                            // Média auto-récupéré : plafonné (anti-DoS taille).
+                            let _ = self.files_fetch_media(hash, Some(*peer_pubkey));
                         }
                     }
                     self.emit(

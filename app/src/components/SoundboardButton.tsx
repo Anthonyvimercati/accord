@@ -26,31 +26,41 @@ const PLAYING_PULSE_MS = 900;
 /** Au-delà de ce nombre de sons, le panneau affiche un champ de recherche. */
 const SEARCH_THRESHOLD = 8;
 
-/** Icône haut-parleur du déclencheur (18 px, à l'unisson du bandeau vocal). */
-function SoundboardIcon() {
+/**
+ * Icône du déclencheur : grille de pads façon launchpad (3 × 2), lisible
+ * comme une « planche de sons » là où un haut-parleur se confondait avec le
+ * réglage de volume. `size` permet de la réutiliser en petit dans l'en-tête
+ * du panneau.
+ */
+function SoundboardIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
-      width="18"
-      height="18"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
+      strokeWidth={1.7}
       strokeLinejoin="round"
       aria-hidden
     >
-      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+      <rect x="4" y="5" width="4" height="5.5" rx="1.2" />
+      <rect x="10" y="5" width="4" height="5.5" rx="1.2" />
+      <rect x="16" y="5" width="4" height="5.5" rx="1.2" />
+      <rect x="4" y="13.5" width="4" height="5.5" rx="1.2" />
+      <rect x="10" y="13.5" width="4" height="5.5" rx="1.2" />
+      <rect x="16" y="13.5" width="4" height="5.5" rx="1.2" />
     </svg>
   );
 }
 
 /**
- * Tuile d'un son : pastille d'initiale colorée (teinte stable dérivée du
- * nom), nom, écrasement léger au clic (`active:scale`) et pulsation brève de
- * la pastille pendant la lecture — uniquement transform/opacity (compositor).
+ * Pad d'un son façon launchpad : face carrée à teinte stable dérivée du nom
+ * (`lib/color.soundBadgeColor`) portant l'initiale, nom lisible en dessous.
+ * Survol = légère élévation (scale + ombre), clic = écrasement, lecture =
+ * halo pulsé — uniquement transform/opacity/box-shadow (compositor). Le nom
+ * accessible du bouton vient de son texte (le nom du son) ; la face est
+ * décorative (`aria-hidden`).
  */
 function SoundTile({
   sound,
@@ -68,20 +78,18 @@ function SoundTile({
       type="button"
       title={interpolate(t.soundboard.playOf, { name: sound.name })}
       onClick={() => onPlay(sound)}
-      className={`group flex items-center gap-2 rounded-md bg-sidebar px-2 py-1.5 text-left transition-[transform,background-color] duration-fast hover:bg-chat-hover active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${
-        playing ? 'ring-1 ring-blurple' : ''
-      }`}
+      className="group flex flex-col gap-1 rounded-lg p-1 text-center transition-transform duration-fast active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
     >
       <span
         aria-hidden
         style={{ backgroundColor: soundBadgeColor(sound.name) }}
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[13px] font-bold text-white shadow-1 transition-transform duration-fast group-hover:scale-105 ${
-          playing ? 'animate-pulse' : ''
+        className={`flex aspect-square w-full items-center justify-center rounded-lg text-lg font-bold text-white shadow-1 transition-[transform,box-shadow] duration-fast group-hover:scale-[1.03] group-hover:shadow-2 ${
+          playing ? 'animate-pulse ring-2 ring-white/70' : ''
         }`}
       >
         {initial}
       </span>
-      <span className="min-w-0 flex-1 truncate text-xs font-medium text-norm">
+      <span className="w-full truncate text-[11px] font-medium text-muted group-hover:text-norm">
         {sound.name}
       </span>
     </button>
@@ -199,12 +207,15 @@ export function SoundboardButton({ className }: { className: string }) {
           aria-label={t.soundboard.open}
           className="popover-enter absolute bottom-full right-0 z-50 mb-2 w-72 rounded-lg border border-[color:var(--glass-border)] bg-chat p-2 shadow-3"
         >
-          <div className="flex items-baseline justify-between px-1 pb-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wide text-faint">
+          <div className="flex items-center justify-between px-1 pb-2">
+            <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
+              <SoundboardIcon size={14} />
               {t.soundboard.open}
             </span>
             {list.length > 0 && (
-              <span className="text-[11px] tabular-nums text-faint">{list.length}</span>
+              <span className="rounded-full bg-sidebar px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-faint">
+                {list.length}
+              </span>
             )}
           </div>
           {showSearch && (
@@ -217,8 +228,9 @@ export function SoundboardButton({ className }: { className: string }) {
             />
           )}
           {list.length === 0 ? (
-            <div className="px-2 py-4 text-center">
-              <p className="text-xs text-faint">{t.soundboard.panelEmpty}</p>
+            <div className="flex flex-col items-center gap-1.5 px-2 py-5 text-center text-faint">
+              <SoundboardIcon size={24} />
+              <p className="text-xs">{t.soundboard.panelEmpty}</p>
               {canManage && (
                 <button
                   type="button"
@@ -234,7 +246,7 @@ export function SoundboardButton({ className }: { className: string }) {
               {t.soundboard.noResults}
             </p>
           ) : (
-            <div className="grid max-h-72 grid-cols-2 gap-1.5 overflow-y-auto">
+            <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto p-0.5">
               {filtered.map((sound) => (
                 <SoundTile
                   key={sound.name}

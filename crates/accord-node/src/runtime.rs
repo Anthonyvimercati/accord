@@ -64,6 +64,14 @@ const FILES_TICK: Duration = Duration::from_millis(250);
 /// Anti-abus du service de fichiers : demandes servies par pair et par
 /// seconde au plus (au-delà, silence — le pair relancera).
 const FILES_REQS_PAR_S: u32 = 256;
+/// Anti-inondation des RÉPONSES entrantes de contrôle (`Have`, `NotFound`,
+/// `ManifestMsg`) par pair et par seconde : bien au-dessus du débit légitime
+/// (un manifest par téléchargement, quelques `Have`/`NotFound`) mais borne un
+/// pair qui inonderait ces bras pour nous faire churner requêtes/vérifs. Les
+/// `Block` (données en masse) ne sont PAS bridés ici — leur débit légitime est
+/// élevé et ils s'auto-limitent (bloc non demandé ou déjà détenu = rejet bon
+/// marché).
+const FILES_RESP_PAR_S: u32 = 128;
 /// Borne du suivi de débit par pair (au-delà, la table est réinitialisée).
 const FILES_DEBIT_MAX_PAIRS: usize = 1024;
 /// Annonce `Have` à la complétion d'un blob : pairs ciblés au plus (borne
@@ -196,6 +204,9 @@ pub struct Runtime {
     files: Mutex<fetch::Coordinator>,
     /// Fenêtres de débit du service de fichiers, par pair : `(début_ms, n)`.
     files_debit: Mutex<HashMap<[u8; 32], (u64, u32)>>,
+    /// Fenêtres de débit des RÉPONSES entrantes de contrôle (`Have`,
+    /// `NotFound`, `ManifestMsg`), par pair : anti-inondation, borné.
+    files_resp_debit: Mutex<HashMap<[u8; 32], (u64, u32)>>,
     /// Pairs ayant demandé une racine (`GetManifest`/`GetBlock`) cette session :
     /// seuls destinataires légitimes d'une annonce `Have` de cette racine (ils
     /// la connaissent déjà — aucune divulgation). Auto-borné.
@@ -265,6 +276,7 @@ impl Runtime {
             voice: OnceLock::new(),
             files: Mutex::new(fetch::Coordinator::new()),
             files_debit: Mutex::new(HashMap::new()),
+            files_resp_debit: Mutex::new(HashMap::new()),
             files_requesters: Mutex::new(HashMap::new()),
             files_repli: Mutex::new(HashMap::new()),
             net_last: Mutex::new(None),
@@ -1235,11 +1247,24 @@ impl Runtime {
             debit.clear();
         }
         let fenetre = debit.entry(*peer).or_insert((now, 0));
-        if now.saturating_sub(fenetre.0) >= 1_000 {
-            *fenetre = (now, 0);
+        fixed_window_ok(fenetre, now, 1_000, FILES_REQS_PAR_S)
+    }
+
+    /// Anti-inondation des réponses entrantes de contrôle (`Have`, `NotFound`,
+    /// `ManifestMsg`) : au plus [`FILES_RESP_PAR_S`] par pair et par seconde,
+    /// silence au-delà. Distinct de [`Self::files_debit_ok`] (requêtes
+    /// SERVIES) : les deux comptent des flux différents.
+    fn files_resp_ok(&self, peer: &[u8; 32]) -> bool {
+        let now = crate::node::now_ms();
+        let mut debit = self
+            .files_resp_debit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if debit.len() > FILES_DEBIT_MAX_PAIRS {
+            debit.clear();
         }
-        fenetre.1 += 1;
-        fenetre.1 <= FILES_REQS_PAR_S
+        let fenetre = debit.entry(*peer).or_insert((now, 0));
+        fixed_window_ok(fenetre, now, 1_000, FILES_RESP_PAR_S)
     }
 
     /// Envoie un message FILE à un pair : session directe (liaison d'identité
@@ -1288,12 +1313,12 @@ impl Runtime {
         let now = crate::node::now_ms();
         {
             let mut repli = self.files_repli.lock().unwrap_or_else(|e| e.into_inner());
-            if repli.len() > FILES_DEBIT_MAX_PAIRS {
-                repli.clear();
-            }
             match repli.get(&peer) {
                 Some(&last) if now.saturating_sub(last) < FILES_REPLI_MIN_MS => return,
                 _ => {
+                    // Éviction LRU (plus ancien repli) au lieu de tout vider :
+                    // préserve la cadence des autres pairs sous pression.
+                    evict_oldest_if_full(&mut repli, FILES_DEBIT_MAX_PAIRS, &peer);
                     repli.insert(peer, now);
                 }
             }
@@ -1384,7 +1409,19 @@ impl Runtime {
                 self.send_file(&static_pub, reply).await;
             }
             // ---- Réponses de nos sources ----
+            // `Have` et `ManifestMsg` (contrôle, débit légitime très faible —
+            // une annonce par source, un manifest par téléchargement, ré-
+            // sollicitation cadencée) sont anti-inondés par pair
+            // ([`Self::files_resp_ok`]). `NotFound` ne l'est PAS : il libère un
+            // créneau et réémet aussitôt une demande (non cadencé par tick),
+            // donc son débit légitime peut être élevé face à une source
+            // clairsemée — le brider throttlerait de vrais téléchargements ; il
+            // s'auto-limite déjà (la source sans le bloc cesse vite d'être
+            // sollicitée). `Block` (données en masse) n'est pas bridé non plus.
             FileMsg::ManifestMsg { manifest } => {
+                if !self.files_resp_ok(&static_pub) {
+                    return;
+                }
                 self.on_file_manifest(static_pub, manifest).await;
             }
             FileMsg::Block { root, index, data } => {
@@ -1399,6 +1436,9 @@ impl Runtime {
                 self.send_file_actions(actions).await;
             }
             FileMsg::Have { root, .. } => {
+                if !self.files_resp_ok(&static_pub) {
+                    return;
+                }
                 let actions = {
                     let mut c = self.files_lock();
                     c.add_source(&root, static_pub);
@@ -1414,6 +1454,28 @@ impl Runtime {
     /// bitmap persistée, le cas échéant).
     async fn on_file_manifest(&self, from: [u8; 32], manifest: accord_proto::file_msg::Manifest) {
         let root = manifest.merkle_root;
+        // Plafond des médias auto-récupérés (avatar/bannière de profil) : un
+        // manifest annonçant une taille supérieure au plafond persisté sur
+        // l'intention est refusé et l'intention abandonnée (base ET
+        // coordinateur). Empêche un pair malveillant de nous faire télécharger
+        // un blob massif sous couvert de média de profil. Le plafond ne
+        // s'applique qu'aux intentions posées via `files_fetch_media` : une
+        // pièce jointe cliquée par l'utilisateur n'en a pas (bornée à
+        // `MAX_FILE_SIZE`) et n'est jamais annulée par ce chemin.
+        if let Some(max) = self.node.media_cap_of(&root) {
+            if manifest.size > max {
+                tracing::warn!(
+                    taille = manifest.size,
+                    plafond = max,
+                    "fichiers : média auto-récupéré trop volumineux, abandon"
+                );
+                if let Err(e) = self.node.files_fetch_clear(&root) {
+                    tracing::debug!(erreur = %e, "fichiers : intention média insoldable");
+                }
+                self.files_lock().finish(&root);
+                return;
+            }
+        }
         let now = crate::node::now_ms();
         let entry = self.node.files_entry(&root).ok().flatten();
         let attached = {
@@ -1639,7 +1701,9 @@ impl Runtime {
         };
         for racine in profil.avatar.iter().chain(profil.banner.iter()) {
             if let Ok(None) = self.node.files_local_path(racine) {
-                let _ = self.node.files_fetch(racine, Some(*peer));
+                // Média auto-récupéré : plafonné (anti-DoS taille). Repeuple
+                // aussi le plafond en mémoire après un redémarrage.
+                let _ = self.node.files_fetch_media(racine, Some(*peer));
             }
         }
     }
@@ -1808,6 +1872,32 @@ fn have_targets(requesters: &[[u8; 32]], live: &HashSet<[u8; 32]>, cap: usize) -
     cibles.dedup();
     cibles.truncate(cap);
     cibles
+}
+
+/// Débit à fenêtre fixe : réarme la fenêtre si `window_ms` est écoulé, puis
+/// incrémente le compteur ; rend `true` tant que le compte reste dans `max`.
+/// Pure, testable — partagée par les débits « requêtes servies » et
+/// « réponses entrantes ».
+fn fixed_window_ok(win: &mut (u64, u32), now: u64, window_ms: u64, max: u32) -> bool {
+    if now.saturating_sub(win.0) >= window_ms {
+        *win = (now, 0);
+    }
+    win.1 += 1;
+    win.1 <= max
+}
+
+/// Éviction LRU d'une table `pair -> horodatage` pleine : si `key` n'y est pas
+/// déjà et que la table a atteint `cap`, retire l'entrée la PLUS ANCIENNE
+/// (plus petit horodatage) pour faire de la place — au lieu de tout vider, ce
+/// qui effacerait d'un coup la cadence de tous les pairs (un attaquant
+/// pourrait alors la remettre à zéro à volonté). Pure, testable.
+fn evict_oldest_if_full(map: &mut HashMap<[u8; 32], u64>, cap: usize, key: &[u8; 32]) {
+    if map.len() < cap || map.contains_key(key) {
+        return;
+    }
+    if let Some((&oldest, _)) = map.iter().min_by_key(|(_, &t)| t) {
+        map.remove(&oldest);
+    }
 }
 
 fn direct_target(addr: SocketAddr) -> NodeInfo {
@@ -1981,5 +2071,47 @@ mod tests {
         assert!(have_targets(&demandeurs, &HashSet::new(), 16).is_empty());
         // Aucun demandeur : aucune annonce.
         assert!(have_targets(&[], &live, 16).is_empty());
+    }
+
+    #[test]
+    fn debit_fenetre_fixe_refuse_la_rafale_puis_reprend_a_la_fenetre_suivante() {
+        // Quota de 3 par fenêtre de 1 000 ms.
+        let mut win = (0u64, 0u32);
+        assert!(fixed_window_ok(&mut win, 0, 1_000, 3));
+        assert!(fixed_window_ok(&mut win, 100, 1_000, 3));
+        assert!(fixed_window_ok(&mut win, 200, 1_000, 3));
+        // 4e dans la même fenêtre : refusée.
+        assert!(!fixed_window_ok(&mut win, 300, 1_000, 3));
+        assert!(!fixed_window_ok(&mut win, 999, 1_000, 3));
+        // Fenêtre suivante : le quota repart.
+        assert!(fixed_window_ok(&mut win, 1_000, 1_000, 3));
+        assert!(fixed_window_ok(&mut win, 1_100, 1_000, 3));
+    }
+
+    #[test]
+    fn eviction_lru_retire_le_plus_ancien_et_preserve_les_autres() {
+        let mut map: HashMap<[u8; 32], u64> = HashMap::new();
+        map.insert([1; 32], 10); // le plus ancien
+        map.insert([2; 32], 20);
+        map.insert([3; 32], 30);
+        // Table pleine (cap 3), insertion d'une NOUVELLE clé : évince [1] (10).
+        evict_oldest_if_full(&mut map, 3, &[9; 32]);
+        assert_eq!(map.len(), 2);
+        assert!(!map.contains_key(&[1; 32]), "le plus ancien est évincé");
+        assert!(map.contains_key(&[2; 32]) && map.contains_key(&[3; 32]));
+    }
+
+    #[test]
+    fn eviction_lru_nop_si_cle_deja_presente_ou_table_non_pleine() {
+        let mut map: HashMap<[u8; 32], u64> = HashMap::new();
+        map.insert([1; 32], 10);
+        map.insert([2; 32], 20);
+        // Table non pleine (cap 3) : aucune éviction.
+        evict_oldest_if_full(&mut map, 3, &[9; 32]);
+        assert_eq!(map.len(), 2);
+        // Table pleine mais la clé y est déjà (rafraîchissement) : pas d'éviction.
+        map.insert([3; 32], 30);
+        evict_oldest_if_full(&mut map, 3, &[1; 32]);
+        assert_eq!(map.len(), 3, "un pair déjà connu n'évince personne");
     }
 }

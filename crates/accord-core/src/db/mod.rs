@@ -27,7 +27,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -112,6 +112,16 @@ impl Db {
                 "ALTER TABLE file_fetches ADD COLUMN next_attempt_ms INTEGER NOT NULL DEFAULT 0;
                  ALTER TABLE file_fetches ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;",
             )?;
+        }
+        // Migration v8 : plafond de taille des médias auto-récupérés
+        // (avatar/bannière de profil). Colonne annexe, nullable (`NULL` =
+        // téléchargement ordinaire, sans plafond resserré) ; les anciennes
+        // lignes restent non plafonnées.
+        if self.has_column("file_fetches", "merkle_root")?
+            && !self.has_column("file_fetches", "media_cap")?
+        {
+            self.conn
+                .execute_batch("ALTER TABLE file_fetches ADD COLUMN media_cap INTEGER;")?;
         }
         self.conn.execute_batch(
             "BEGIN;
@@ -219,7 +229,8 @@ impl Db {
                hint            BLOB,
                added_ms        INTEGER NOT NULL,
                next_attempt_ms INTEGER NOT NULL DEFAULT 0,
-               attempts        INTEGER NOT NULL DEFAULT 0
+               attempts        INTEGER NOT NULL DEFAULT 0,
+               media_cap       INTEGER
              );
              CREATE TABLE IF NOT EXISTS search_index (
                token  BLOB NOT NULL,
@@ -287,7 +298,7 @@ impl Db {
                last_ms    INTEGER NOT NULL,
                PRIMARY KEY (group_id, channel_id, author)
              );
-             PRAGMA user_version = 7;
+             PRAGMA user_version = 8;
              COMMIT;",
         )?;
         Ok(())

@@ -230,6 +230,49 @@ impl Db {
         hint: Option<&[u8; 32]>,
         now_ms: u64,
     ) -> Result<(), CoreError> {
+        self.upsert_file_fetch_cap(merkle_root, hint, now_ms, None)
+    }
+
+    /// Comme [`Self::upsert_file_fetch`], mais pose un PLAFOND de taille
+    /// (`media_cap`) pour un média auto-récupéré (avatar/bannière de profil).
+    /// Le plafond n'est écrit qu'à l'INSERTION : sur une racine déjà suivie —
+    /// typiquement un téléchargement explicite (pièce jointe cliquée) en
+    /// cours — il est PRÉSERVÉ tel quel, donc une annonce de profil ne peut pas
+    /// re-plafonner (ni annuler) un téléchargement voulu par l'utilisateur.
+    /// Persisté : le plafond survit au redémarrage (repris à l'adoption de
+    /// l'intention) sans dépendre d'un état en mémoire.
+    pub fn upsert_file_fetch_media(
+        &self,
+        merkle_root: &[u8; 32],
+        hint: Option<&[u8; 32]>,
+        now_ms: u64,
+        media_cap: u64,
+    ) -> Result<(), CoreError> {
+        self.upsert_file_fetch_cap(merkle_root, hint, now_ms, Some(media_cap))
+    }
+
+    /// Plafond de taille d'un média auto-récupéré pour cette racine, s'il en
+    /// existe un (`None` = pas d'intention, ou téléchargement ordinaire non
+    /// plafonné). Lu à l'arrivée du manifest pour refuser un blob surdimensionné.
+    pub fn file_fetch_media_cap(&self, merkle_root: &[u8; 32]) -> Result<Option<u64>, CoreError> {
+        match self.conn().query_row(
+            "SELECT media_cap FROM file_fetches WHERE merkle_root = ?1",
+            [merkle_root.as_slice()],
+            |row| row.get::<_, Option<i64>>(0),
+        ) {
+            Ok(cap) => Ok(cap.map(|c| c as u64)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn upsert_file_fetch_cap(
+        &self,
+        merkle_root: &[u8; 32],
+        hint: Option<&[u8; 32]>,
+        now_ms: u64,
+        media_cap: Option<u64>,
+    ) -> Result<(), CoreError> {
         let conn = self.conn();
         // Une intention pour cette racine existe déjà : simple
         // rafraîchissement (réarme le backoff, complète l'indice). Aucune
@@ -275,14 +318,35 @@ impl Db {
                 )?;
             }
         }
-        conn.execute(
-            "INSERT INTO file_fetches (merkle_root, hint, added_ms) VALUES (?1, ?2, ?3)
-             ON CONFLICT(merkle_root) DO UPDATE SET
-               hint = COALESCE(excluded.hint, hint),
-               next_attempt_ms = 0,
-               attempts = 0",
-            params![merkle_root, hint.map(|h| h.as_slice()), now_ms],
-        )?;
+        match media_cap {
+            // Média auto-récupéré : `media_cap` posé À L'INSERTION seulement ;
+            // `ON CONFLICT` ne le touche pas — on ne re-plafonne jamais une
+            // racine déjà suivie (ex. un clic utilisateur déjà en cours).
+            Some(max) => conn.execute(
+                "INSERT INTO file_fetches (merkle_root, hint, added_ms, media_cap)
+                   VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(merkle_root) DO UPDATE SET
+                   hint = COALESCE(excluded.hint, hint),
+                   next_attempt_ms = 0,
+                   attempts = 0",
+                params![merkle_root, hint.map(|h| h.as_slice()), now_ms, max as i64],
+            )?,
+            // Téléchargement EXPLICITE (clic utilisateur) : intention forte qui
+            // EFFACE tout plafond média préexistant (`media_cap = NULL`), même
+            // si une annonce de profil a inséré la ligne en premier. Anti-
+            // « front-run » : le clic de l'utilisateur l'emporte toujours, quel
+            // que soit l'ordre d'arrivée (un pair ne peut pas forcer ce clic).
+            None => conn.execute(
+                "INSERT INTO file_fetches (merkle_root, hint, added_ms, media_cap)
+                   VALUES (?1, ?2, ?3, NULL)
+                 ON CONFLICT(merkle_root) DO UPDATE SET
+                   hint = COALESCE(excluded.hint, hint),
+                   next_attempt_ms = 0,
+                   attempts = 0,
+                   media_cap = NULL",
+                params![merkle_root, hint.map(|h| h.as_slice()), now_ms],
+            )?,
+        };
         Ok(())
     }
 

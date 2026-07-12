@@ -132,9 +132,28 @@ root and auto-download the blob to render the server header
 Merkle root. The wire protocol accepts manifests up to
 `MAX_FILE_SIZE = 2 GiB` (`crates/accord-proto/src/limits.rs`). The
 bundled client resizes what it *uploads* (≤ 512 KiB,
-`app/src/lib/image.ts`), but v0 does **not yet cap what it
-auto-downloads**: a malicious or compromised moderator could make every
-member's client fetch a very large or unwanted blob.
+`app/src/lib/image.ts`).
+
+Since v0.14.2, peer **profile** avatar/banner auto-fetches (triggered by
+a peer's `Profile` message or its reconnection, with no user action) are
+capped **at the node level**: `files_fetch_media`
+(`crates/accord-node/src/node/files.rs`) stamps a `MEDIA_AUTO_FETCH_MAX =
+8 MiB` ceiling on the fetch intent, **persisted** on the `file_fetches`
+row so it survives a restart, and `on_file_manifest`
+(`crates/accord-node/src/runtime.rs`) refuses a manifest that declares a
+larger size and abandons the fetch. The ceiling is written only by a
+profile auto-fetch, and an **explicit click-to-download always clears it**
+(`media_cap = NULL`, even if a profile announcement inserted the row
+first). So a click-to-download attachment carries **no** ceiling (bounded
+only by `MAX_FILE_SIZE`), and a profile announcement can neither re-cap
+nor cancel a root the user is downloading on purpose — regardless of
+message ordering.
+
+The **server** banner/icon, however, is still auto-downloaded by the
+client to render the header through the generic UI fetch path
+(`app/src/components/Sidebar.tsx` → `lireFichier`), which does **not**
+record a media ceiling: a malicious or compromised moderator could still
+make every member's client fetch a very large or unwanted blob.
 
 **Why acceptable in v0.**
 
@@ -147,11 +166,12 @@ member's client fetch a very large or unwanted blob.
   member set the banner, and an admin can revoke the permission and reset
   the banner.
 
-**Hardening path.** Clients MUST cap the size of anything they
-auto-download for preview: check `manifest.size` against a preview budget
-(e.g. a few MiB) before fetching blocks, fall back to click-to-load
-beyond it; validate the declared MIME type; apply the same cap to
-avatars and any other auto-fetched decoration.
+**Hardening path.** Extend the node-level media ceiling
+(`files_fetch_media` / `MEDIA_AUTO_FETCH_MAX`) to the server banner/icon
+and every other auto-fetched decoration (emojis, stickers) — the UI
+should pull preview media through a capped fetch path rather than the
+generic `files_fetch`. Validate the declared MIME type, and fall back to
+click-to-load beyond the budget.
 
 ## 5. Accepted trade-off: DHT presence resolution exposes lookup metadata
 

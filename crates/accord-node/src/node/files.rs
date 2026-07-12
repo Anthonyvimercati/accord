@@ -33,6 +33,16 @@ const MAX_NOM: usize = 255;
 /// les intentions déjà actives ou déjà complètes que la passe ignore.
 const ADOPT_INTENTS_MAX: usize = 64;
 
+/// Plafond de taille d'un blob récupéré automatiquement (avatar/bannière de
+/// profil) : 8 Mio, soit 16× la borne applicative d'un avatar/bannière
+/// (512 Kio, voir `app/src/lib/image.ts`) et 256× moins que la borne filaire
+/// générale [`MAX_FILE_SIZE`] (2 Gio). Un pair malveillant ne peut donc pas
+/// nous faire télécharger un blob massif sous couvert de média de profil. Le
+/// plafond est persisté sur la ligne `file_fetches` (voir
+/// `upsert_file_fetch_media`) : il survit au redémarrage et n'affecte jamais
+/// une pièce jointe cliquée par l'utilisateur (racine non plafonnée).
+pub(crate) const MEDIA_AUTO_FETCH_MAX: u64 = 8 * 1024 * 1024;
+
 /// Vrai si le bit `i` de la bitmap est levé (bit i = bloc i détenu).
 fn bit(bitmap: &[u8], i: usize) -> bool {
     bitmap.get(i / 8).is_some_and(|b| b & (1 << (i % 8)) != 0)
@@ -178,11 +188,38 @@ impl Node {
         Ok(path.is_file().then_some(path))
     }
 
-    /// Démarre (ou poursuit) le téléchargement d'un fichier depuis les pairs ; `indice` est un pair source probable.
+    /// Démarre (ou poursuit) le téléchargement d'un fichier depuis les pairs ;
+    /// `indice` est un pair source probable. Aucun plafond de taille resserré :
+    /// une pièce jointe cliquée par l'utilisateur reste bornée à `MAX_FILE_SIZE`.
     pub fn files_fetch(
         &self,
         racine: &[u8; 32],
         indice: Option<[u8; 32]>,
+    ) -> Result<(), NodeError> {
+        self.files_fetch_inner(racine, indice, None)
+    }
+
+    /// Récupère un média de profil (avatar/bannière) déclenché AUTOMATIQUEMENT
+    /// par un message pair, en plafonnant sa taille à [`MEDIA_AUTO_FETCH_MAX`].
+    /// Le plafond est persisté sur l'intention (voir `upsert_file_fetch_media`)
+    /// puis vérifié à l'arrivée du manifest ([`crate::runtime`]) : un blob dont
+    /// le manifest annonce une taille supérieure est refusé et l'intention
+    /// abandonnée. Sur une racine DÉJÀ suivie (téléchargement explicite en
+    /// cours), le plafond n'est pas posé : une annonce de profil ne peut ni
+    /// re-plafonner ni annuler un téléchargement voulu par l'utilisateur.
+    pub fn files_fetch_media(
+        &self,
+        racine: &[u8; 32],
+        indice: Option<[u8; 32]>,
+    ) -> Result<(), NodeError> {
+        self.files_fetch_inner(racine, indice, Some(MEDIA_AUTO_FETCH_MAX))
+    }
+
+    fn files_fetch_inner(
+        &self,
+        racine: &[u8; 32],
+        indice: Option<[u8; 32]>,
+        media_cap: Option<u64>,
     ) -> Result<(), NodeError> {
         // Déjà complet en local : progression finale émise immédiatement.
         if self.files_local_path(racine)?.is_some() {
@@ -193,8 +230,21 @@ impl Node {
             return Ok(());
         }
         // Intention persistée : la boucle réseau la reprend (même après un
-        // redémarrage) et pilote le transfert fenêtré multi-sources.
-        self.with_db(|db| Ok(db.upsert_file_fetch(racine, indice.as_ref(), now_ms())?))
+        // redémarrage) et pilote le transfert fenêtré multi-sources. Le plafond
+        // média éventuel voyage AVEC l'intention (colonne `media_cap`).
+        self.with_db(|db| match media_cap {
+            Some(max) => Ok(db.upsert_file_fetch_media(racine, indice.as_ref(), now_ms(), max)?),
+            None => Ok(db.upsert_file_fetch(racine, indice.as_ref(), now_ms())?),
+        })
+    }
+
+    /// Plafond de taille d'un média auto-récupéré pour cette racine, s'il en
+    /// existe un (`None` = pas d'intention, ou téléchargement ordinaire non
+    /// plafonné). Lu à l'arrivée du manifest ([`crate::runtime`]).
+    pub(crate) fn media_cap_of(&self, racine: &[u8; 32]) -> Option<u64> {
+        self.with_db(|db| Ok(db.file_fetch_media_cap(racine)?))
+            .ok()
+            .flatten()
     }
 
     // ---- Accès internes de la boucle réseau et du service API ----
@@ -495,6 +545,52 @@ mod tests {
             .unwrap();
         n.files_fetch(&f.merkle_root, None).unwrap();
         assert!(n.files_fetch_intents().unwrap().is_empty());
+    }
+
+    #[test]
+    fn media_auto_recupere_pose_un_plafond_persistant_sans_regresser_les_clics() {
+        let (n, _dir) = node_sur_disque();
+        // Téléchargement ordinaire (pièce jointe cliquée) : aucun plafond.
+        let piece = [7u8; 32];
+        n.files_fetch(&piece, Some([9u8; 32])).unwrap();
+        assert_eq!(n.media_cap_of(&piece), None);
+        // Média auto-récupéré (avatar/bannière) : plafond persisté sur
+        // l'intention, ET intention de téléchargement créée normalement.
+        let avatar = [8u8; 32];
+        n.files_fetch_media(&avatar, Some([9u8; 32])).unwrap();
+        assert_eq!(n.media_cap_of(&avatar), Some(MEDIA_AUTO_FETCH_MAX));
+        assert!(n
+            .files_fetch_intents()
+            .unwrap()
+            .iter()
+            .any(|i| i.merkle_root == avatar));
+        // Anti-grief : une annonce de profil pointant sur une racine DÉJÀ en
+        // téléchargement explicite ne la re-plafonne pas (plafond posé à la
+        // seule insertion) — le téléchargement voulu par l'utilisateur survit.
+        n.files_fetch_media(&piece, Some([9u8; 32])).unwrap();
+        assert_eq!(
+            n.media_cap_of(&piece),
+            None,
+            "une pièce jointe cliquée reste non plafonnée"
+        );
+        // Anti-« front-run » : si l'annonce de profil insère la ligne EN
+        // PREMIER (plafond posé), un clic explicite ultérieur sur la même
+        // racine LÈVE le plafond — l'intention de l'utilisateur l'emporte
+        // toujours, quel que soit l'ordre d'arrivée.
+        let devance = [11u8; 32];
+        n.files_fetch_media(&devance, Some([9u8; 32])).unwrap();
+        assert_eq!(n.media_cap_of(&devance), Some(MEDIA_AUTO_FETCH_MAX));
+        n.files_fetch(&devance, Some([9u8; 32])).unwrap();
+        assert_eq!(
+            n.media_cap_of(&devance),
+            None,
+            "un clic utilisateur lève un plafond média préexistant"
+        );
+        // Intention soldée (fichier reçu) : la ligne — et donc le plafond —
+        // disparaît. À la reprise après abandon, le plafond persiste (ligne
+        // conservée), fermant la fenêtre au redémarrage.
+        n.files_fetch_clear(&avatar).unwrap();
+        assert_eq!(n.media_cap_of(&avatar), None);
     }
 
     #[test]
