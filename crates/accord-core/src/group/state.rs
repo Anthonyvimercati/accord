@@ -428,6 +428,10 @@ pub struct GroupState {
     /// Couleur de bannière du serveur `0xRRGGBB`, le cas échéant (D-047,
     /// champ additif de [`GroupOpBody::SetMeta`]).
     pub banner_color: Option<u32>,
+    /// Bannière d'image du serveur (racine Merkle), le cas échéant (op 0x31
+    /// [`GroupOpBody::SetBanner`], gate `MANAGE_CHANNELS` comme l'icône de
+    /// `SetMeta` ; `None` = pas de bannière).
+    pub banner: Option<[u8; 32]>,
     /// Liste des mots bloqués AutoMod du groupe, normalisés en minuscules
     /// (`GroupOpBody::SetAutoModWords`, remplacement intégral à chaque op —
     /// jamais d'accumulation). `BTreeSet` : ordre déterministe et
@@ -694,6 +698,12 @@ impl GroupState {
                 self.name = name;
                 self.icon = icon;
                 self.banner_color = banner_color;
+            }
+            GroupOpBody::SetBanner { banner } => {
+                if !has(perms::MANAGE_CHANNELS) {
+                    return self.ignore("SET_BANNER refusé");
+                }
+                self.banner = banner;
             }
             GroupOpBody::AddChannel {
                 channel_id,
@@ -2831,6 +2841,43 @@ mod tests {
         let st2 = GroupState::fold(&denied);
         assert_eq!(st2.banner_color, Some(0x5865F2), "denied, unchanged");
         assert_eq!(st2.name, "Salon");
+    }
+
+    #[test]
+    fn set_banner_applique_efface_et_gate_manage_channels() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::SetBanner {
+                banner: Some([9; 32]),
+            },
+            FOUNDER,
+            4,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.banner, Some([9; 32]));
+
+        // Dernier-écrit-gagne dans l'ordre total, indépendamment de l'ordre
+        // du vecteur : l'op lamport 5 (effacement) est poussée AVANT d'être
+        // triée par le repli.
+        let mut efface = ops.clone();
+        efface.insert(
+            0,
+            signed(GroupOpBody::SetBanner { banner: None }, FOUNDER, 5),
+        );
+        let st2 = GroupState::fold(&efface);
+        assert_eq!(st2.banner, None, "effacée (lamport 5 > 4)");
+
+        // Un membre ordinaire ne peut pas changer la bannière du serveur.
+        let mut refuse = ops.clone();
+        refuse.push(signed(
+            GroupOpBody::SetBanner {
+                banner: Some([0xBAu8; 32]),
+            },
+            ALICE,
+            5,
+        ));
+        let st3 = GroupState::fold(&refuse);
+        assert_eq!(st3.banner, Some([9; 32]), "refusée, inchangée");
     }
 
     #[test]

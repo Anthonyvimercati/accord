@@ -911,6 +911,16 @@ pub enum GroupOpBody {
         /// Nom du son retiré.
         name: String,
     },
+    /// 0x31 — Fixe ou efface la bannière d'image du serveur (racine Merkle
+    /// de l'image publiée dans le magasin de fichiers, comme l'icône de
+    /// [`GroupOpBody::SetMeta`] — distincte de la simple couleur
+    /// `banner_color`). Gated on `MANAGE_CHANNELS` at replay (même
+    /// permission que `SetMeta`), dernier-écrit-gagne dans l'ordre total du
+    /// repli.
+    SetBanner {
+        /// Racine Merkle de la nouvelle bannière, ou `None` pour l'effacer.
+        banner: Option<[u8; 32]>,
+    },
 }
 
 impl GroupOpBody {
@@ -965,6 +975,7 @@ impl GroupOpBody {
             Self::SetThreadArchived { .. } => 0x2E,
             Self::AddSound { .. } => 0x2F,
             Self::DelSound { .. } => 0x30,
+            Self::SetBanner { .. } => 0x31,
         }
     }
 
@@ -1205,6 +1216,9 @@ impl GroupOpBody {
                 w.put_arr(file);
             }
             Self::DelSound { name } => w.put_str(name),
+            Self::SetBanner { banner } => {
+                w.put_opt(banner.as_ref(), |w, h| w.put_arr(h));
+            }
         }
         w.into_bytes()
     }
@@ -1408,6 +1422,9 @@ impl GroupOpBody {
             },
             0x30 => Self::DelSound {
                 name: r.str(MAX_EMOJI_NAME, "op.sound.name")?,
+            },
+            0x31 => Self::SetBanner {
+                banner: r.opt(|r| r.arr())?,
             },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
@@ -2514,6 +2531,21 @@ mod tests {
         let mut over = set.encode_body();
         over.push(0xFF);
         assert!(GroupOpBody::decode_body(0x26, &over).is_err());
+    }
+
+    #[test]
+    fn set_banner_roundtrips_and_rejects_trailing_bytes() {
+        let set = GroupOpBody::SetBanner {
+            banner: Some([7; 32]),
+        };
+        assert_eq!(set.kind(), 0x31);
+        assert_eq!(roundtrip(&set), set);
+        let clear = GroupOpBody::SetBanner { banner: None };
+        assert_eq!(roundtrip(&clear), clear);
+
+        let mut over = set.encode_body();
+        over.push(0xFF);
+        assert!(GroupOpBody::decode_body(0x31, &over).is_err());
     }
 
     #[test]

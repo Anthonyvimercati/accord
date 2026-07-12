@@ -287,6 +287,10 @@ fn audit_entry_json(op: &GroupOp) -> Value {
                 "set_member_avatar",
                 json!({ "avatar": avatar.map(|h| hex::encode(&h)) }),
             ),
+            GroupOpBody::SetBanner { banner } => (
+                "set_banner",
+                json!({ "banner": banner.map(|h| hex::encode(&h)) }),
+            ),
             GroupOpBody::PollCreate {
                 poll_id,
                 channel_id,
@@ -904,6 +908,19 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 None => node.group_set_member_avatar(&gid, None)?,
             };
             Ok(json!({ "avatar": avatar }))
+        }
+        "groups.set_banner" => {
+            let gid = param_id16(params, "group_id")?;
+            let banner = match param_opt_str(params, "data_b64")? {
+                Some(data_str) => {
+                    let mime = param_str(params, "mime")?;
+                    let data = b64_decode(data_str)
+                        .ok_or(NodeError::Invalid("data_b64 : base64 invalide"))?;
+                    node.group_set_banner(&gid, Some((mime, data)))?
+                }
+                None => node.group_set_banner(&gid, None)?,
+            };
+            Ok(json!({ "banner": banner }))
         }
         "groups.set_banner_color" => {
             let gid = param_id16(params, "group_id")?;

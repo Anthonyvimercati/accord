@@ -510,6 +510,10 @@ fn group_op_bodies_roundtrip() {
             thread_id: [19; 16],
             archived: true,
         },
+        GroupOpBody::SetBanner {
+            banner: Some([21; 32]),
+        },
+        GroupOpBody::SetBanner { banner: None },
     ];
     for body in bodies {
         let enc = body.encode_body();

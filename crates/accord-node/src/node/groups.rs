@@ -53,6 +53,10 @@ const MAX_STICKER_BYTES: usize = 512 * 1024;
 /// [`MAX_ICON_BYTES`], D-047).
 const MAX_AVATAR_BYTES: usize = MAX_ICON_BYTES;
 
+/// Taille maximale d'une bannière de serveur décodée (512 Kio, même borne
+/// que [`MAX_ICON_BYTES`]).
+const MAX_BANNER_BYTES: usize = MAX_ICON_BYTES;
+
 /// Taille maximale d'un clip de soundboard décodé (256 Kio, comme un émoji).
 const MAX_SOUND_BYTES: usize = 256 * 1024;
 /// Nombre maximal de messages supprimés en une seule purge de modération.
@@ -356,6 +360,35 @@ impl Node {
                 banner_color: color,
             },
         )
+    }
+
+    /// Fixe ou efface la bannière d'image du serveur (op dédiée `SetBanner`,
+    /// `MANAGE_CHANNELS` requis comme l'icône, vérifié à l'émission et au
+    /// rejeu). `image = None` efface la bannière ; sinon `(mime, octets)`
+    /// est publié dans le magasin de fichiers comme l'icône. Rend la racine
+    /// Merkle (hex) de la nouvelle bannière, ou `None` si effacée.
+    pub fn group_set_banner(
+        &self,
+        group_id: &[u8; 16],
+        image: Option<(&str, Vec<u8>)>,
+    ) -> Result<Option<String>, NodeError> {
+        let banner = match image {
+            Some((mime, bytes)) => {
+                if bytes.is_empty() || bytes.len() > MAX_BANNER_BYTES {
+                    return Err(NodeError::Invalid(
+                        "bannière vide ou trop lourde (512 Kio max)",
+                    ));
+                }
+                if !mime.starts_with("image/") {
+                    return Err(NodeError::Invalid("la bannière doit être une image"));
+                }
+                let file: FileRef = self.files_publish_bytes("banniere-groupe", mime, bytes)?;
+                Some(file.merkle_root)
+            }
+            None => None,
+        };
+        self.group_author(group_id, GroupOpBody::SetBanner { banner })?;
+        Ok(banner.map(|h| hex::encode(&h)))
     }
 
     // ---- AutoMod (mots bloqués, config serveur répliquée) ----
@@ -678,13 +711,13 @@ impl Node {
 
     // ---- Fils de discussion ----
 
-    /// Crée un fil de discussion ancré à un message racine d'un salon textuel
-    /// (op `CreateThread`, 0x2D). Un fil réutilise l'infra des salons : son
-    /// `thread_id` (généré ici, 16 octets aléatoires) sert de `channel_id`
-    /// aux messages du fil, avec des permissions et un mode lent hérités du
-    /// salon parent (vérifiés au rejeu : droit d'écriture effectif dans le
-    /// parent, parent textuel existant, borne anti-abus par salon). Rend le
-    /// `thread_id` (hex).
+    /// Crée un fil de discussion ancré à un message racine d'un salon textuel,
+    /// ou un post sous un salon forum (op `CreateThread`, 0x2D). Un fil
+    /// réutilise l'infra des salons : son `thread_id` (généré ici, 16 octets
+    /// aléatoires) sert de `channel_id` aux messages du fil, avec des
+    /// permissions et un mode lent hérités du salon parent (vérifiés au
+    /// rejeu : droit d'écriture effectif dans le parent, parent textuel ou
+    /// forum existant, borne anti-abus par salon). Rend le `thread_id` (hex).
     pub fn group_thread_create(
         &self,
         group_id: &[u8; 16],

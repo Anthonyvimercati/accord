@@ -395,6 +395,9 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
         "icon": s.icon.as_ref().map(|h| hex::encode(h)),
         // Server banner color `0xRRGGBB` (D-047), or null when unset.
         "banner_color": s.banner_color,
+        // Racine Merkle (hex) de la bannière d'image du serveur (op 0x31),
+        // ou null si aucune — même format que `icon`.
+        "banner": s.banner.as_ref().map(|h| hex::encode(h)),
         "founder": s.founder.as_ref().map(|f| hex::encode(f)),
         "members": s.members.iter().map(|(pk, m)| json!({
             "pubkey": hex::encode(pk),

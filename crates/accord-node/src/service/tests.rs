@@ -911,6 +911,7 @@ async fn group_state_enriched_exact_shape() {
         sorted_keys(&state),
         [
             "automod_words",
+            "banner",
             "banner_color",
             "bans",
             "categories",
@@ -935,6 +936,7 @@ async fn group_state_enriched_exact_shape() {
     );
     assert_eq!(state["group_id"], json!(gid));
     assert!(state["icon"].is_null());
+    assert!(state["banner"].is_null());
     assert!(state["banner_color"].is_null());
     assert_eq!(state["overrides"], json!([]));
     // Fondateur : toutes les permissions (VIEW..ADMIN + MANAGE_EMOJIS = 0x3FF).
@@ -1691,6 +1693,41 @@ async fn group_set_icon_validates_before_publishing() {
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
 }
 
+// ---- Bannière de serveur (op 0x31) : validations et aller-retour ----
+
+#[tokio::test]
+async fn group_set_banner_valide_avant_publication() {
+    let (s, gid) = service_with_group().await;
+    // base64 invalide.
+    let err = s
+        .call(
+            "groups.set_banner",
+            json!({"group_id": gid, "mime": "image/png", "data_b64": "??!!"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // MIME non image.
+    let err = s
+        .call(
+            "groups.set_banner",
+            json!({"group_id": gid, "mime": "text/plain", "data_b64": "QUJD"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // Trop lourde une fois décodée (> 512 Kio).
+    let big = "A".repeat(700 * 1024);
+    let err = s
+        .call(
+            "groups.set_banner",
+            json!({"group_id": gid, "mime": "image/png", "data_b64": big}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
 // ---- Émojis de serveur, marques de lecture, présence (B3) ----
 
 /// Service adossé à une base sur disque (le magasin de fichiers, requis par
@@ -1742,6 +1779,38 @@ async fn group_emoji_add_del_and_state_shape() {
         .await
         .unwrap();
     assert_eq!(state["emojis"], json!([]));
+}
+
+#[tokio::test]
+async fn group_set_banner_aller_retour_expose_dans_state() {
+    let (s, gid, _dir) = service_on_disk_with_group().await;
+    // Pose : rend la racine Merkle de l'image publiée.
+    let set = s
+        .call(
+            "groups.set_banner",
+            json!({"group_id": gid, "mime": "image/png", "data_b64": "QUJD"}),
+        )
+        .await
+        .unwrap();
+    let root = set["banner"].as_str().unwrap().to_string();
+    assert_eq!(root.len(), 64);
+    // `groups.state` expose la racine, au même format que `icon`.
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["banner"], json!(root));
+    // Effacement : `data_b64` absent (null) → bannière effacée.
+    let cleared = s
+        .call("groups.set_banner", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert!(cleared["banner"].is_null());
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert!(state["banner"].is_null());
 }
 
 #[tokio::test]
