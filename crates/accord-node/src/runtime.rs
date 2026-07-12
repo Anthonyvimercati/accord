@@ -66,6 +66,14 @@ const FILES_TICK: Duration = Duration::from_millis(250);
 const FILES_REQS_PAR_S: u32 = 256;
 /// Borne du suivi de débit par pair (au-delà, la table est réinitialisée).
 const FILES_DEBIT_MAX_PAIRS: usize = 1024;
+/// Annonce `Have` à la complétion d'un blob : sessions vives ciblées au plus
+/// (borne anti-inondation ; les pairs qui téléchargent encore ce fichier y
+/// gagnent une source secondaire).
+const FILES_HAVE_MAX_PAIRS: usize = 16;
+/// Cadence minimale, par pair, du repli de joignabilité des transferts
+/// (résolution de présence DHT + circuit relais) : au-delà d'un déclenchement
+/// par fenêtre, les émissions échouées n'empilent pas de nouvelles tâches.
+const FILES_REPLI_MIN_MS: u64 = 10_000;
 
 /// Pont [`DhtRpc`] sur l'endpoint transport : envoie un RPC dans une session
 /// chiffrée et attend la réponse corrélée par `rpc_id`.
@@ -180,6 +188,9 @@ pub struct Runtime {
     files: Mutex<fetch::Coordinator>,
     /// Fenêtres de débit du service de fichiers, par pair : `(début_ms, n)`.
     files_debit: Mutex<HashMap<[u8; 32], (u64, u32)>>,
+    /// Dernier repli de joignabilité déclenché par pair pour les transferts
+    /// (présence DHT + relais), cadencé par [`FILES_REPLI_MIN_MS`].
+    files_repli: Mutex<HashMap<[u8; 32], u64>>,
     /// Dernier signal réseau émis (compteurs, mapping, pairs LAN) : évite de
     /// spammer `event.network` quand rien ne change.
     net_last: Mutex<Option<NetSignal>>,
@@ -242,6 +253,7 @@ impl Runtime {
             voice: OnceLock::new(),
             files: Mutex::new(fetch::Coordinator::new()),
             files_debit: Mutex::new(HashMap::new()),
+            files_repli: Mutex::new(HashMap::new()),
             net_last: Mutex::new(None),
             boot_backoff: Mutex::new(HashMap::new()),
             nat: Arc::new(nat::NatShared::default()),
@@ -879,6 +891,10 @@ impl Runtime {
                     self.mark_live(static_pub);
                     // Pair joignable : pousse immédiatement sa file d'attente.
                     maintenance::flush_peer(&self, &static_pub, addr).await;
+                    // … et relance les téléchargements qui l'attendaient
+                    // (intentions en backoff dont il est l'indice,
+                    // avatar/bannière annoncés mais manquants en local).
+                    self.files_on_peer_connected(&static_pub);
                 }
                 TransportEvent::Message {
                     addr,
@@ -1131,16 +1147,34 @@ impl Runtime {
         self.files.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Pairs joignables candidats au sondage de manifest (bornés).
+    /// Pairs joignables candidats au sondage de manifest (bornés) : les
+    /// sessions VIVES d'abord (joignabilité prouvée), puis le reste du carnet
+    /// d'adresses — plutôt que les premières entrées arbitraires du carnet,
+    /// qui pouvaient toutes être périmées.
     fn known_peers(&self, cap: usize) -> Vec<[u8; 32]> {
-        self.book
+        let mut out: Vec<[u8; 32]> = self
+            .live
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .take(cap)
+            .copied()
+            .collect();
+        for p in self
+            .book
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .by_pubkey
             .keys()
-            .take(cap)
-            .copied()
-            .collect()
+        {
+            if out.len() >= cap {
+                break;
+            }
+            if !out.contains(p) {
+                out.push(*p);
+            }
+        }
+        out
     }
 
     /// Anti-abus du service de fichiers : au plus [`FILES_REQS_PAR_S`]
@@ -1160,14 +1194,15 @@ impl Runtime {
         fenetre.1 <= FILES_REQS_PAR_S
     }
 
-    /// Envoie un message FILE à un pair dont l'adresse est connue (sinon
-    /// silence : la relance périodique réessaiera).
-    async fn send_file(&self, to: &[u8; 32], msg: FileMsg) {
+    /// Envoie un message FILE à un pair : session directe (liaison d'identité
+    /// comme `deliver_core` — si le carnet pointe sur l'adresse d'un relais,
+    /// l'envoi direct échoue proprement au lieu de sceller la requête sous la
+    /// session du relais), puis circuit relais existant. Sans l'un ni l'autre,
+    /// déclenche le repli de joignabilité détaché ([`Self::spawn_files_reach`])
+    /// pour que les relances suivantes aient un chemin. Rend vrai si l'envoi
+    /// est parti (sans garantie de livraison).
+    async fn send_file(&self, to: &[u8; 32], msg: FileMsg) -> bool {
         let channel_msg = ChannelMsg::File(msg);
-        // Liaison d'identité comme `deliver_core` : si le carnet pointe sur
-        // l'adresse d'un relais, l'envoi direct échoue proprement au lieu de
-        // sceller la requête sous la session du relais, et on bascule sur le
-        // circuit.
         if let Some(addr) = self.addr_of(to) {
             if self
                 .endpoint
@@ -1175,31 +1210,96 @@ impl Runtime {
                 .await
                 .is_ok()
             {
-                return;
+                return true;
             }
         }
         // Repli relais (SPEC §11.3) : sans ce chemin, aucun transfert de
         // fichier (émojis, stickers, avatars, pièces jointes) n'aboutit entre
         // deux pairs joignables uniquement via un circuit tunnelé (NAT).
         if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(to)) {
-            if let Err(e) = self.endpoint.send_via_relay(circuit, &channel_msg).await {
-                tracing::debug!(erreur = %e, "fichiers : envoi via relais impossible");
+            match self.endpoint.send_via_relay(circuit, &channel_msg).await {
+                Ok(()) => return true,
+                Err(e) => tracing::debug!(erreur = %e, "fichiers : envoi via relais impossible"),
             }
-        } else {
-            tracing::debug!("fichiers : pair injoignable (ni adresse ni circuit)");
         }
+        // Ni adresse ni circuit : l'envoi n'est PAS parti. On tente d'ouvrir
+        // un chemin (présence DHT + circuit) en tâche détachée et cadencée —
+        // le coordinateur, prévenu par l'appelant ([`fetch::Coordinator::
+        // note_emission`]), libérera vite la place si rien ne part.
+        tracing::debug!("fichiers : pair injoignable (ni adresse ni circuit)");
+        self.spawn_files_reach(*to);
+        false
     }
 
-    /// Exécute les demandes décidées par le coordinateur.
+    /// Déclenche, détaché et cadencé par pair ([`FILES_REPLI_MIN_MS`]), le
+    /// repli de joignabilité des transferts : résolution de présence DHT
+    /// (adresse de repli au carnet, comme la passe de maintenance) puis
+    /// repli relais idempotent ([`Self::ensure_relay_to`]). Miroir du chemin
+    /// complet de `deliver_core`/maintenance pour le canal FILE.
+    fn spawn_files_reach(&self, peer: [u8; 32]) {
+        let now = crate::node::now_ms();
+        {
+            let mut repli = self.files_repli.lock().unwrap_or_else(|e| e.into_inner());
+            if repli.len() > FILES_DEBIT_MAX_PAIRS {
+                repli.clear();
+            }
+            match repli.get(&peer) {
+                Some(&last) if now.saturating_sub(last) < FILES_REPLI_MIN_MS => return,
+                _ => {
+                    repli.insert(peer, now);
+                }
+            }
+        }
+        let Some(rt) = self.arc() else {
+            return; // boucles non démarrées (tests sans réseau)
+        };
+        tokio::spawn(async move {
+            let now = crate::node::now_ms();
+            if let Some(record) = rt
+                .dht
+                .get(&*rt.rpc, maintenance::presence_key(&peer), now)
+                .await
+            {
+                if let Ok(addrs) = maintenance::verify_presence_record(&peer, &record, now) {
+                    // Cible de repli sans écraser une adresse déjà prouvée.
+                    if let Some(addr) = addrs.first() {
+                        rt.register_peer_if_absent(peer, *addr);
+                    }
+                }
+            }
+            rt.ensure_relay_to(peer).await;
+        });
+    }
+
+    /// Exécute les demandes décidées par le coordinateur, puis lui signale,
+    /// racine par racine, combien d'émissions ont réellement pu partir (un
+    /// pair injoignable fait échouer vite le téléchargement au lieu de le
+    /// laisser attendre des réponses jamais émises).
     async fn send_file_actions(&self, actions: Vec<fetch::Action>) {
+        if actions.is_empty() {
+            return;
+        }
+        let mut issues: HashMap<[u8; 32], (usize, usize)> = HashMap::new();
         for action in actions {
-            let (to, msg) = match action {
-                fetch::Action::GetManifest { to, root } => (to, FileMsg::GetManifest { root }),
+            let (to, root, msg) = match action {
+                fetch::Action::GetManifest { to, root } => {
+                    (to, root, FileMsg::GetManifest { root })
+                }
                 fetch::Action::GetBlock { to, root, index } => {
-                    (to, FileMsg::GetBlock { root, index })
+                    (to, root, FileMsg::GetBlock { root, index })
                 }
             };
-            self.send_file(&to, msg).await;
+            let parti = self.send_file(&to, msg).await;
+            let (envoyees, tentees) = issues.entry(root).or_insert((0, 0));
+            *tentees += 1;
+            if parti {
+                *envoyees += 1;
+            }
+        }
+        let now = crate::node::now_ms();
+        let mut c = self.files_lock();
+        for (root, (envoyees, tentees)) in issues {
+            c.note_emission(&root, envoyees, tentees, now);
         }
     }
 
@@ -1341,6 +1441,11 @@ impl Runtime {
                 if let Err(e) = self.node.files_fetch_clear(&root) {
                     tracing::debug!(erreur = %e, "fichiers : intention insoldable");
                 }
+                // Blob complet : annonce `Have` bornée aux sessions vives —
+                // les pairs qui téléchargent encore ce fichier gagnent une
+                // source secondaire sans sondage aveugle.
+                self.announce_have(root, bitmap.clone().unwrap_or_default())
+                    .await;
             }
         }
         if let Some(p) = emission {
@@ -1348,6 +1453,25 @@ impl Runtime {
                 .emit_file_progress(&root, p.done, p.total, p.complete);
         }
         self.send_file_actions(actions).await;
+    }
+
+    /// Annonce `Have{root}` aux pairs des sessions vives, borné à
+    /// [`FILES_HAVE_MAX_PAIRS`] (anti-inondation : une seule annonce, à la
+    /// complétion d'un téléchargement — jamais de rediffusion périodique).
+    /// `FileMsg::Have` est déjà décodé par les nœuds existants : aucun
+    /// nouveau type filaire.
+    async fn announce_have(&self, root: [u8; 32], bitmap: Vec<u8>) {
+        let cibles = {
+            let live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+            have_targets(&live, FILES_HAVE_MAX_PAIRS)
+        };
+        for pair in cibles {
+            let msg = FileMsg::Have {
+                root,
+                bitmap: bitmap.clone(),
+            };
+            self.send_file(&pair, msg).await;
+        }
     }
 
     /// Boucle périodique des transferts : adoption des intentions
@@ -1372,13 +1496,19 @@ impl Runtime {
     async fn files_tick(&self) {
         let now = crate::node::now_ms();
         self.files_adopt_intents(now);
-        let pairs = self.known_peers(fetch::MAX_SOURCES);
+        // Un vivier plus large que la borne par téléchargement : quand des
+        // pairs refusent (`NotFound`), le coordinateur pioche des remplaçants
+        // — il borne lui-même à [`fetch::MAX_SOURCES`] par racine.
+        let pairs = self.known_peers(fetch::MAX_SOURCES * 2);
         let (actions, abandons) = self.files_lock().tick(now, &pairs);
         self.send_file_actions(actions).await;
         for (root, progress) in abandons {
-            tracing::debug!("fichiers : téléchargement abandonné (délai dépassé)");
-            if let Err(e) = self.node.files_fetch_clear(&root) {
-                tracing::debug!(erreur = %e, "fichiers : intention insoldable");
+            // Abandon ≠ renoncement : l'intention persistée est REPORTÉE
+            // (backoff par racine) et sera ré-adoptée — elle n'est soldée
+            // qu'à la complétion.
+            tracing::debug!("fichiers : téléchargement abandonné (retenté après backoff)");
+            if let Err(e) = self.node.files_fetch_defer(&root, now) {
+                tracing::debug!(erreur = %e, "fichiers : report de l'intention impossible");
             }
             self.node
                 .emit_file_progress(&root, progress.done, progress.total, false);
@@ -1387,7 +1517,8 @@ impl Runtime {
 
     /// Adopte les intentions de téléchargement persistées : les fichiers déjà
     /// complets sont soldés, les autres démarrent (bornés par le
-    /// coordinateur ; l'excédent attend une place).
+    /// coordinateur ; l'excédent attend une place). Les intentions en backoff
+    /// (abandonnées récemment) attendent leur échéance.
     fn files_adopt_intents(&self, now: u64) {
         let intents = match self.node.files_fetch_intents() {
             Ok(v) => v,
@@ -1396,7 +1527,11 @@ impl Runtime {
                 return;
             }
         };
-        for (root, hint) in intents {
+        for intent in intents {
+            if intent.next_attempt_ms > now {
+                continue;
+            }
+            let (root, hint) = (intent.merkle_root, intent.hint);
             if self.files_lock().est_actif(&root) {
                 continue;
             }
@@ -1420,6 +1555,30 @@ impl Runtime {
                 if let Err(e) = c.attach_manifest(m, bitmap.as_deref(), None, now) {
                     tracing::debug!(erreur = %e, "fichiers : reprise impossible");
                 }
+            }
+        }
+    }
+
+    /// À la connexion d'un pair : (a) réarme immédiatement les intentions en
+    /// backoff dont il est l'indice (la boucle des transferts les ré-adopte à
+    /// la passe suivante), et (b) pour un ami, relance la récupération de
+    /// l'avatar et de la bannière de son profil stockés mais absents en local
+    /// — sans quoi un raté ne serait retenté qu'à sa prochaine ré-annonce de
+    /// profil (30 minutes).
+    fn files_on_peer_connected(&self, peer: &[u8; 32]) {
+        if let Err(e) = self.node.files_retry_hinted(peer) {
+            tracing::debug!(erreur = %e, "fichiers : relance des intentions impossible");
+        }
+        if !self.is_friend(peer) {
+            return;
+        }
+        let node_id = node_id_of(peer).0;
+        let Ok(profil) = self.node.peer_public_profile(&node_id) else {
+            return;
+        };
+        for racine in profil.avatar.iter().chain(profil.banner.iter()) {
+            if let Ok(None) = self.node.files_local_path(racine) {
+                let _ = self.node.files_fetch(racine, Some(*peer));
             }
         }
     }
@@ -1564,6 +1723,16 @@ async fn tcp_punch_toward(
         }
         tokio::time::sleep(TCP_PUNCH_ROUND_WAIT).await;
     }
+}
+
+/// Cibles d'une annonce `Have` à la complétion d'un blob : les pairs des
+/// sessions vives, bornés (anti-inondation) et en ordre stable (l'itération
+/// d'un `HashSet` ne l'est pas). Pure, testable.
+fn have_targets(live: &HashSet<[u8; 32]>, cap: usize) -> Vec<[u8; 32]> {
+    let mut cibles: Vec<[u8; 32]> = live.iter().copied().collect();
+    cibles.sort_unstable();
+    cibles.truncate(cap);
+    cibles
 }
 
 fn direct_target(addr: SocketAddr) -> NodeInfo {
@@ -1712,5 +1881,19 @@ mod tests {
         let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 0, 5));
         let out = assemble_presence_addrs(None, &[ip, ip], 4433);
         assert_eq!(out, vec!["192.168.0.5:4433".parse::<SocketAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn annonce_have_bornee_aux_sessions_vives_en_ordre_stable() {
+        let live: HashSet<[u8; 32]> = (0..5u8).map(|i| [i; 32]).collect();
+        // Ordre stable (trié) malgré l'itération non déterministe du set.
+        assert_eq!(
+            have_targets(&live, 16),
+            (0..5u8).map(|i| [i; 32]).collect::<Vec<_>>()
+        );
+        // Borne anti-inondation respectée.
+        assert_eq!(have_targets(&live, 2).len(), 2);
+        // Aucune session vive : aucune annonce.
+        assert!(have_targets(&HashSet::new(), 16).is_empty());
     }
 }

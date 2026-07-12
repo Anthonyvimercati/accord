@@ -24,11 +24,32 @@ pub const RELANCE_MANIFEST_MS: u64 = 2_000;
 pub const RELANCE_BLOCS_MS: u64 = 5_000;
 /// Sans progression pendant ce délai, le téléchargement est abandonné.
 pub const ABANDON_MS: u64 = 30_000;
+/// Si AUCUNE demande n'a pu partir depuis ce délai (pair injoignable : ni
+/// adresse ni circuit), le téléchargement est abandonné rapidement — la place
+/// est libérée sans attendre [`ABANDON_MS`], l'intention persistée sera
+/// ré-adoptée après backoff ([`relance_apres_abandon_ms`]).
+pub const ABANDON_SANS_EMISSION_MS: u64 = 8_000;
 /// Sources sondées ou actives au plus par téléchargement.
 pub const MAX_SOURCES: usize = 8;
+/// Échelle de ré-adoption d'une intention après abandon : 1, 2, 5 puis
+/// 15 minutes.
+pub const RELANCES_ABANDON_MS: [u64; 4] = [60_000, 120_000, 300_000, 900_000];
+/// Une fois l'échelle épuisée, relance toutes les 30 minutes (indéfiniment :
+/// l'intention n'est soldée qu'à la complétion ou sur annulation explicite).
+pub const RELANCE_ABANDON_PLATEAU_MS: u64 = 1_800_000;
 /// Index sentinelle d'un `NotFound` répondant à `GetManifest` (les index de
 /// blocs réels, données et parité, sont très en deçà : ≤ 8192 + parité).
 pub const INDEX_MANIFESTE: u32 = u32::MAX;
+
+/// Délai avant la prochaine ré-adoption d'une intention après son
+/// `tentatives`-ième abandon (1-indexé) : suit [`RELANCES_ABANDON_MS`] puis
+/// plafonne à [`RELANCE_ABANDON_PLATEAU_MS`]. Pure, testable.
+pub fn relance_apres_abandon_ms(tentatives: u32) -> u64 {
+    RELANCES_ABANDON_MS
+        .get((tentatives.max(1) - 1) as usize)
+        .copied()
+        .unwrap_or(RELANCE_ABANDON_PLATEAU_MS)
+}
 /// Granularité d'émission de la progression : 1/20 = tous les 5 %.
 const PAS_EMISSION: usize = 20;
 
@@ -90,6 +111,10 @@ struct Fetch {
     derniere_relance_ms: u64,
     /// Dernier pas de progression émis (granularité [`PAS_EMISSION`]).
     dernier_pas_emis: usize,
+    /// Première passe dont AUCUNE demande n'a pu partir (pair injoignable),
+    /// réarmée dès qu'une émission réussit. Déclenche l'abandon rapide
+    /// ([`ABANDON_SANS_EMISSION_MS`]).
+    echec_emission_ms: Option<u64>,
 }
 
 /// Coordinateur des téléchargements actifs.
@@ -131,9 +156,27 @@ impl Coordinator {
                 dernier_progres_ms: now_ms,
                 derniere_relance_ms: 0,
                 dernier_pas_emis: 0,
+                echec_emission_ms: None,
             },
         );
         true
+    }
+
+    /// Signale l'issue des émissions d'une passe pour une racine : `envoyees`
+    /// demandes réellement parties sur `tentees`. Si aucune n'a pu partir
+    /// (pair sans adresse ni circuit), le téléchargement sera abandonné
+    /// rapidement ([`ABANDON_SANS_EMISSION_MS`]) au lieu d'attendre
+    /// [`ABANDON_MS`] pour des réponses qui ne viendront jamais ; la première
+    /// émission réussie réarme ce suivi.
+    pub fn note_emission(&mut self, root: &[u8; 32], envoyees: usize, tentees: usize, now_ms: u64) {
+        let Some(f) = self.fetches.get_mut(root) else {
+            return;
+        };
+        if envoyees > 0 {
+            f.echec_emission_ms = None;
+        } else if tentees > 0 && f.echec_emission_ms.is_none() {
+            f.echec_emission_ms = Some(now_ms);
+        }
     }
 
     /// Attache un manifest vérifié à un téléchargement en attente (reçu d'un
@@ -339,7 +382,13 @@ impl Coordinator {
         let mut actions = Vec::new();
         let mut abandons = Vec::new();
         for (root, f) in &mut self.fetches {
-            if now_ms.saturating_sub(f.dernier_progres_ms) >= ABANDON_MS {
+            // Abandon rapide : les émissions échouent toutes (pair
+            // injoignable), inutile d'occuper une place pendant tout le
+            // délai d'abandon — l'intention persistée réessaiera.
+            let sans_emission = f
+                .echec_emission_ms
+                .is_some_and(|t| now_ms.saturating_sub(t) >= ABANDON_SANS_EMISSION_MS);
+            if sans_emission || now_ms.saturating_sub(f.dernier_progres_ms) >= ABANDON_MS {
                 abandons.push(*root);
                 continue;
             }
@@ -644,6 +693,53 @@ mod tests {
             )]
         );
         assert!(!c.est_actif(&root));
+    }
+
+    #[test]
+    fn echec_total_des_emissions_abandonne_rapidement() {
+        let mut c = Coordinator::new();
+        let root = [1u8; 32];
+        c.begin(root, Some(HINT), 0);
+        let (actions, _) = c.tick(0, &[]);
+        assert!(!actions.is_empty(), "sondage du manifest attendu");
+        // Aucune demande n'a pu partir (pair sans adresse ni circuit).
+        c.note_emission(&root, 0, actions.len(), 0);
+        // Avant le délai court : toujours actif.
+        let (_, abandons) = c.tick(ABANDON_SANS_EMISSION_MS - 1, &[]);
+        assert!(abandons.is_empty());
+        // Après : abandonné bien avant ABANDON_MS (place libérée).
+        let (_, abandons) = c.tick(ABANDON_SANS_EMISSION_MS, &[]);
+        assert_eq!(abandons.len(), 1);
+        assert!(!c.est_actif(&root));
+    }
+
+    #[test]
+    fn emission_reussie_rearme_l_abandon_rapide() {
+        let mut c = Coordinator::new();
+        let root = [1u8; 32];
+        c.begin(root, Some(HINT), 0);
+        c.note_emission(&root, 0, 1, 0);
+        // Une émission finit par partir : le suivi d'échec est réarmé…
+        c.note_emission(&root, 1, 1, 4_000);
+        let (_, abandons) = c.tick(ABANDON_SANS_EMISSION_MS, &[]);
+        assert!(abandons.is_empty(), "abandon rapide malgré une émission");
+        // … et seul le délai d'abandon complet s'applique ensuite.
+        let (_, abandons) = c.tick(ABANDON_MS, &[]);
+        assert_eq!(abandons.len(), 1);
+    }
+
+    #[test]
+    fn bareme_de_relance_apres_abandon() {
+        assert_eq!(relance_apres_abandon_ms(0), 60_000, "dégénéré : minimum");
+        assert_eq!(relance_apres_abandon_ms(1), 60_000);
+        assert_eq!(relance_apres_abandon_ms(2), 120_000);
+        assert_eq!(relance_apres_abandon_ms(3), 300_000);
+        assert_eq!(relance_apres_abandon_ms(4), 900_000);
+        assert_eq!(relance_apres_abandon_ms(5), RELANCE_ABANDON_PLATEAU_MS);
+        assert_eq!(
+            relance_apres_abandon_ms(u32::MAX),
+            RELANCE_ABANDON_PLATEAU_MS
+        );
     }
 
     #[test]

@@ -213,9 +213,21 @@ impl Node {
         self.with_db(|db| Ok(db.file_fetches()?))
     }
 
-    /// Solde une intention de téléchargement (terminée ou abandonnée).
+    /// Solde une intention de téléchargement (terminée : le fichier est là).
     pub(crate) fn files_fetch_clear(&self, racine: &[u8; 32]) -> Result<(), NodeError> {
         self.with_db(|db| Ok(db.remove_file_fetch(racine)?))
+    }
+
+    /// Reporte une intention après un abandon (backoff par racine) : elle
+    /// reste persistée et sera ré-adoptée par la boucle réseau à l'échéance.
+    pub(crate) fn files_fetch_defer(&self, racine: &[u8; 32], now: u64) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(db.defer_file_fetch(racine, now)?))
+    }
+
+    /// Réarme (relance immédiate) les intentions dont l'indice est ce pair —
+    /// appelé à sa reconnexion. Rend le nombre d'intentions réarmées.
+    pub(crate) fn files_retry_hinted(&self, indice: &[u8; 32]) -> Result<usize, NodeError> {
+        self.with_db(|db| Ok(db.retry_file_fetches_hinted(indice)?))
     }
 
     /// Indexe le manifest d'un téléchargement qui démarre (entrée incomplète,
@@ -459,7 +471,12 @@ mod tests {
         n.files_fetch(&racine, Some([9u8; 32])).unwrap();
         assert_eq!(
             n.files_fetch_intents().unwrap(),
-            vec![(racine, Some([9u8; 32]))]
+            vec![FetchIntent {
+                merkle_root: racine,
+                hint: Some([9u8; 32]),
+                next_attempt_ms: 0,
+                attempts: 0,
+            }]
         );
         n.files_fetch_clear(&racine).unwrap();
         assert!(n.files_fetch_intents().unwrap().is_empty());
@@ -469,6 +486,25 @@ mod tests {
             .unwrap();
         n.files_fetch(&f.merkle_root, None).unwrap();
         assert!(n.files_fetch_intents().unwrap().is_empty());
+    }
+
+    #[test]
+    fn intention_survit_a_l_abandon_puis_reprend_a_la_reconnexion_du_pair() {
+        let (n, _dir) = node_sur_disque();
+        let racine = [3u8; 32];
+        let indice = [9u8; 32];
+        n.files_fetch(&racine, Some(indice)).unwrap();
+        // Abandon : l'intention est REPORTÉE (backoff), jamais supprimée.
+        n.files_fetch_defer(&racine, 1_000).unwrap();
+        let intents = n.files_fetch_intents().unwrap();
+        assert_eq!(intents.len(), 1, "intention perdue après abandon");
+        assert_eq!(intents[0].attempts, 1);
+        assert!(intents[0].next_attempt_ms > 1_000);
+        // Le pair indice se reconnecte : relance immédiate, backoff réarmé.
+        assert_eq!(n.files_retry_hinted(&indice).unwrap(), 1);
+        let intents = n.files_fetch_intents().unwrap();
+        assert_eq!(intents[0].next_attempt_ms, 0);
+        assert_eq!(intents[0].attempts, 0);
     }
 
     #[test]

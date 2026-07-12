@@ -27,7 +27,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -79,12 +79,39 @@ impl Db {
         Ok(db)
     }
 
+    /// Vrai si `table` existe et porte la colonne `column` (PRAGMA
+    /// table_info : vide pour une table inconnue). Support des migrations
+    /// additives sur des tables créées par une version antérieure.
+    fn has_column(&self, table: &str, column: &str) -> Result<bool, CoreError> {
+        let mut stmt = self.conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            if row.get::<_, String>(1)? == column {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn migrate(&self) -> Result<(), CoreError> {
         let version: i64 = self
             .conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version >= SCHEMA_VERSION {
             return Ok(());
+        }
+        // Migration v7 : backoff de ré-adoption des intentions de
+        // téléchargement. Une base antérieure porte déjà `file_fetches` sans
+        // ces colonnes ; on les ajoute AVANT le lot idempotent (qui, lui, les
+        // crée directement sur une base neuve). Les anciennes lignes prennent
+        // les valeurs par défaut (relance immédiate, aucun abandon compté).
+        if self.has_column("file_fetches", "merkle_root")?
+            && !self.has_column("file_fetches", "next_attempt_ms")?
+        {
+            self.conn.execute_batch(
+                "ALTER TABLE file_fetches ADD COLUMN next_attempt_ms INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE file_fetches ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;",
+            )?;
         }
         self.conn.execute_batch(
             "BEGIN;
@@ -188,9 +215,11 @@ impl Db {
                added_ms    INTEGER NOT NULL
              );
              CREATE TABLE IF NOT EXISTS file_fetches (
-               merkle_root BLOB PRIMARY KEY,
-               hint        BLOB,
-               added_ms    INTEGER NOT NULL
+               merkle_root     BLOB PRIMARY KEY,
+               hint            BLOB,
+               added_ms        INTEGER NOT NULL,
+               next_attempt_ms INTEGER NOT NULL DEFAULT 0,
+               attempts        INTEGER NOT NULL DEFAULT 0
              );
              CREATE TABLE IF NOT EXISTS search_index (
                token  BLOB NOT NULL,
@@ -258,7 +287,7 @@ impl Db {
                last_ms    INTEGER NOT NULL,
                PRIMARY KEY (group_id, channel_id, author)
              );
-             PRAGMA user_version = 6;
+             PRAGMA user_version = 7;
              COMMIT;",
         )?;
         Ok(())
@@ -390,6 +419,51 @@ mod tests {
             db.group_membership(&[2u8; 16]).unwrap(),
             LocalMembership::Joined
         );
+    }
+
+    #[test]
+    fn migration_v7_conserve_les_intentions_de_telechargement_existantes() {
+        // Simule une base au schéma v6 : `file_fetches` sans les colonnes de
+        // backoff, avec une intention déjà persistée.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(9);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+                .unwrap();
+            conn.execute_batch(
+                "BEGIN;
+                 CREATE TABLE file_fetches (
+                   merkle_root BLOB PRIMARY KEY,
+                   hint        BLOB,
+                   added_ms    INTEGER NOT NULL
+                 );
+                 PRAGMA user_version = 6;
+                 COMMIT;",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO file_fetches (merkle_root, hint, added_ms) VALUES (?1, ?2, 5)",
+                rusqlite::params![[1u8; 32], [9u8; 32]],
+            )
+            .unwrap();
+        }
+        // Réouverture avec le binaire courant : les colonnes sont ajoutées et
+        // l'ancienne ligne décode avec les valeurs par défaut (relance
+        // immédiate, aucun abandon compté).
+        let db = Db::open(&path, &db_key).unwrap();
+        let intents = db.file_fetches().unwrap();
+        assert_eq!(intents.len(), 1);
+        assert_eq!(intents[0].merkle_root, [1u8; 32]);
+        assert_eq!(intents[0].hint, Some([9u8; 32]));
+        assert_eq!(intents[0].next_attempt_ms, 0);
+        assert_eq!(intents[0].attempts, 0);
+        // Réouverture idempotente (version déjà à jour) : rien ne casse.
+        drop(db);
+        assert!(Db::open(&path, &db_key).is_ok());
     }
 
     #[test]

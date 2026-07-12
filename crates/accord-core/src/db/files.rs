@@ -3,10 +3,22 @@
 
 use super::{blob, Db};
 use crate::error::CoreError;
+use crate::files::fetch;
 use rusqlite::params;
 
-/// Intention de téléchargement : racine de Merkle et indice de pair source éventuel.
-pub type FetchIntent = ([u8; 32], Option<[u8; 32]>);
+/// Intention de téléchargement persistée : racine de Merkle, indice de pair
+/// source éventuel et état de reprise après abandon (backoff par racine).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchIntent {
+    /// Racine de Merkle du fichier voulu.
+    pub merkle_root: [u8; 32],
+    /// Pair source probable (expéditeur du message portant la référence).
+    pub hint: Option<[u8; 32]>,
+    /// Prochaine adoption au plus tôt (ms murales ; 0 = immédiate).
+    pub next_attempt_ms: u64,
+    /// Abandons successifs sans complétion (échelle de backoff).
+    pub attempts: u32,
+}
 
 /// Fichier connu localement (partagé par nous ou en téléchargement).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,7 +186,9 @@ impl Db {
     // ---- Intentions de téléchargement (reprises par la boucle réseau) ----
 
     /// Enregistre (ou rafraîchit) une intention de téléchargement ; un indice
-    /// plus récent remplace l'ancien, un indice absent le conserve.
+    /// plus récent remplace l'ancien, un indice absent le conserve. Une
+    /// demande fraîche réarme aussi le backoff (relance immédiate) : elle
+    /// signale que quelqu'un veut le fichier maintenant.
     pub fn upsert_file_fetch(
         &self,
         merkle_root: &[u8; 32],
@@ -184,7 +198,9 @@ impl Db {
         self.conn().execute(
             "INSERT INTO file_fetches (merkle_root, hint, added_ms) VALUES (?1, ?2, ?3)
              ON CONFLICT(merkle_root) DO UPDATE SET
-               hint = COALESCE(excluded.hint, hint)",
+               hint = COALESCE(excluded.hint, hint),
+               next_attempt_ms = 0,
+               attempts = 0",
             params![merkle_root, hint.map(|h| h.as_slice()), now_ms],
         )?;
         Ok(())
@@ -192,17 +208,63 @@ impl Db {
 
     /// Intentions de téléchargement en attente, plus anciennes d'abord.
     pub fn file_fetches(&self) -> Result<Vec<FetchIntent>, CoreError> {
-        let mut stmt = self
-            .conn()
-            .prepare("SELECT merkle_root, hint FROM file_fetches ORDER BY added_ms ASC")?;
+        let mut stmt = self.conn().prepare(
+            "SELECT merkle_root, hint, next_attempt_ms, attempts
+             FROM file_fetches ORDER BY added_ms ASC",
+        )?;
         let raws = stmt
             .query_map([], |row| {
-                Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Option<Vec<u8>>>(1)?))
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, u64>(2)?,
+                    row.get::<_, u32>(3)?,
+                ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         raws.into_iter()
-            .map(|(root, hint)| Ok((blob(root)?, hint.map(blob).transpose()?)))
+            .map(|(root, hint, next_attempt_ms, attempts)| {
+                Ok(FetchIntent {
+                    merkle_root: blob(root)?,
+                    hint: hint.map(blob).transpose()?,
+                    next_attempt_ms,
+                    attempts,
+                })
+            })
             .collect()
+    }
+
+    /// Reporte une intention après un abandon : incrémente le compteur et
+    /// planifie la prochaine adoption selon l'échelle
+    /// [`fetch::relance_apres_abandon_ms`]. L'intention n'est JAMAIS
+    /// supprimée ici (elle ne l'est qu'à la complétion ou sur annulation
+    /// explicite) ; sans effet si elle a déjà été soldée.
+    pub fn defer_file_fetch(&self, merkle_root: &[u8; 32], now_ms: u64) -> Result<(), CoreError> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT attempts FROM file_fetches WHERE merkle_root = ?1")?;
+        let mut rows = stmt.query([merkle_root.as_slice()])?;
+        let Some(row) = rows.next()? else {
+            return Ok(());
+        };
+        let tentatives: u32 = row.get::<_, u32>(0)?.saturating_add(1);
+        let prochaine = now_ms.saturating_add(fetch::relance_apres_abandon_ms(tentatives));
+        self.conn().execute(
+            "UPDATE file_fetches SET attempts = ?2, next_attempt_ms = ?3
+             WHERE merkle_root = ?1",
+            params![merkle_root, tentatives, prochaine],
+        )?;
+        Ok(())
+    }
+
+    /// Réarme les intentions dont l'indice est `hint` (pair reconnecté) :
+    /// relance immédiate, backoff remis à zéro. Rend le nombre d'intentions
+    /// réarmées.
+    pub fn retry_file_fetches_hinted(&self, hint: &[u8; 32]) -> Result<usize, CoreError> {
+        Ok(self.conn().execute(
+            "UPDATE file_fetches SET next_attempt_ms = 0, attempts = 0 WHERE hint = ?1",
+            [hint.as_slice()],
+        )?)
     }
 
     /// Solde une intention de téléchargement (terminée ou abandonnée).
@@ -275,6 +337,16 @@ mod tests {
         ));
     }
 
+    /// Intention neuve attendue : relance immédiate, aucun abandon compté.
+    fn intent(merkle_root: [u8; 32], hint: Option<[u8; 32]>) -> FetchIntent {
+        FetchIntent {
+            merkle_root,
+            hint,
+            next_attempt_ms: 0,
+            attempts: 0,
+        }
+    }
+
     #[test]
     fn fetch_intents_roundtrip_and_hint_refresh() {
         let db = Db::open_in_memory(&[1; 32]).unwrap();
@@ -283,7 +355,7 @@ mod tests {
         db.upsert_file_fetch(&[2; 32], Some(&[9; 32]), 20).unwrap();
         assert_eq!(
             db.file_fetches().unwrap(),
-            vec![([1; 32], None), ([2; 32], Some([9; 32]))]
+            vec![intent([1; 32], None), intent([2; 32], Some([9; 32]))]
         );
         // Un indice arrivé plus tard complète l'intention…
         db.upsert_file_fetch(&[1; 32], Some(&[8; 32]), 30).unwrap();
@@ -291,10 +363,58 @@ mod tests {
         db.upsert_file_fetch(&[2; 32], None, 40).unwrap();
         assert_eq!(
             db.file_fetches().unwrap(),
-            vec![([1; 32], Some([8; 32])), ([2; 32], Some([9; 32]))]
+            vec![
+                intent([1; 32], Some([8; 32])),
+                intent([2; 32], Some([9; 32]))
+            ]
         );
         db.remove_file_fetch(&[1; 32]).unwrap();
         assert_eq!(db.file_fetches().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn abandon_reporte_l_intention_selon_le_bareme_sans_la_supprimer() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.upsert_file_fetch(&[1; 32], Some(&[9; 32]), 10).unwrap();
+        // Abandons successifs : l'intention survit, le backoff suit l'échelle.
+        for (tentatives, attendu) in [
+            (1u32, 60_000u64),
+            (2, 120_000),
+            (3, 300_000),
+            (4, 900_000),
+            (5, 1_800_000),
+            (6, 1_800_000),
+        ] {
+            db.defer_file_fetch(&[1; 32], 1_000).unwrap();
+            let got = &db.file_fetches().unwrap()[0];
+            assert_eq!(got.attempts, tentatives);
+            assert_eq!(got.next_attempt_ms, 1_000 + attendu);
+            assert_eq!(got.hint, Some([9; 32]), "l'indice est conservé");
+        }
+        // Reporter une intention déjà soldée : sans effet ni erreur.
+        db.remove_file_fetch(&[1; 32]).unwrap();
+        db.defer_file_fetch(&[1; 32], 2_000).unwrap();
+        assert!(db.file_fetches().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reconnexion_du_pair_indice_rearme_les_intentions_en_backoff() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.upsert_file_fetch(&[1; 32], Some(&[9; 32]), 10).unwrap();
+        db.upsert_file_fetch(&[2; 32], Some(&[7; 32]), 20).unwrap();
+        db.defer_file_fetch(&[1; 32], 1_000).unwrap();
+        db.defer_file_fetch(&[2; 32], 1_000).unwrap();
+        // Seules les intentions indicées sur CE pair sont réarmées.
+        assert_eq!(db.retry_file_fetches_hinted(&[9; 32]).unwrap(), 1);
+        let intents = db.file_fetches().unwrap();
+        assert_eq!(intents[0], intent([1; 32], Some([9; 32])));
+        assert!(intents[1].next_attempt_ms > 0, "l'autre reste en backoff");
+        // Une demande fraîche (files_fetch) réarme aussi le backoff.
+        db.upsert_file_fetch(&[2; 32], None, 30).unwrap();
+        assert_eq!(
+            db.file_fetches().unwrap()[1],
+            intent([2; 32], Some([7; 32]))
+        );
     }
 
     #[test]
