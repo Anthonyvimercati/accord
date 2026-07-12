@@ -96,9 +96,7 @@ describe('InviteModal (Modals.tsx) — invitation par consentement (D-045)', () 
   it('appelle groups.invite_create au clic — jamais l’ancien force-join', async () => {
     render(<Modals />);
 
-    fireEvent.click(
-      screen.getAllByRole('button', { name: 'Inviter' })[0] as HTMLElement,
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Inviter Bob' }));
 
     await vi.waitFor(() =>
       expect(api.groupsInviteCreate).toHaveBeenCalledWith('g1', 'pk_bob'),
@@ -109,15 +107,15 @@ describe('InviteModal (Modals.tsx) — invitation par consentement (D-045)', () 
   it('le bouton devient « Invité ✓ » désactivé sans fermer la modale', async () => {
     render(<Modals />);
 
-    fireEvent.click(
-      screen.getAllByRole('button', { name: 'Inviter' })[0] as HTMLElement,
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Inviter Bob' }));
 
-    expect(await screen.findByRole('button', { name: 'Invité ✓' })).toBeDisabled();
+    expect(
+      await screen.findByRole('button', { name: 'Invitation envoyée à Bob' }),
+    ).toBeDisabled();
     // La modale reste ouverte pour enchaîner d'autres invitations.
     expect(useUi.getState().modal).toEqual({ kind: 'invite', groupId: 'g1' });
     // Carole reste invitable.
-    expect(screen.getByRole('button', { name: 'Inviter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Inviter Carole' })).toBeInTheDocument();
     await attendreLien();
   });
 
@@ -358,5 +356,60 @@ describe('CreatePollModal (Modals.tsx) — création de sondage (D-048)', () => 
 
     expect(screen.getByText('25 sondages au maximum par groupe.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Créer le sondage' })).toBeDisabled();
+  });
+});
+
+describe('Modales — accessibilité (focus, onglets, noms accessibles)', () => {
+  it('la modale est un dialog nommé par son titre (aria-labelledby)', () => {
+    useUi.setState({ lang: 'fr', modal: { kind: 'createGroup' } });
+    render(<Modals />);
+
+    const dialog = screen.getByRole('dialog', { name: 'Créer votre groupe' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-labelledby');
+  });
+
+  it('Échap ferme la modale', () => {
+    useUi.setState({ lang: 'fr', modal: { kind: 'createGroup' } });
+    render(<Modals />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(useUi.getState().modal).toBeNull();
+  });
+
+  it('les onglets Créer/Rejoindre basculent aux flèches, focus compris', () => {
+    useUi.setState({ lang: 'fr', modal: { kind: 'createGroup' } });
+    render(<Modals />);
+
+    const creer = screen.getByRole('tab', { name: 'Créer un serveur' });
+    const rejoindre = screen.getByRole('tab', { name: 'Rejoindre avec un lien' });
+    expect(creer).toHaveAttribute('tabindex', '0');
+    expect(rejoindre).toHaveAttribute('tabindex', '-1');
+
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' });
+
+    expect(rejoindre).toHaveAttribute('aria-selected', 'true');
+    expect(rejoindre).toHaveFocus();
+    expect(screen.getByRole('tabpanel')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowLeft' });
+    expect(creer).toHaveAttribute('aria-selected', 'true');
+    expect(creer).toHaveFocus();
+  });
+
+  it('chaque bouton d’invitation nomme l’ami visé', async () => {
+    useFriends.setState({
+      contacts: [
+        { pubkey: 'pk_alice', display_name: 'Alice', state: 'friend' },
+      ] as unknown as Contact[],
+    });
+    useGroups.setState({ states: { g1: groupStateFixture() } });
+    useUi.setState({ lang: 'fr', modal: { kind: 'invite', groupId: 'g1' } });
+    render(<Modals />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Inviter Alice' }),
+    ).toBeInTheDocument();
   });
 });

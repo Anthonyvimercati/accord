@@ -592,7 +592,14 @@ function ServerHeaderMenu({
   }, [onClose]);
 
   useEffect(() => {
+    // Focus pris à l'ouverture, rendu au déclencheur (le bouton du nom de
+    // serveur) à la fermeture — sauf s'il a quitté le DOM entre-temps.
+    const precedent =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     ref.current?.focus();
+    return () => {
+      if (precedent !== null && precedent.isConnected) precedent.focus();
+    };
   }, []);
 
   if (state === undefined) return null;

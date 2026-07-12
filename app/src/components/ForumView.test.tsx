@@ -131,3 +131,19 @@ describe('ForumView — création d’un post', () => {
     expect(send).toHaveBeenCalledWith(GROUP, 'new-thread', 'Bonjour à tous');
   });
 });
+
+describe('ForumView — accessibilité du formulaire « Nouveau post »', () => {
+  it('déplace le focus sur le titre à l’ouverture, Échap referme et rend le focus', () => {
+    renderForum([]);
+    const bouton = screen.getByRole('button', { name: 'Nouveau post' });
+
+    fireEvent.click(bouton);
+    const titre = screen.getByLabelText('Titre du post');
+    expect(titre).toHaveFocus();
+    expect(bouton).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.keyDown(titre, { key: 'Escape' });
+    expect(screen.queryByLabelText('Titre du post')).not.toBeInTheDocument();
+    expect(bouton).toHaveFocus();
+  });
+});

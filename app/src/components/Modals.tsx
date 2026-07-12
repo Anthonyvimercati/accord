@@ -5,12 +5,13 @@
  * `ui.modal = { kind: 'settings' }`.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Dict } from '../i18n';
 import { interpolate } from '../i18n';
 import type { GroupChannelKind } from '../lib/api';
 import { api } from '../lib/client';
 import { copyToClipboard } from '../lib/clipboard';
+import { bouclerTab } from '../lib/focus';
 import {
   estOptionSondageValide,
   estQuestionSondageValide,
@@ -100,14 +101,25 @@ export function ModalFrame({
   const t = useT();
   const closeModal = useUi((s) => s.closeModal);
   const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
+    // Focus rendu au déclencheur à la fermeture (s'il est toujours monté).
+    const precedent =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeModal();
+      else if (e.key === 'Tab') bouclerTab(e, ref.current);
     };
     window.addEventListener('keydown', onKey);
-    ref.current?.querySelector('input')?.focus();
-    return () => window.removeEventListener('keydown', onKey);
+    const premierChamp = ref.current?.querySelector<HTMLElement>(
+      'input, select, textarea',
+    );
+    (premierChamp ?? ref.current)?.focus();
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (precedent !== null && precedent.isConnected) precedent.focus();
+    };
   }, [closeModal]);
 
   return (
@@ -121,12 +133,15 @@ export function ModalFrame({
         ref={ref}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
-        className="glass modal-panel-enter w-[440px] max-w-[92vw] rounded-xl shadow-3"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="glass modal-panel-enter w-[440px] max-w-[92vw] rounded-xl shadow-3 focus:outline-none"
       >
         <div className="p-5">
           <div className="flex items-start justify-between">
-            <h2 className="text-lg font-semibold text-header">{title}</h2>
+            <h2 id={titleId} className="text-lg font-semibold text-header">
+              {title}
+            </h2>
             <button
               type="button"
               aria-label={t.app.close}
@@ -215,6 +230,11 @@ function CreateGroupModal() {
   const setView = useUi((s) => s.setView);
   const loadState = useGroups((s) => s.loadState);
   const [tab, setTab] = useState<'create' | 'join'>('create');
+  const idBase = useId();
+  const tabRefs = useRef<Record<'create' | 'join', HTMLButtonElement | null>>({
+    create: null,
+    join: null,
+  });
 
   const tabClass = (selected: boolean): string =>
     `flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal ${
@@ -222,6 +242,21 @@ function CreateGroupModal() {
         ? 'bg-blurple text-white'
         : 'text-muted hover:bg-chat-hover hover:text-norm'
     }`;
+
+  /** Bascule d'onglet au clavier : le focus suit la sélection. */
+  const activerOnglet = (suivant: 'create' | 'join'): void => {
+    setTab(suivant);
+    tabRefs.current[suivant]?.focus();
+  };
+  const onTablistKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'ArrowLeft' || e.key === 'Home') {
+      e.preventDefault();
+      activerOnglet('create');
+    } else if (e.key === 'ArrowRight' || e.key === 'End') {
+      e.preventDefault();
+      activerOnglet('join');
+    }
+  };
 
   return (
     <ModalFrame
@@ -231,27 +266,45 @@ function CreateGroupModal() {
       <div
         role="tablist"
         aria-label={t.groups.createOrJoin}
+        onKeyDown={onTablistKeyDown}
         className="mb-4 flex gap-1 rounded-lg bg-rail p-1"
       >
         <button
+          ref={(el) => {
+            tabRefs.current.create = el;
+          }}
           type="button"
           role="tab"
+          id={`${idBase}-tab-create`}
           aria-selected={tab === 'create'}
+          aria-controls={`${idBase}-panel`}
+          tabIndex={tab === 'create' ? 0 : -1}
           onClick={() => setTab('create')}
           className={tabClass(tab === 'create')}
         >
           {t.groups.tabCreate}
         </button>
         <button
+          ref={(el) => {
+            tabRefs.current.join = el;
+          }}
           type="button"
           role="tab"
+          id={`${idBase}-tab-join`}
           aria-selected={tab === 'join'}
+          aria-controls={`${idBase}-panel`}
+          tabIndex={tab === 'join' ? 0 : -1}
           onClick={() => setTab('join')}
           className={tabClass(tab === 'join')}
         >
           {t.groups.tabJoin}
         </button>
       </div>
+      <div
+        role="tabpanel"
+        id={`${idBase}-panel`}
+        aria-labelledby={`${idBase}-tab-${tab}`}
+      >
       {tab === 'create' ? (
         <NameForm
           placeholder={t.groups.namePlaceholder}
@@ -267,6 +320,7 @@ function CreateGroupModal() {
       ) : (
         <JoinServerForm />
       )}
+      </div>
     </ModalFrame>
   );
 }
@@ -613,6 +667,9 @@ function InviteModal({ groupId }: { groupId: string }) {
               <button
                 type="button"
                 disabled
+                aria-label={interpolate(t.groups.invitedUser, {
+                  name: displayNameOf(contacts, c.pubkey),
+                })}
                 className="rounded-lg border border-transparent px-3 py-1 text-sm font-medium text-green"
               >
                 {t.groups.inviteSent}
@@ -621,6 +678,9 @@ function InviteModal({ groupId }: { groupId: string }) {
               <button
                 type="button"
                 disabled={pending.has(c.pubkey)}
+                aria-label={interpolate(t.groups.inviteUser, {
+                  name: displayNameOf(contacts, c.pubkey),
+                })}
                 onClick={() => sendInvite(c.pubkey)}
                 className="rounded-lg border border-green px-3 py-1 text-sm font-medium text-green transition-colors duration-fast hover:bg-green hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50"
               >

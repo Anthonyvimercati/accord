@@ -15,6 +15,7 @@ import { interpolate } from '../i18n';
 import type { ServerSound } from '../lib/api';
 import { api } from '../lib/client';
 import { soundBadgeColor } from '../lib/color';
+import { bouclerTab, focusables } from '../lib/focus';
 import { hasPerm, PERMISSIONS, useGroups } from '../stores/groups';
 import { playSound } from '../stores/soundboard';
 import { useUi, useT } from '../stores/ui';
@@ -103,17 +104,28 @@ export function SoundboardButton({ className }: { className: string }) {
   const [query, setQuery] = useState('');
   const [playingName, setPlayingName] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!open) return undefined;
+    // Focus déplacé dans le panneau (recherche ou première tuile) : les
+    // contrôles sont immédiatement au clavier, Échap rend le focus au bouton.
+    focusables(panelRef.current)[0]?.focus();
     const onDown = (e: MouseEvent): void => {
       if (wrapRef.current !== null && !wrapRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        triggerRef.current?.focus();
+      } else if (e.key === 'Tab') {
+        // Piège à focus sur l'enveloppe : le cycle couvre déclencheur + panneau.
+        bouclerTab(e, wrapRef.current);
+      }
     };
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
@@ -157,12 +169,16 @@ export function SoundboardButton({ className }: { className: string }) {
 
   const ouvrirReglages = (): void => {
     setOpen(false);
+    // Focus rendu au déclencheur avant la modale : c'est lui que la modale
+    // mémorise, et donc lui qui récupère le focus à sa fermeture.
+    triggerRef.current?.focus();
     openModal({ kind: 'serverSettings', groupId: active.groupId, initialTab: 'soundboard' });
   };
 
   return (
     <div ref={wrapRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         aria-label={t.soundboard.open}
         title={t.soundboard.open}
@@ -178,6 +194,7 @@ export function SoundboardButton({ className }: { className: string }) {
       </button>
       {open && (
         <div
+          ref={panelRef}
           role="dialog"
           aria-label={t.soundboard.open}
           className="popover-enter absolute bottom-full right-0 z-50 mb-2 w-72 rounded-lg border border-[color:var(--glass-border)] bg-chat p-2 shadow-3"

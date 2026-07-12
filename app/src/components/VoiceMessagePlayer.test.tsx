@@ -192,3 +192,16 @@ describe('VoiceMessagePlayer — lecture', () => {
     await waitFor(() => expect(pauseAudio1).toHaveBeenCalled());
   });
 });
+
+describe('VoiceMessagePlayer — barre de progression accessible', () => {
+  it('expose un slider nommé avec la position lisible (aria-valuetext)', async () => {
+    lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');
+    render(<VoiceMessagePlayer piece={piece({ name: 'voice-12.4s.webm' })} />);
+
+    const slider = await screen.findByRole('slider', {
+      name: 'Progression du message vocal',
+    });
+    expect(slider).toHaveAttribute('aria-valuemax', '12');
+    expect(slider).toHaveAttribute('aria-valuetext', '0:00 / 0:12');
+  });
+});

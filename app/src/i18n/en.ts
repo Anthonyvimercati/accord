@@ -178,6 +178,8 @@ export const en: Dict = {
     inviteSearchPlaceholder: 'Search friends',
     inviteNoResults: 'No friend matches your search.',
     inviteSent: 'Invited ✓',
+    inviteUser: 'Invite {name}',
+    invitedUser: 'Invitation sent to {name}',
     invited: 'Invitation sent!',
     noFriendsToInvite: 'All your friends are already members.',
     channelPlaceholder: 'Message #{name}',

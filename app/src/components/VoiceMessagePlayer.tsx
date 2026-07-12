@@ -325,6 +325,7 @@ export function VoiceMessagePlayer({
           aria-valuemin={0}
           aria-valuemax={Math.round(dureeSure)}
           aria-valuenow={Math.round(currentTime)}
+          aria-valuetext={`${formatDuration(currentTime)} / ${formatDuration(dureeSure)}`}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             chercher(rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0);
@@ -336,6 +337,12 @@ export function VoiceMessagePlayer({
             } else if (e.key === 'ArrowLeft') {
               e.preventDefault();
               chercher(Math.max(0, ratioActuel - 0.05));
+            } else if (e.key === 'Home') {
+              e.preventDefault();
+              chercher(0);
+            } else if (e.key === 'End') {
+              e.preventDefault();
+              chercher(1);
             }
           }}
           className="h-1.5 w-full cursor-pointer overflow-hidden rounded-full bg-rail/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"

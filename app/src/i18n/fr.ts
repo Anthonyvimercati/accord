@@ -178,6 +178,8 @@ export const fr = {
     inviteSearchPlaceholder: 'Rechercher des amis',
     inviteNoResults: 'Aucun ami ne correspond à la recherche.',
     inviteSent: 'Invité ✓',
+    inviteUser: 'Inviter {name}',
+    invitedUser: 'Invitation envoyée à {name}',
     invited: 'Invitation envoyée !',
     noFriendsToInvite: 'Tous vos amis sont déjà membres.',
     channelPlaceholder: 'Écrire dans #{name}',

@@ -11,7 +11,7 @@
  * publié DANS le fil (`thread_id`), jamais dans la racine du forum.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { GroupChannel, GroupStateJson, GroupThread } from '../lib/api';
 import { useGroups } from '../stores/groups';
@@ -90,6 +90,19 @@ export function ForumView({
   const [title, setTitle] = useState('');
   const [firstMessage, setFirstMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const newPostRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  // Formulaire déplié : focus sur le titre pour enchaîner au clavier.
+  useEffect(() => {
+    if (showForm) titleRef.current?.focus();
+  }, [showForm]);
+
+  /** Referme le formulaire et rend le focus au bouton « Nouveau post ». */
+  const fermerFormulaire = (): void => {
+    setShowForm(false);
+    newPostRef.current?.focus();
+  };
 
   const forumId = channel.channel_id;
   const openPost =
@@ -161,6 +174,7 @@ export function ForumView({
           )}
           {canPost && (
             <button
+              ref={newPostRef}
               type="button"
               aria-expanded={showForm}
               onClick={() => setShowForm((open) => !open)}
@@ -177,12 +191,19 @@ export function ForumView({
                 e.preventDefault();
                 void submit();
               }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  fermerFormulaire();
+                }
+              }}
               className="mb-5 rounded-lg border border-[color:var(--glass-border)] bg-sidebar p-4 shadow-1"
             >
               <h2 className="mb-3 text-sm font-semibold text-header">
                 {t.forum.newPostTitle}
               </h2>
               <input
+                ref={titleRef}
                 aria-label={t.forum.postTitle}
                 placeholder={t.forum.postTitle}
                 value={title}
@@ -200,7 +221,7 @@ export function ForumView({
               <div className="mt-3 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={fermerFormulaire}
                   className="rounded-sm px-4 py-2 text-sm font-medium text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
                 >
                   {t.app.cancel}
