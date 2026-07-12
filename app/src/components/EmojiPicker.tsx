@@ -13,6 +13,7 @@ import {
   type EmojiUnicode,
 } from '../lib/emoji';
 import { aggregateEmojis, useGroups, type AggregatedEmoji } from '../stores/groups';
+import { addRecent, readRecents, writeRecents } from '../lib/emojiRecents';
 import { interpolate } from '../i18n';
 import type { Dict } from '../i18n';
 import { useT } from '../stores/ui';
@@ -58,6 +59,12 @@ function correspond(emoji: EmojiUnicode, q: string): boolean {
   return emoji.keywords.some((k) => k.includes(q));
 }
 
+/** Vrai si un émoji récent correspond à la recherche (caractère ou nom custom). */
+function correspondRecent(pick: EmojiPick, q: string): boolean {
+  if (q === '') return true;
+  return pick.kind === 'unicode' ? pick.char.includes(q) : pick.name.includes(q);
+}
+
 export function EmojiPicker({
   groupId,
   onSelect,
@@ -68,6 +75,9 @@ export function EmojiPicker({
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
+  // Émojis récents (Unicode + custom), lus une fois au montage puis mis à jour
+  // localement à chaque choix ; persistés en localStorage.
+  const [recents, setRecents] = useState<EmojiPick[]>(() => readRecents());
   const ids = useGroups((s) => s.ids);
   const states = useGroups((s) => s.states);
   // Contexte serveur : émojis du groupe courant. MP (`groupId` absent) :
@@ -101,7 +111,16 @@ export function EmojiPicker({
     };
   }, [onClose]);
 
+  // Enregistre le choix en tête des récents (local + persistance) puis délègue.
+  const handleSelect = (pick: EmojiPick): void => {
+    const next = addRecent(recents, pick);
+    setRecents(next);
+    writeRecents(next);
+    onSelect(pick);
+  };
+
   const q = query.trim().toLowerCase();
+  const recentsFiltres = recents.filter((r) => correspondRecent(r, q));
   const customsFiltres = customs.filter((e) => q === '' || e.name.includes(q));
   const stickersFiltres = stickers.filter((s) => q === '' || s.name.includes(q));
   // MP : les customs viennent de plusieurs serveurs, le libellé le précise.
@@ -113,6 +132,7 @@ export function EmojiPicker({
   })).filter((cat) => cat.emojis.length > 0);
 
   const rien =
+    recentsFiltres.length === 0 &&
     customsFiltres.length === 0 &&
     stickersFiltres.length === 0 &&
     categories.length === 0;
@@ -140,6 +160,41 @@ export function EmojiPicker({
           <p className="py-4 text-center text-sm text-muted">{t.emoji.noResult}</p>
         )}
 
+        {recentsFiltres.length > 0 && (
+          <section aria-label={t.emoji.recents} className="mb-2">
+            <h4 className="mb-1 px-1 text-xs font-medium uppercase tracking-wide text-faint">
+              {t.emoji.recents}
+            </h4>
+            <div className="flex flex-wrap gap-0.5">
+              {recentsFiltres.map((pick) =>
+                pick.kind === 'unicode' ? (
+                  <button
+                    key={`u:${pick.char}`}
+                    type="button"
+                    aria-label={interpolate(t.emoji.insert, { emoji: pick.char })}
+                    title={pick.char}
+                    onClick={() => handleSelect(pick)}
+                    className="flex h-9 w-9 items-center justify-center rounded-md text-xl leading-none transition-transform duration-fast ease-spring hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
+                  >
+                    {pick.char}
+                  </button>
+                ) : (
+                  <button
+                    key={`c:${pick.name}`}
+                    type="button"
+                    aria-label={jetonEmojiTexte(pick.name)}
+                    title={jetonEmojiTexte(pick.name)}
+                    onClick={() => handleSelect(pick)}
+                    className="flex h-9 w-9 items-center justify-center rounded-md transition-transform duration-fast ease-spring hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
+                  >
+                    <CustomEmoji name={pick.name} merkleRoot={pick.merkleRoot} size={24} />
+                  </button>
+                ),
+              )}
+            </div>
+          </section>
+        )}
+
         {customsFiltres.length > 0 && (
           <section aria-label={customSectionLabel} className="mb-2">
             <h4 className="mb-1 px-1 text-xs font-medium uppercase tracking-wide text-faint">
@@ -153,7 +208,7 @@ export function EmojiPicker({
                   aria-label={jetonEmojiTexte(emoji.name)}
                   title={jetonEmojiTexte(emoji.name)}
                   onClick={() =>
-                    onSelect({
+                    handleSelect({
                       kind: 'custom',
                       name: emoji.name,
                       merkleRoot: emoji.merkle_root,
@@ -212,7 +267,7 @@ export function EmojiPicker({
                   type="button"
                   aria-label={interpolate(t.emoji.insert, { emoji: emoji.char })}
                   title={emoji.char}
-                  onClick={() => onSelect({ kind: 'unicode', char: emoji.char })}
+                  onClick={() => handleSelect({ kind: 'unicode', char: emoji.char })}
                   className="flex h-9 w-9 items-center justify-center rounded-md text-xl leading-none transition-transform duration-fast ease-spring hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
                 >
                   {emoji.char}

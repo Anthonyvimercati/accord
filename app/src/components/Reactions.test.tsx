@@ -4,10 +4,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Reaction } from '../lib/api';
 import { useUi } from '../stores/ui';
-import { aggregateReactions, ReactionRow } from './Reactions';
+import { aggregateReactions, reactorsOf, ReactionRow } from './Reactions';
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
@@ -90,5 +90,94 @@ describe('ReactionRow', () => {
     const { container } = render(<ReactionRow reactions={[]} selfPubkey="moi" />);
 
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('reactorsOf', () => {
+  const reactions: Reaction[] = [
+    { emoji: '👍', author: 'alice' },
+    { emoji: '❤️', author: 'bob' },
+    { emoji: '👍', author: 'moi' },
+    { emoji: '👍', author: 'alice' },
+  ];
+
+  it('liste les auteurs d’un emoji, dédupliqués et dans l’ordre', () => {
+    expect(reactorsOf(reactions, '👍')).toEqual(['alice', 'moi']);
+  });
+
+  it('rend une liste vide pour un emoji absent ou sans réactions', () => {
+    expect(reactorsOf(reactions, '🎉')).toEqual([]);
+    expect(reactorsOf(undefined, '👍')).toEqual([]);
+  });
+});
+
+describe('ReactionRow — popover « qui a réagi »', () => {
+  const reactions: Reaction[] = [
+    { emoji: '👍', author: 'alice' },
+    { emoji: '👍', author: 'moi' },
+  ];
+  const nameOf = (pubkey: string): string => (pubkey === 'moi' ? 'Moi' : 'Alice');
+
+  it('ouvre au clic droit un popover listant les auteurs résolus', () => {
+    render(<ReactionRow reactions={reactions} selfPubkey="moi" nameOf={nameOf} />);
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Réagir avec 👍' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Ont réagi avec 👍' });
+    expect(within(dialog).getByText('Alice')).toBeInTheDocument();
+    expect(within(dialog).getByText('Moi')).toBeInTheDocument();
+  });
+
+  it('ne bascule pas la réaction au clic droit', () => {
+    const onToggle = vi.fn();
+    render(
+      <ReactionRow
+        reactions={reactions}
+        selfPubkey="moi"
+        nameOf={nameOf}
+        onToggle={onToggle}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Réagir avec 👍' }));
+
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it('se ferme avec Échap', () => {
+    render(<ReactionRow reactions={reactions} selfPubkey="moi" nameOf={nameOf} />);
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Réagir avec 👍' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('se ferme au clic extérieur', () => {
+    render(<ReactionRow reactions={reactions} selfPubkey="moi" nameOf={nameOf} />);
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Réagir avec 👍' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('ouvre le profil de l’auteur cliqué dans le popover', () => {
+    const onOpenAuthor = vi.fn();
+    render(
+      <ReactionRow
+        reactions={reactions}
+        selfPubkey="moi"
+        nameOf={nameOf}
+        onOpenAuthor={onOpenAuthor}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Réagir avec 👍' }));
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByText('Alice'));
+
+    expect(onOpenAuthor).toHaveBeenCalledWith('alice', expect.any(HTMLElement));
   });
 });

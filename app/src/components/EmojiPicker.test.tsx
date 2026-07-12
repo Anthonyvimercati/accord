@@ -6,7 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { GroupStateJson } from '../lib/api';
 import { useGroups } from '../stores/groups';
 import { useUi } from '../stores/ui';
@@ -16,6 +16,7 @@ vi.mock('../lib/files', () => ({
 }));
 
 import { EmojiPicker } from './EmojiPicker';
+import { readRecents, writeRecents } from '../lib/emojiRecents';
 
 function makeState(over: Partial<GroupStateJson> = {}): GroupStateJson {
   return {
@@ -37,6 +38,8 @@ function makeState(over: Partial<GroupStateJson> = {}): GroupStateJson {
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
+  // Récents isolés entre tests (le choix d'un émoji les persiste désormais).
+  window.localStorage.clear();
   // Par défaut sans émoji custom (aucune image asynchrone à charger) et
   // aucun serveur rejoint (l'agrégat MP ne doit rien voir fuiter).
   useGroups.setState({ ids: [], states: { g1: makeState({ emojis: [] }) } });
@@ -122,5 +125,43 @@ describe('EmojiPicker — recherche et fermeture', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('EmojiPicker — récents', () => {
+  it('n’affiche pas la section Récents quand la liste est vide', () => {
+    render(<EmojiPicker groupId="g1" onSelect={vi.fn()} onClose={vi.fn()} />);
+
+    expect(screen.queryByText('Récents')).not.toBeInTheDocument();
+  });
+
+  it('affiche les émojis récents en tête et permet de les réinsérer', () => {
+    writeRecents([{ kind: 'unicode', char: '🎉' }]);
+    const onSelect = vi.fn();
+    render(<EmojiPicker groupId="g1" onSelect={onSelect} onClose={vi.fn()} />);
+
+    const recents = screen.getByRole('region', { name: 'Récents' });
+    fireEvent.click(within(recents).getByRole('button', { name: 'Insérer 🎉' }));
+
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'unicode', char: '🎉' });
+  });
+
+  it('enregistre l’émoji choisi en tête des récents (persistance)', () => {
+    render(<EmojiPicker groupId="g1" onSelect={vi.fn()} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Insérer 👍' }));
+
+    expect(readRecents()).toEqual([{ kind: 'unicode', char: '👍' }]);
+  });
+
+  it('filtre aussi les récents par la recherche', () => {
+    writeRecents([{ kind: 'unicode', char: '🎉' }]);
+    render(<EmojiPicker groupId="g1" onSelect={vi.fn()} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rechercher un émoji' }), {
+      target: { value: 'chat' },
+    });
+
+    expect(screen.queryByText('Récents')).not.toBeInTheDocument();
   });
 });

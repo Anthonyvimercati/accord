@@ -646,6 +646,9 @@ export function MessageList({
                       }
                       emojis={emojiMap}
                       hint={m.author}
+                      nameOf={nameOf}
+                      avatarHashOf={avatarHashOf}
+                      onOpenAuthor={ouvrirProfil}
                     />
                   )}
                   {m.msg_id === seenMsgId && (

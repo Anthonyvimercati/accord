@@ -112,6 +112,7 @@ export const en: Dict = {
     pending: 'sending…',
     addReaction: 'Add reaction',
     reactWith: 'React with {emoji}',
+    whoReacted: 'Reacted with {emoji}',
     reply: 'Reply',
     edit: 'Edit',
     delete: 'Delete',
@@ -482,6 +483,7 @@ export const en: Dict = {
   emoji: {
     pickerLabel: 'Emojis',
     open: 'Emoji',
+    recents: 'Recent',
     more: 'More emojis',
     search: 'Search an emoji',
     customSection: 'Server emojis',

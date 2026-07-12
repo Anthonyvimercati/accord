@@ -112,6 +112,7 @@ export const fr = {
     pending: 'envoi…',
     addReaction: 'Ajouter une réaction',
     reactWith: 'Réagir avec {emoji}',
+    whoReacted: 'Ont réagi avec {emoji}',
     reply: 'Répondre',
     edit: 'Modifier',
     delete: 'Supprimer',
@@ -489,6 +490,7 @@ export const fr = {
   emoji: {
     pickerLabel: 'Émojis',
     open: 'Émoji',
+    recents: 'Récents',
     more: 'Plus d’émojis',
     search: 'Rechercher un émoji',
     customSection: 'Émojis du serveur',
