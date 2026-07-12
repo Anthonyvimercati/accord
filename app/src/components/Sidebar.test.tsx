@@ -517,3 +517,53 @@ describe('Sidebar — bannière du serveur', () => {
     expect(screen.getByRole('button', { name: /Guilde/ })).toBeInTheDocument();
   });
 });
+
+describe('Sidebar — accessibilité clavier des salons', () => {
+  beforeEach(() => {
+    useUi.setState({ view: { kind: 'group', groupId: 'g1', channelId: 'c1' } });
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() }, unread: {} });
+    useContextMenu.setState({ menu: null });
+  });
+
+  it('expose le salon actif via aria-current="page"', () => {
+    render(<Sidebar />);
+
+    expect(screen.getByRole('button', { name: 'général' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('button', { name: 'projets' })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
+  it('Maj+F10 ouvre le menu contextuel du salon au clavier', () => {
+    render(
+      <>
+        <Sidebar />
+        <ContextMenu />
+      </>,
+    );
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'projets' }), {
+      key: 'F10',
+      shiftKey: true,
+    });
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Copier l’ID du salon' }),
+    ).toBeInTheDocument();
+  });
+
+  it('expose l’entrée Amis active via aria-current en vue accueil', () => {
+    useUi.setState({ view: { kind: 'friends' } });
+
+    render(<Sidebar />);
+
+    expect(screen.getByRole('button', { name: 'Amis' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+});

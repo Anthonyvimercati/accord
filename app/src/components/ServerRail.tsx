@@ -22,6 +22,7 @@ import {
   LeaveMenuIcon,
 } from './ContextMenu';
 import { lireFichier } from '../lib/files';
+import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
 import { initials } from '../lib/format';
 import type { GroupStateJson } from '../lib/api';
 
@@ -125,7 +126,7 @@ function RailButton({
   badge,
   muted,
   onClick,
-  onContextMenu,
+  onMenu,
   children,
 }: {
   label: string;
@@ -139,7 +140,12 @@ function RailButton({
    */
   muted?: boolean;
   onClick: () => void;
-  onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  /**
+   * Ouvre le menu contextuel de l'entrée aux coordonnées viewport données —
+   * déclenché au clic droit (point de clic) comme au clavier (Maj+F10 ou
+   * touche Menu, ancré au centre du bouton — voir `lib/focus.ts`).
+   */
+  onMenu?: (x: number, y: number) => void;
   children: React.ReactNode;
 }) {
   return (
@@ -158,9 +164,27 @@ function RailButton({
       <button
         type="button"
         aria-label={label}
+        aria-current={active ? 'page' : undefined}
         title={label}
         onClick={onClick}
-        onContextMenu={onContextMenu}
+        onContextMenu={
+          onMenu === undefined
+            ? undefined
+            : (e) => {
+                e.preventDefault();
+                onMenu(e.clientX, e.clientY);
+              }
+        }
+        onKeyDown={
+          onMenu === undefined
+            ? undefined
+            : (e) => {
+                if (!estOuvertureMenu(e)) return;
+                e.preventDefault();
+                const { x, y } = pointAncrageMenu(e.currentTarget);
+                onMenu(x, y);
+              }
+        }
         className={`flex h-12 w-12 items-center justify-center overflow-hidden font-medium transition-[color,background-color,border-radius,transform] duration-normal active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail ${
           active
             ? 'rounded-server bg-blurple text-white'
@@ -408,12 +432,7 @@ export function ServerRail() {
             channelId: channelToRestore(states[id], lastChannelByServer[id]),
           })
         }
-        onContextMenu={(e) => {
-          e.preventDefault();
-          useContextMenu
-            .getState()
-            .openMenu(e.clientX, e.clientY, buildServerItems(e.clientX, e.clientY));
-        }}
+        onMenu={(x, y) => useContextMenu.getState().openMenu(x, y, buildServerItems(x, y))}
       >
         <ServerIcon icon={states[id]?.icon ?? null} name={name} />
       </RailButton>
@@ -460,12 +479,9 @@ export function ServerRail() {
               }`}
               active={false}
               onClick={() => useFolders.getState().toggleCollapsed(folder.id)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                useContextMenu
-                  .getState()
-                  .openMenu(e.clientX, e.clientY, buildFolderItems(folder));
-              }}
+              onMenu={(x, y) =>
+                useContextMenu.getState().openMenu(x, y, buildFolderItems(folder))
+              }
             >
               {folder.collapsed ? (
                 /* Plié : mini-aperçus des premières icônes du dossier. */

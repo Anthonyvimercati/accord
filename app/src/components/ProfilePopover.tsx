@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PresenceStatus } from '../lib/api';
 import { profileCardGradient, profileColorCss } from '../lib/color';
 import { copyToClipboard } from '../lib/clipboard';
+import { bouclerTab } from '../lib/focus';
 import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
 import {
   nicknameOf,
@@ -187,6 +188,18 @@ export function ProfilePopover() {
     };
   }, [profile, closeProfile]);
 
+  // Focus pris par la carte à l'ouverture (piège Tab sur le conteneur), rendu
+  // au déclencheur (avatar/pseudo cliqué) à la fermeture s'il existe encore.
+  useEffect(() => {
+    if (profile === null) return undefined;
+    const declencheur =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    ref.current?.focus();
+    return () => {
+      if (declencheur !== null && declencheur.isConnected) declencheur.focus();
+    };
+  }, [profile]);
+
   if (profile === null) return null;
 
   const pubkey = profile.pubkey;
@@ -316,6 +329,8 @@ export function ProfilePopover() {
         ref={ref}
         role="dialog"
         aria-label={t.profil.title}
+        tabIndex={-1}
+        onKeyDown={(e) => bouclerTab(e, ref.current)}
         style={{
           position: 'fixed',
           left: pos?.left ?? profile.ancre.left,
@@ -323,7 +338,7 @@ export function ProfilePopover() {
           width: CARD_WIDTH,
           visibility: pos === null ? 'hidden' : 'visible',
         }}
-        className="glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl"
+        className="glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl focus:outline-none"
       >
         <ProfileBanner hash={bannerHash} hint={pubkey} color={bannerColor} />
         <div className="-mt-8 px-4 pb-4">

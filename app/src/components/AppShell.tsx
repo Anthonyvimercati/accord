@@ -517,6 +517,17 @@ export function AppShell() {
 
   return (
     <div className="app-ambient flex h-full">
+      {/*
+       * Lien d'évitement : premier élément tabbable, visible uniquement au
+       * focus clavier — saute rail et barre latérale pour atteindre la zone
+       * de contenu (`main`, rendu focusable par tabIndex={-1}).
+       */}
+      <a
+        href="#contenu-principal"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[70] focus:rounded-md focus:bg-blurple focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-white"
+      >
+        {t.layout.skipToContent}
+      </a>
       <ServerRail />
       <Sidebar />
       <ResizeHandle
@@ -529,7 +540,12 @@ export function AppShell() {
         panelSide="left"
         ringOffsetClassName="ring-offset-sidebar"
       />
-      <main className="min-w-0 flex-1 bg-chat" aria-label={t.app.name}>
+      <main
+        id="contenu-principal"
+        tabIndex={-1}
+        className="min-w-0 flex-1 bg-chat focus:outline-none"
+        aria-label={t.app.name}
+      >
         {view.kind === 'friends' && <FriendsView />}
         {view.kind === 'dm' && <DmView peer={view.peer} />}
         {view.kind === 'group' && (

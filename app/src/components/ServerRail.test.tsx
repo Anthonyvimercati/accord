@@ -286,3 +286,48 @@ describe('ServerRail — sourdine des notifications', () => {
     expect(useMute.getState().serverLevels).toEqual({ g1: 'all' });
   });
 });
+
+describe('ServerRail — accessibilité clavier', () => {
+  beforeEach(() => {
+    useUi.setState({
+      lang: 'fr',
+      view: { kind: 'friends' },
+      lastChannelByServer: {},
+      lastDmPeer: null,
+    });
+    useFriends.setState({ contacts: [] });
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: serverState('Guilde') },
+      mentions: {},
+    });
+    useMute.setState({ serverLevels: {}, channelLevels: {} });
+    useContextMenu.setState({ menu: null });
+  });
+
+  it('expose le serveur actif via aria-current="page"', () => {
+    useUi.setState({ view: { kind: 'group', groupId: 'g1', channelId: null } });
+
+    render(<ServerRail />);
+
+    expect(screen.getByLabelText('Guilde')).toHaveAttribute('aria-current', 'page');
+    // Le bouton Accueil/MP, inactif, ne porte pas l'attribut.
+    expect(screen.getByLabelText('Messages privés')).not.toHaveAttribute('aria-current');
+  });
+
+  it('Maj+F10 ouvre le menu contextuel du serveur au clavier', () => {
+    render(
+      <>
+        <ServerRail />
+        <ContextMenu />
+      </>,
+    );
+
+    fireEvent.keyDown(screen.getByLabelText('Guilde'), { key: 'F10', shiftKey: true });
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Copier l’ID du serveur' }),
+    ).toBeInTheDocument();
+  });
+});

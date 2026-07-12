@@ -39,17 +39,37 @@ export function ContextMenu() {
   const closeMenu = useContextMenu((s) => s.closeMenu);
   const ref = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  /** Élément focusé avant l'ouverture (ligne cliquée/menu clavier), pour restauration. */
+  const declencheurRef = useRef<HTMLElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
 
   // Repositionne après mesure réelle (largeur/hauteur variables selon les
-  // items) et donne le focus au menu pour la navigation clavier.
+  // items) et donne le focus au menu pour la navigation clavier. À la
+  // fermeture, rend le focus au déclencheur — sauf s'il est déjà parti
+  // ailleurs (clic sur un autre élément focusable).
   useLayoutEffect(() => {
     if (menu === null) {
       setPos(null);
+      const declencheur = declencheurRef.current;
+      declencheurRef.current = null;
+      const actif = document.activeElement;
+      if (
+        declencheur !== null &&
+        declencheur.isConnected &&
+        (actif === null || actif === document.body)
+      ) {
+        declencheur.focus();
+      }
       return;
     }
     setActiveIndex(-1);
+    // Sous-menu (mêmes coordonnées, items remplacés) : le focus est déjà dans
+    // le menu — on garde le déclencheur d'origine capturé à l'ouverture.
+    const actif = document.activeElement;
+    if (!(ref.current?.contains(actif) ?? false)) {
+      declencheurRef.current = actif instanceof HTMLElement ? actif : null;
+    }
     const el = ref.current;
     if (el === null) return;
     setPos(clamp(menu.x, menu.y, el.offsetWidth, el.offsetHeight));
@@ -91,6 +111,11 @@ export function ContextMenu() {
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === 'Escape') {
+      e.preventDefault();
+      closeMenu();
+    } else if (e.key === 'Tab') {
+      // Convention `role="menu"` : Tab referme le menu au lieu d'envoyer le
+      // focus derrière une surface encore ouverte.
       e.preventDefault();
       closeMenu();
     } else if (e.key === 'ArrowDown') {

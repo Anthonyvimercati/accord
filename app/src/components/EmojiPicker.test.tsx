@@ -165,3 +165,24 @@ describe('EmojiPicker — récents', () => {
     expect(screen.queryByText('Récents')).not.toBeInTheDocument();
   });
 });
+
+describe('EmojiPicker — focus', () => {
+  it('rend le focus au déclencheur à la fermeture', () => {
+    const { rerender } = render(<button type="button">Réagir</button>);
+    const declencheur = screen.getByRole('button', { name: 'Réagir' });
+    declencheur.focus();
+
+    // Ouverture : le champ de recherche prend le focus (autoFocus)…
+    rerender(
+      <>
+        <button type="button">Réagir</button>
+        <EmojiPicker groupId="g1" onSelect={vi.fn()} onClose={vi.fn()} />
+      </>,
+    );
+    expect(screen.getByRole('textbox', { name: 'Rechercher un émoji' })).toHaveFocus();
+
+    // …fermeture (démontage) : le déclencheur le récupère.
+    rerender(<button type="button">Réagir</button>);
+    expect(declencheur).toHaveFocus();
+  });
+});

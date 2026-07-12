@@ -12,6 +12,7 @@ import type { GroupChannel } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { profileCardGradient } from '../lib/color';
 import { lireFichier } from '../lib/files';
+import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
 import { useCalls } from '../stores/calls';
 import { presenceOf, useFriends } from '../stores/friends';
 import {
@@ -139,6 +140,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
       <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
         <button
           type="button"
+          aria-current={view.kind === 'friends' ? 'page' : undefined}
           onClick={() => setView({ kind: 'friends' })}
           className={`flex h-9 w-full items-center gap-3 rounded-md px-2 font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
             view.kind === 'friends'
@@ -183,6 +185,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
             <button
               key={c.pubkey}
               type="button"
+              aria-current={active ? 'page' : undefined}
               onClick={() => setView({ kind: 'dm', peer: c.pubkey })}
               className={`flex ${hasStatusText ? 'h-11' : 'h-9'} w-full items-center gap-2.5 rounded-md px-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                 active
@@ -468,12 +471,20 @@ function ChannelRow({
   return (
     <button
       type="button"
+      aria-current={active ? 'page' : undefined}
       onClick={() => onOpen(channel)}
       onContextMenu={(e) => {
         e.preventDefault();
         useContextMenu
           .getState()
           .openMenu(e.clientX, e.clientY, buildItems(e.clientX, e.clientY));
+      }}
+      onKeyDown={(e) => {
+        // Équivalent clavier du clic droit (Maj+F10 / touche Menu).
+        if (!estOuvertureMenu(e)) return;
+        e.preventDefault();
+        const { x, y } = pointAncrageMenu(e.currentTarget);
+        useContextMenu.getState().openMenu(x, y, buildItems(x, y));
       }}
       className={`flex h-9 w-full items-center gap-1.5 rounded-md px-2 font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
         active
@@ -987,12 +998,14 @@ function GroupSidebar({ groupId }: { groupId: string }) {
 }
 
 export function Sidebar() {
+  const t = useT();
   const view = useUi((s) => s.view);
   const sidebarWidth = useUi((s) => s.sidebarWidth);
   const [inboxOpen, setInboxOpen] = useState(false);
   const openInbox = (): void => setInboxOpen(true);
   return (
     <aside
+      aria-label={t.layout.sidebarLabel}
       className="flex h-full shrink-0 flex-col bg-sidebar"
       style={{ width: sidebarWidth }}
     >

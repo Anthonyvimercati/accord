@@ -7,10 +7,11 @@
  * `ui.modal = { kind: 'serverSettings', groupId }`.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { interpolate } from '../../i18n';
 import type { Dict } from '../../i18n';
+import { bouclerTab, deplacerFocusVertical } from '../../lib/focus';
 import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useSession } from '../../stores/session';
 import { useUi, useT } from '../../stores/ui';
@@ -107,13 +108,24 @@ export function ServerSettingsModal({
   const leave = useGroups((s) => s.leave);
   const self = useSession((s) => s.self);
   const [tabId, setTabId] = useState<ServerTabId>(initialTab ?? 'profile');
+  const navRef = useRef<HTMLElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') closeModal();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Le clavier démarre sur l'onglet actif, puis revient au déclencheur
+    // (menu ou icône ayant ouvert les paramètres) à la fermeture — même
+    // schéma que `SettingsModal`.
+    const declencheur =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    navRef.current?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (declencheur !== null && declencheur.isConnected) declencheur.focus();
+    };
   }, [closeModal]);
 
   if (!state) return null;
@@ -147,13 +159,17 @@ export function ServerSettingsModal({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t.serveur.settingsTitle}
+        onKeyDown={(e) => bouclerTab(e, dialogRef.current)}
         className="modal-panel-enter relative flex h-[94vh] w-[min(1100px,94vw)] overflow-hidden rounded-xl bg-chat shadow-3"
       >
         <nav
+          ref={navRef}
           aria-label={t.serveur.settingsTitle}
+          onKeyDown={(e) => deplacerFocusVertical(e, navRef.current)}
           className="flex w-1/3 min-w-[232px] shrink-0 justify-end overflow-y-auto border-r border-rail/60 bg-sidebar pb-10 pl-4 pr-2 pt-14"
         >
           <div className="flex w-[212px] flex-col">

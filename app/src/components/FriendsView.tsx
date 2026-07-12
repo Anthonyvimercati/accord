@@ -344,6 +344,7 @@ export function FriendsView() {
             <button
               key={id}
               type="button"
+              aria-current={tab === id ? 'page' : undefined}
               onClick={() => setTab(id)}
               aria-label={
                 badge !== undefined && badge > 0
@@ -369,6 +370,7 @@ export function FriendsView() {
           ))}
           <button
             type="button"
+            aria-current={tab === 'add' ? 'page' : undefined}
             onClick={() => setTab('add')}
             className={`flex h-7 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
               tab === 'add' ? 'bg-green/20 text-green' : 'bg-green text-white hover:brightness-110'

@@ -100,6 +100,8 @@ export const en: Dict = {
     invitedBy: 'Invited by {name}',
     accept: 'Accept',
     decline: 'Decline',
+    acceptLabel: 'Accept the invitation to the {name} server',
+    declineLabel: 'Decline the invitation to the {name} server',
     empty: 'No pending invitations.',
     badge: '{count} pending invitation(s)',
   },
@@ -977,5 +979,7 @@ export const en: Dict = {
   layout: {
     resizeSidebar: 'Resize the sidebar',
     resizeMembers: 'Resize the members list',
+    skipToContent: 'Skip to content',
+    sidebarLabel: 'Channels and conversations',
   },
 };

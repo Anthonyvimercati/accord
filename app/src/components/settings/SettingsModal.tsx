@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { bouclerTab, deplacerFocusVertical } from '../../lib/focus';
 import { useUi, useT } from '../../stores/ui';
 import { CloseIcon } from '../ContextMenu';
 import { DEFAULT_TAB, findTab, SETTINGS_GROUPS, type SettingsTabId } from './tabs';
@@ -15,15 +16,22 @@ export function SettingsModal() {
   const closeModal = useUi((s) => s.closeModal);
   const [tabId, setTabId] = useState<SettingsTabId>(DEFAULT_TAB.id);
   const navRef = useRef<HTMLElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') closeModal();
     };
     window.addEventListener('keydown', onKey);
-    // Le clavier démarre sur la catégorie active.
+    // Le clavier démarre sur la catégorie active, puis revient au déclencheur
+    // (bouton d'ouverture des réglages) à la fermeture.
+    const declencheur =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     navRef.current?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (declencheur !== null && declencheur.isConnected) declencheur.focus();
+    };
   }, [closeModal]);
 
   const active = findTab(tabId);
@@ -37,14 +45,17 @@ export function SettingsModal() {
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t.settings.title}
+        onKeyDown={(e) => bouclerTab(e, dialogRef.current)}
         className="modal-panel-enter relative flex h-[94vh] w-[min(1100px,94vw)] overflow-hidden rounded-xl bg-chat shadow-3"
       >
         <nav
           ref={navRef}
           aria-label={t.settings.title}
+          onKeyDown={(e) => deplacerFocusVertical(e, navRef.current)}
           className="flex w-1/3 min-w-[232px] shrink-0 justify-end overflow-y-auto border-r border-rail/60 bg-sidebar pb-10 pl-4 pr-2 pt-14"
         >
           <div className="w-[212px]">

@@ -46,15 +46,17 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
       <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
+          aria-label={interpolate(t.invitations.acceptLabel, { name: invite.group_name })}
           onClick={() => act(() => acceptInvite(invite.group_id, invite.invite_id))}
-          className="rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-95"
+          className="rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
         >
           {t.invitations.accept}
         </button>
         <button
           type="button"
+          aria-label={interpolate(t.invitations.declineLabel, { name: invite.group_name })}
           onClick={() => act(() => declineInvite(invite.group_id, invite.invite_id))}
-          className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
+          className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
         >
           {t.invitations.decline}
         </button>

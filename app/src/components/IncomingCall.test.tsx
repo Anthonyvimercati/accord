@@ -98,6 +98,35 @@ describe('IncomingCall — overlay', () => {
     expect(decline).toHaveBeenCalledTimes(1);
   });
 
+  it('le focus entre sur « Refuser » à l’ouverture (action sans risque)', () => {
+    useCalls.setState({
+      phase: 'incoming_ringing',
+      peer: 'alice',
+      callId: 'c1',
+      sincePhaseMs: Date.now(),
+    });
+
+    render(<IncomingCall />);
+
+    expect(screen.getByRole('button', { name: 'Refuser' })).toHaveFocus();
+  });
+
+  it('Échap refuse l’appel (équivalent du bouton « Refuser »)', () => {
+    const decline = vi.fn(async () => {});
+    useCalls.setState({
+      phase: 'incoming_ringing',
+      peer: 'alice',
+      callId: 'c1',
+      sincePhaseMs: Date.now(),
+      decline,
+    });
+
+    render(<IncomingCall />);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+    expect(decline).toHaveBeenCalledTimes(1);
+  });
+
   it('la sonnerie s’arrête dès que la phase quitte incoming_ringing', () => {
     useCalls.setState({
       phase: 'incoming_ringing',

@@ -4,7 +4,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { ContextMenu } from './ContextMenu';
 
@@ -57,6 +57,35 @@ describe('ContextMenu', () => {
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 
     expect(onClick).not.toHaveBeenCalled();
+    expect(useContextMenu.getState().menu).toBeNull();
+  });
+
+  it('rend le focus au déclencheur après fermeture à Échap', () => {
+    render(
+      <>
+        <button type="button">Déclencheur</button>
+        <ContextMenu />
+      </>,
+    );
+    const declencheur = screen.getByRole('button', { name: 'Déclencheur' });
+    declencheur.focus();
+
+    act(() => openWith([{ label: 'Copier', onClick: vi.fn() }]));
+    // L'ouverture déplace le focus dans le menu…
+    expect(screen.getByRole('menu')).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+
+    // …et la fermeture le rend au déclencheur.
+    expect(declencheur).toHaveFocus();
+  });
+
+  it('se ferme sur Tab (convention menu) au lieu de laisser fuir le focus', () => {
+    openWith([{ label: 'Copier', onClick: vi.fn() }]);
+    render(<ContextMenu />);
+
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Tab' });
+
     expect(useContextMenu.getState().menu).toBeNull();
   });
 });

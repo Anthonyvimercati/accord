@@ -99,6 +99,39 @@ describe('SettingsModal — structure', () => {
 
     expect(useUi.getState().modal).toBeNull();
   });
+
+  it('donne le focus initial à la catégorie active et navigue aux flèches', () => {
+    render(<SettingsModal />);
+
+    // Focus initial sur la catégorie courante (aria-current="page").
+    const compte = screen.getByRole('button', { name: 'Mon compte' });
+    expect(compte).toHaveFocus();
+    expect(compte).toHaveAttribute('aria-current', 'page');
+
+    // Flèche bas : la catégorie suivante prend le focus, flèche haut revient.
+    fireEvent.keyDown(compte, { key: 'ArrowDown' });
+    expect(screen.getByRole('button', { name: 'Confidentialité' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Confidentialité' }), {
+      key: 'ArrowUp',
+    });
+    expect(compte).toHaveFocus();
+  });
+
+  it('piège Tab dans la modale (bouclage au dernier focusable)', () => {
+    render(<SettingsModal />);
+
+    // Maj+Tab depuis le premier focusable boucle vers le dernier.
+    const premier = screen.getByRole('button', { name: 'Mon compte' });
+    premier.focus();
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Paramètres' }), {
+      key: 'Tab',
+      shiftKey: true,
+    });
+    expect(premier).not.toHaveFocus();
+    expect(
+      screen.getByRole('dialog', { name: 'Paramètres' }).contains(document.activeElement),
+    ).toBe(true);
+  });
 });
 
 describe('SettingsModal — apparence', () => {

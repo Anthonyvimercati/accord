@@ -1,9 +1,10 @@
 /** Vue conversation : MP (deux personnes) ou salon de groupe + membres. */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { Contact, GroupThread, PresenceStatus, SelfProfile } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
+import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
 import { formatTimestamp } from '../lib/format';
 import { useCalls } from '../stores/calls';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
@@ -660,6 +661,15 @@ function MemberList({ groupId }: { groupId: string }) {
                       buildMemberItems(member.pubkey, e.currentTarget),
                     );
                 }}
+                onKeyDown={(e) => {
+                  // Équivalent clavier du clic droit (Maj+F10 / touche Menu).
+                  if (!estOuvertureMenu(e)) return;
+                  e.preventDefault();
+                  const { x, y } = pointAncrageMenu(e.currentTarget);
+                  useContextMenu
+                    .getState()
+                    .openMenu(x, y, buildMemberItems(member.pubkey, e.currentTarget));
+                }}
                 className="flex min-h-9 w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
                 <span className="relative shrink-0">
@@ -731,12 +741,31 @@ function PinnedPanel({
   const t = useT();
   const lang = useUi((s) => s.lang);
   const timeFormat = useUi((s) => s.timeFormat);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Échap referme le volet ; le focus entre dans le volet à l'ouverture et
+  // revient au déclencheur (bouton « Épinglés ») à la fermeture.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    const declencheur =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panelRef.current?.focus();
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (declencheur !== null && declencheur.isConnected) declencheur.focus();
+    };
+  }, [onClose]);
 
   return (
     <div
+      ref={panelRef}
       role="dialog"
       aria-label={t.serveur.pinnedTitle}
-      className="absolute right-4 top-14 z-20 max-h-96 w-96 max-w-[85vw] overflow-y-auto rounded-lg border border-rail bg-modal p-3 shadow-3"
+      tabIndex={-1}
+      className="absolute right-4 top-14 z-20 max-h-96 w-96 max-w-[85vw] overflow-y-auto rounded-lg border border-rail bg-modal p-3 shadow-3 focus:outline-none"
     >
       <div className="flex items-center justify-between pb-2">
         <span className="text-sm font-semibold text-header">{t.serveur.pinnedTitle}</span>

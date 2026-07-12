@@ -54,7 +54,10 @@ describe('PendingInvites', () => {
     expect(screen.getByText('Guilde')).toBeInTheDocument();
     expect(screen.getByText('Invité·e par Bob')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Accepter' }));
+    // Nom accessible contextuel : lève l'ambiguïté entre plusieurs lignes.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Accepter l’invitation au serveur Guilde' }),
+    );
 
     expect(acceptInvite).toHaveBeenCalledWith('g1', 'i1');
   });
@@ -62,7 +65,9 @@ describe('PendingInvites', () => {
   it('refuse au clic sur Refuser', () => {
     render(<PendingInvites />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refuser' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refuser l’invitation au serveur Guilde' }),
+    );
 
     expect(declineInvite).toHaveBeenCalledWith('g1', 'i1');
   });

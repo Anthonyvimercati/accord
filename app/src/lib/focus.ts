@@ -46,3 +46,47 @@ export function bouclerTab(e: EvenementTab, racine: HTMLElement | null): void {
     premier.focus();
   }
 }
+
+/** Sous-ensemble minimal d'un évènement clavier pour les helpers ci-dessous. */
+interface EvenementClavier {
+  key: string;
+  shiftKey: boolean;
+}
+
+/**
+ * Vrai si la touche demande l'ouverture du menu contextuel au clavier :
+ * touche « Menu » dédiée, ou Maj+F10 (convention de bureau) — équivalent
+ * clavier du clic droit sur les lignes de listes (serveurs, salons, membres).
+ */
+export function estOuvertureMenu(e: EvenementClavier): boolean {
+  return e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10');
+}
+
+/**
+ * Point d'ancrage (coordonnées viewport) d'un menu ouvert au clavier depuis
+ * `el` : centre de l'élément, là où le clic droit aurait eu lieu.
+ */
+export function pointAncrageMenu(el: HTMLElement): { x: number; y: number } {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+/**
+ * Navigation aux flèches Haut/Bas dans une liste verticale de focusables
+ * (nav d'onglets des réglages…) : déplace le focus vers le voisin, borné aux
+ * extrémités (pas de bouclage — on n'est pas dans un `role="menu"`).
+ */
+export function deplacerFocusVertical(
+  e: EvenementTab,
+  racine: HTMLElement | null,
+): void {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const cibles = focusables(racine);
+  if (cibles.length === 0) return;
+  const actif = document.activeElement;
+  const index = cibles.findIndex((el) => el === actif);
+  if (index === -1) return;
+  e.preventDefault();
+  const suivant = e.key === 'ArrowDown' ? index + 1 : index - 1;
+  cibles[Math.max(0, Math.min(cibles.length - 1, suivant))]?.focus();
+}

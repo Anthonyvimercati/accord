@@ -100,6 +100,8 @@ export const fr = {
     invitedBy: 'Invité·e par {name}',
     accept: 'Accepter',
     decline: 'Refuser',
+    acceptLabel: 'Accepter l’invitation au serveur {name}',
+    declineLabel: 'Refuser l’invitation au serveur {name}',
     empty: 'Aucune invitation en attente.',
     badge: '{count} invitation(s) en attente',
   },
@@ -996,5 +998,7 @@ export const fr = {
   layout: {
     resizeSidebar: 'Redimensionner la barre latérale',
     resizeMembers: 'Redimensionner la liste des membres',
+    skipToContent: 'Aller au contenu',
+    sidebarLabel: 'Salons et conversations',
   },
 } as const;

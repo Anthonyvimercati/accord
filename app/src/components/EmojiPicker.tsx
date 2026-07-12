@@ -14,6 +14,7 @@ import {
 } from '../lib/emoji';
 import { aggregateEmojis, useGroups, type AggregatedEmoji } from '../stores/groups';
 import { addRecent, readRecents, writeRecents } from '../lib/emojiRecents';
+import { bouclerTab } from '../lib/focus';
 import { interpolate } from '../i18n';
 import type { Dict } from '../i18n';
 import { useT } from '../stores/ui';
@@ -74,6 +75,7 @@ export function EmojiPicker({
 }: EmojiPickerProps) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
+  const rechercheRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   // Émojis récents (Unicode + custom), lus une fois au montage puis mis à jour
   // localement à chaque choix ; persistés en localStorage.
@@ -111,6 +113,18 @@ export function EmojiPicker({
     };
   }, [onClose]);
 
+  // Le champ de recherche prend le focus à l'ouverture (après capture du
+  // déclencheur — `autoFocus` s'appliquerait avant, faussant la capture), et
+  // le déclencheur le récupère à la fermeture.
+  useEffect(() => {
+    const declencheur =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    rechercheRef.current?.focus();
+    return () => {
+      if (declencheur !== null && declencheur.isConnected) declencheur.focus();
+    };
+  }, []);
+
   // Enregistre le choix en tête des récents (local + persistance) puis délègue.
   const handleSelect = (pick: EmojiPick): void => {
     const next = addRecent(recents, pick);
@@ -142,12 +156,13 @@ export function EmojiPicker({
       ref={ref}
       role="dialog"
       aria-label={t.emoji.pickerLabel}
+      onKeyDown={(e) => bouclerTab(e, ref.current)}
       className={`glass-strong popover-enter absolute z-30 flex max-h-80 w-72 max-w-[90vw] flex-col rounded-lg ${positionClass}`}
     >
       <div className="border-b border-input/50 p-2">
         <input
+          ref={rechercheRef}
           type="text"
-          autoFocus
           aria-label={t.emoji.search}
           placeholder={t.emoji.search}
           value={query}

@@ -7,7 +7,8 @@
  * l'overlay lui-même (voir `lib/ringtone.ts`).
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { bouclerTab } from '../lib/focus';
 import { startRingtone, stopRingtone } from '../lib/ringtone';
 import { useCalls } from '../stores/calls';
 import { avatarOf, displayNameOf, useFriends } from '../stores/friends';
@@ -28,6 +29,8 @@ export function IncomingCall() {
   const contacts = useFriends((s) => s.contacts);
 
   const ringing = phase === 'incoming_ringing' && peer !== null;
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const declineRef = useRef<HTMLButtonElement>(null);
 
   // La sonnerie suit strictement la phase : elle démarre à l'entrée en
   // sonnerie entrante et s'arrête immédiatement à toute autre transition
@@ -41,6 +44,19 @@ export function IncomingCall() {
     return () => stopRingtone();
   }, [ringing]);
 
+  // Overlay modal : le focus entre sur « Refuser » (l'action sans risque —
+  // Entrée n'ouvre pas le micro par accident) et revient à l'élément
+  // précédent à la fermeture, quelle que soit l'issue de la sonnerie.
+  useEffect(() => {
+    if (!ringing) return undefined;
+    const declencheur =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    declineRef.current?.focus();
+    return () => {
+      if (declencheur !== null && declencheur.isConnected) declencheur.focus();
+    };
+  }, [ringing]);
+
   if (!ringing || peer === null) return null;
 
   const name = displayNameOf(contacts, peer);
@@ -49,9 +65,19 @@ export function IncomingCall() {
 
   return (
     <div
+      ref={overlayRef}
       role="dialog"
       aria-modal="true"
       aria-label={`${name} ${t.calls.incomingRinging}`}
+      onKeyDown={(e) => {
+        // Échap équivaut au bouton « Refuser » : seule fermeture possible.
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          decline().catch(onActionError);
+          return;
+        }
+        bouclerTab(e, overlayRef.current);
+      }}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
     >
       <div className="glass-strong flex w-80 max-w-[90vw] flex-col items-center gap-5 rounded-xl p-6 shadow-3">
@@ -62,6 +88,7 @@ export function IncomingCall() {
         </div>
         <div className="flex items-center gap-8">
           <button
+            ref={declineRef}
             type="button"
             aria-label={t.calls.decline}
             title={t.calls.decline}
