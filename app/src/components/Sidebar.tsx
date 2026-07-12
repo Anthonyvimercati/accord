@@ -21,7 +21,7 @@ import {
   upcomingEvents,
   PERMISSIONS,
 } from '../stores/groups';
-import { isChannelMuted, useMute } from '../stores/mute';
+import { channelLevel, useMute, type NotifLevel } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useUi, useT } from '../stores/ui';
@@ -29,6 +29,7 @@ import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
 import {
   BellOffMenuIcon,
+  buildNotifLevelItems,
   CheckMenuIcon,
   CopyMenuIcon,
   DeleteMenuIcon,
@@ -328,7 +329,7 @@ function ChannelRow({
   groupId,
   canManage,
   restricted,
-  muted,
+  level,
   onOpen,
 }: {
   channel: GroupChannel;
@@ -341,25 +342,27 @@ function ChannelRow({
   /** Au moins un override de rôle refuse VIEW ou SEND sur ce salon. */
   restricted: boolean;
   /**
-   * Sourdine individuelle de ce salon (voir `stores/mute.ts`) : ligne
-   * atténuée + icône cloche barrée. Indépendante de la sourdine du serveur
-   * entier (`ServerRail`) — les deux se combinent à l'exécution côté
-   * notification (`isConversationMuted`), mais chaque bascule reste locale
-   * à son propre périmètre pour rester simple et prévisible à l'usage.
+   * Niveau de notification effectif de ce salon (voir `stores/mute.ts`,
+   * héritage salon←serveur déjà appliqué par l'appelant) : 'none' atténue la
+   * ligne et affiche l'icône cloche barrée. Réglable indépendamment du serveur
+   * entier (`ServerRail`), les deux se combinent à l'exécution côté
+   * notification (`isConversationSilenced`).
    */
-  muted: boolean;
+  level: NotifLevel;
   onOpen: (channel: GroupChannel) => void;
 }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
+  const muted = level === 'none';
 
   /**
-   * Items du menu contextuel d'un salon : copie d'identifiant, sourdine des
-   * notifications (locale, ce salon uniquement), marquage lu (charge la page
-   * récente puis réutilise `markRead`, comme à l'ouverture du salon) et, si
-   * permis, édition (paramètres du serveur) / suppression.
+   * Items du menu contextuel d'un salon : copie d'identifiant, niveau de
+   * notification (sous-menu local à trois choix, ce salon uniquement), marquage
+   * lu (charge la page récente puis réutilise `markRead`, comme à l'ouverture du
+   * salon) et, si permis, édition (paramètres du serveur) / suppression. `x`/`y`
+   * : point de clic, pour rouvrir le sous-menu au même endroit.
    */
-  const buildItems = (): ContextMenuItem[] => {
+  const buildItems = (x: number, y: number): ContextMenuItem[] => {
     const items: ContextMenuItem[] = [
       {
         label: t.contextMenu.copyChannelId,
@@ -372,9 +375,16 @@ function ChannelRow({
           ),
       },
       {
-        label: muted ? t.contextMenu.unmuteChannel : t.contextMenu.muteChannel,
+        label: t.notifLevel.title,
         icon: <BellOffMenuIcon />,
-        onClick: () => useMute.getState().toggleChannelMute(groupId, channel.channel_id),
+        onClick: () =>
+          useContextMenu.getState().openMenu(
+            x,
+            y,
+            buildNotifLevelItems(t.notifLevel, level, (lvl) =>
+              useMute.getState().setChannelLevel(groupId, channel.channel_id, lvl),
+            ),
+          ),
       },
     ];
     if (channel.kind !== 'voice' && (unread ?? 0) > 0) {
@@ -434,7 +444,9 @@ function ChannelRow({
       onClick={() => onOpen(channel)}
       onContextMenu={(e) => {
         e.preventDefault();
-        useContextMenu.getState().openMenu(e.clientX, e.clientY, buildItems());
+        useContextMenu
+          .getState()
+          .openMenu(e.clientX, e.clientY, buildItems(e.clientX, e.clientY));
       }}
       className={`flex h-9 w-full items-center gap-1.5 rounded-md px-2 font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
         active
@@ -692,7 +704,8 @@ function GroupSidebar({ groupId }: { groupId: string }) {
   const state = useGroups((s) => s.states[groupId]);
   const unread = useGroups((s) => s.unread[groupId]);
   const mentionCount = useGroups((s) => s.mentions[groupId]) ?? 0;
-  const mutedChannels = useMute((s) => s.mutedChannels);
+  const serverLevels = useMute((s) => s.serverLevels);
+  const channelLevels = useMute((s) => s.channelLevels);
   const joinVoice = useVoice((s) => s.join);
   const self = useSession((s) => s.self);
   /** Menu déroulant du nom de serveur (ouvert/fermé). */
@@ -878,7 +891,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
                     groupId={groupId}
                     canManage={hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)}
                     restricted={isChannelRestricted(state, ch.channel_id)}
-                    muted={isChannelMuted(mutedChannels, groupId, ch.channel_id)}
+                    level={channelLevel({ serverLevels, channelLevels }, groupId, ch.channel_id)}
                     onOpen={openChannel}
                   />
                 ))}

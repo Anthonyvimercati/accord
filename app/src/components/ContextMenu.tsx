@@ -14,6 +14,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
+import type { NotifLevel } from '../stores/mute';
 
 /** Marge minimale au bord du viewport (px), comme `ProfilePopover`. */
 const MARGE = 8;
@@ -131,7 +132,8 @@ export function ContextMenu() {
               itemRefs.current[i] = el;
             }}
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={item.checked}
             tabIndex={i === activeIndex ? 0 : -1}
             onMouseEnter={() => setActiveIndex(i)}
             onClick={() => activate(item)}
@@ -150,11 +152,50 @@ export function ContextMenu() {
               </span>
             )}
             <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {item.checked === true && (
+              <span
+                aria-hidden
+                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-header"
+              >
+                <CheckMenuIcon />
+              </span>
+            )}
           </button>
         </div>
       ))}
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Sous-menu « Notifications » à trois niveaux (serveur/salon), partagé */
+/* par `ServerRail` et `Sidebar` — voir `stores/mute.ts`.               */
+/* ------------------------------------------------------------------ */
+
+/** Ordre d'affichage des niveaux dans le sous-menu (du plus au moins bruyant). */
+const NOTIF_LEVEL_ORDER: readonly NotifLevel[] = ['all', 'mentions', 'none'] as const;
+
+/** Libellés i18n des trois niveaux (`t.notifLevel`). */
+export interface NotifLevelLabels {
+  all: string;
+  mentions: string;
+  none: string;
+}
+
+/**
+ * Items du sous-menu de niveau de notification : un item radio par niveau, la
+ * coche portée par le niveau `current` (effectif). `onPick` applique le choix.
+ */
+export function buildNotifLevelItems(
+  labels: NotifLevelLabels,
+  current: NotifLevel,
+  onPick: (level: NotifLevel) => void,
+): ContextMenuItem[] {
+  return NOTIF_LEVEL_ORDER.map((level) => ({
+    label: labels[level],
+    checked: current === level,
+    onClick: () => onPick(level),
+  }));
 }
 
 /* ------------------------------------------------------------------ */

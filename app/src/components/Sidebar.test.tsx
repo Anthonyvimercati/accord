@@ -93,7 +93,7 @@ beforeEach(() => {
   useSession.setState({ self: null });
   useFriends.setState({ contacts: [] });
   useGroups.setState({ ids: [], states: {}, unread: {} });
-  useMute.setState({ mutedServers: [], mutedChannels: [] });
+  useMute.setState({ serverLevels: {}, channelLevels: {} });
 });
 
 describe('Sidebar — non-lus des conversations privées', () => {
@@ -369,7 +369,7 @@ describe('Sidebar — sourdine des notifications (salon)', () => {
   });
 
   it('atténue la ligne et affiche l’icône cloche barrée sur un salon en sourdine', () => {
-    useMute.setState({ mutedChannels: ['g1/c1'] });
+    useMute.setState({ channelLevels: { 'g1/c1': 'none' } });
 
     render(<Sidebar />);
 
@@ -390,7 +390,7 @@ describe('Sidebar — sourdine des notifications (salon)', () => {
     expect(row?.className).not.toMatch(/opacity-50/);
   });
 
-  it('le menu contextuel du salon propose la sourdine puis « Réactiver » une fois activée', () => {
+  it('le sous-menu « Notifications » règle le niveau du salon (Rien puis Tout)', () => {
     render(
       <>
         <Sidebar />
@@ -400,26 +400,25 @@ describe('Sidebar — sourdine des notifications (salon)', () => {
 
     // Rendu réel du menu (plutôt qu'appeler `onClick` à la main) : le clic
     // passe par les gestionnaires React normaux, donc par `act()` via
-    // `fireEvent`, ce qui garantit que le re-rendu déclenché par le store de
-    // sourdine est bien reflété avant l'assertion suivante.
+    // `fireEvent`, ce qui garantit que le re-rendu déclenché par le store est
+    // bien reflété avant l'assertion suivante.
     fireEvent.contextMenu(screen.getByText('général'));
-    expect(
-      screen.getByRole('menuitem', { name: 'Mettre le salon en sourdine' }),
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Notifications' }));
+    expect(screen.getByRole('menuitemradio', { name: 'Tout' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Mettre le salon en sourdine' }));
-
-    expect(useMute.getState().mutedChannels).toEqual(['g1/c1']);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Rien' }));
+    expect(useMute.getState().channelLevels).toEqual({ 'g1/c1': 'none' });
 
     fireEvent.contextMenu(screen.getByText('général'));
-    expect(screen.getByRole('menuitem', { name: 'Réactiver' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Réactiver' }));
-
-    expect(useMute.getState().mutedChannels).toEqual([]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Notifications' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Tout' }));
+    expect(useMute.getState().channelLevels).toEqual({ 'g1/c1': 'all' });
   });
 
-  it('ne met en sourdine que le salon ciblé, pas ses voisins', () => {
+  it('ne règle que le salon ciblé, pas ses voisins', () => {
     render(
       <>
         <Sidebar />
@@ -428,9 +427,10 @@ describe('Sidebar — sourdine des notifications (salon)', () => {
     );
 
     fireEvent.contextMenu(screen.getByText('général'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Mettre le salon en sourdine' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Notifications' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Rien' }));
 
-    expect(useMute.getState().mutedChannels).toEqual(['g1/c1']);
+    expect(useMute.getState().channelLevels).toEqual({ 'g1/c1': 'none' });
     const rows = screen.getAllByLabelText('Salon en sourdine : notifications désactivées');
     expect(rows).toHaveLength(1);
   });

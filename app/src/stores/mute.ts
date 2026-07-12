@@ -1,123 +1,210 @@
 /**
- * Sourdine (mute) locale des serveurs et salons — jamais synchronisée avec
- * le nœud ni les autres appareils, comme les autres préférences d'interface
- * (voir `stores/ui.ts` pour le patron de persistance localStorage réutilisé
- * ici : lecture tolérante, écriture best effort).
+ * Niveau de notification local des serveurs et salons — jamais synchronisé
+ * avec le nœud ni les autres appareils, comme les autres préférences
+ * d'interface (voir `stores/ui.ts` pour le patron de persistance localStorage
+ * réutilisé ici : lecture tolérante, écriture best effort).
  *
- * Choix produit MVP délibéré : une sourdine coupe *totalement* le son et la
- * notification native du périmètre concerné (serveur entier ou un seul
- * salon) — pas d'exception « les mentions notifient quand même », pour
- * rester simple à ce stade. Le compteur de non-lu continue d'être tenu
- * normalement par les stores `groups`/`friends` (aucune donnée ici) ; seule
- * la couche de notification (`lib/notifications.ts`, consommée par
- * `AppShell`) consulte ce store pour supprimer le son/la notification
- * native — voir `isConversationMuted`.
+ * Modèle à trois états (comme Discord), remplaçant l'ancienne sourdine binaire :
+ *   - 'all'      : tout notifier (défaut) ;
+ *   - 'mentions' : notifier seulement si le message me mentionne — ne concerne
+ *                  que les salons de serveur (un MP est toujours « pour moi ») ;
+ *   - 'none'     : rien (l'ancienne « sourdine » totale).
  *
- * Les MP ne sont pas mis en sourdine dans cette version : ni `ServerRail`
- * ni `Sidebar` n'exposent de sourdine par contact (hors périmètre) —
- * `isConversationMuted` renvoie toujours `false` pour `{ kind: 'dm' }`.
+ * Les niveaux sont stockés dans une table id→niveau sérialisée en JSON, une par
+ * périmètre (serveurs et salons). Rétro-compatibilité : l'ancien format (liste
+ * d'ids « mutés », `string[]`) est migré au premier chargement — chaque id
+ * présent devient niveau 'none'.
+ *
+ * Seule la couche de notification (`AppShell`) consulte ce store, via
+ * `isConversationSilenced`, pour supprimer le son et la notification native ;
+ * le compteur de non-lu continue d'être tenu normalement par les stores
+ * `groups`/`friends` (aucune donnée ici).
+ *
+ * Les MP ne sont pas réglés dans cette version : ni `ServerRail` ni `Sidebar`
+ * n'exposent de niveau par contact (hors périmètre) — `isConversationSilenced`
+ * renvoie toujours `false` pour `{ kind: 'dm' }`.
  *
  * Un salon (`channel_id`) n'est pas garanti unique tous serveurs confondus :
- * les identifiants de salon en sourdine sont donc stockés sous la clé
- * composite `channelKey(groupId, channelId)` déjà utilisée par le store
- * `groups` (historiques, non-lus, épinglés) plutôt que le seul `channel_id`.
+ * les niveaux de salon sont donc indexés sous la clé composite
+ * `channelKey(groupId, channelId)` déjà utilisée par le store `groups`
+ * (historiques, non-lus, épinglés) plutôt que le seul `channel_id`.
  */
 
 import { create } from 'zustand';
 import type { ConversationRef } from '../lib/notifications';
 import { channelKey } from './groups';
 
+/** Niveau de notification d'un périmètre (serveur ou salon). */
+export type NotifLevel = 'all' | 'mentions' | 'none';
+
+/** Niveau appliqué en l'absence de réglage explicite : tout notifier. */
+const DEFAULT_LEVEL: NotifLevel = 'all';
+
 const STORAGE_KEYS = {
   servers: 'accord.mute.servers',
   channels: 'accord.mute.channels',
 } as const;
 
-/** Lecture localStorage tolérante d'une liste d'identifiants (JSON, best effort). */
-function readStoredIds(key: string): string[] {
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (raw === null) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id): id is string => typeof id === 'string');
-  } catch {
-    return [];
-  }
+/** Table id→niveau (sérialisée JSON en localStorage). */
+export type LevelMap = Record<string, NotifLevel>;
+
+/** Sous-ensemble d'état lu par les fonctions pures (testable en isolation). */
+export interface MuteLevels {
+  serverLevels: LevelMap;
+  channelLevels: LevelMap;
 }
 
-/** Écriture localStorage tolérante (sourdine non persistée en cas d'échec). */
-function writeStoredIds(key: string, ids: readonly string[]): void {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(ids));
-  } catch {
-    // Best effort : la sourdine reste appliquée pour la session en cours.
-  }
-}
-
-/** Ajoute/retire `id` de la liste — jamais de mutation en place. */
-function toggleId(ids: readonly string[], id: string): string[] {
-  return ids.includes(id) ? ids.filter((existing) => existing !== id) : [...ids, id];
-}
-
-/** Vrai si le serveur `groupId` est en sourdine. Pure — testable en isolation. */
-export function isServerMuted(mutedServers: readonly string[], groupId: string): boolean {
-  return mutedServers.includes(groupId);
+/** Garde de type : valeur issue du JSON stocké réellement un `NotifLevel`. */
+function isNotifLevel(value: unknown): value is NotifLevel {
+  return value === 'all' || value === 'mentions' || value === 'none';
 }
 
 /**
- * Vrai si le salon `channelId` (du serveur `groupId`) est individuellement en
- * sourdine — indépendant de la sourdine du serveur entier (voir
- * `isConversationMuted` pour la combinaison des deux au moment de notifier).
+ * Lecture localStorage tolérante d'une table id→niveau. Rétro-compatibilité :
+ * l'ancien format binaire (liste d'ids « mutés », `string[]`) est migré — chaque
+ * id présent devient niveau 'none' (sourdine totale, comportement historique).
+ * Toute valeur corrompue ou d'un type inattendu se replie sur une table vide.
  */
+function readStoredLevels(key: string): LevelMap {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const out: LevelMap = {};
+      for (const id of parsed) if (typeof id === 'string') out[id] = 'none';
+      return out;
+    }
+    if (typeof parsed === 'object' && parsed !== null) {
+      const out: LevelMap = {};
+      for (const [id, level] of Object.entries(parsed)) {
+        if (isNotifLevel(level)) out[id] = level;
+      }
+      return out;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+/** Écriture localStorage tolérante (réglage non persisté en cas d'échec). */
+function writeStoredLevels(key: string, levels: LevelMap): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(levels));
+  } catch {
+    // Best effort : le réglage reste appliqué pour la session en cours.
+  }
+}
+
+/** Niveau du serveur `groupId` (défaut 'all'). Pure — testable en isolation. */
+export function serverLevel(state: MuteLevels, groupId: string): NotifLevel {
+  return state.serverLevels[groupId] ?? DEFAULT_LEVEL;
+}
+
+/**
+ * Niveau effectif du salon `channelId` (du serveur `groupId`) : son réglage
+ * propre s'il en a un, sinon héritage du niveau du serveur (défaut 'all').
+ * Pure — voir `isConversationSilenced` pour l'usage au moment de notifier.
+ */
+export function channelLevel(
+  state: MuteLevels,
+  groupId: string,
+  channelId: string,
+): NotifLevel {
+  const own = state.channelLevels[channelKey(groupId, channelId)];
+  return own ?? serverLevel(state, groupId);
+}
+
+/** Nouvel état avec le niveau du serveur fixé — jamais de mutation en place. */
+export function setServerLevel(
+  state: MuteLevels,
+  groupId: string,
+  level: NotifLevel,
+): MuteLevels {
+  return { ...state, serverLevels: { ...state.serverLevels, [groupId]: level } };
+}
+
+/**
+ * Nouvel état avec le niveau *propre* du salon fixé (override qui prime sur
+ * l'héritage du serveur) — jamais de mutation en place.
+ */
+export function setChannelLevel(
+  state: MuteLevels,
+  groupId: string,
+  channelId: string,
+  level: NotifLevel,
+): MuteLevels {
+  return {
+    ...state,
+    channelLevels: {
+      ...state.channelLevels,
+      [channelKey(groupId, channelId)]: level,
+    },
+  };
+}
+
+/**
+ * Compat : un serveur « en sourdine » = niveau 'none'. Conservé pour les
+ * appelants historiques qui ne raisonnent qu'en muet/non-muet.
+ */
+export function isServerMuted(state: MuteLevels, groupId: string): boolean {
+  return serverLevel(state, groupId) === 'none';
+}
+
+/** Compat : un salon « en sourdine » = niveau effectif 'none' (héritage inclus). */
 export function isChannelMuted(
-  mutedChannels: readonly string[],
+  state: MuteLevels,
   groupId: string,
   channelId: string,
 ): boolean {
-  return mutedChannels.includes(channelKey(groupId, channelId));
+  return channelLevel(state, groupId, channelId) === 'none';
 }
 
-interface MuteState {
-  /** Identifiants (`groupId`) des serveurs en sourdine. */
-  mutedServers: string[];
-  /** Clés composites `channelKey(groupId, channelId)` des salons en sourdine. */
-  mutedChannels: string[];
-  /** Bascule la sourdine du serveur entier (menu contextuel de `ServerRail`). */
-  toggleServerMute: (groupId: string) => void;
-  /** Bascule la sourdine d'un seul salon (menu contextuel de `Sidebar`). */
-  toggleChannelMute: (groupId: string, channelId: string) => void;
+interface MuteState extends MuteLevels {
+  /** Fixe le niveau de notification du serveur entier (menu de `ServerRail`). */
+  setServerLevel: (groupId: string, level: NotifLevel) => void;
+  /** Fixe le niveau propre d'un salon (menu de `Sidebar`). */
+  setChannelLevel: (groupId: string, channelId: string, level: NotifLevel) => void;
 }
 
 export const useMute = create<MuteState>((set) => ({
-  mutedServers: readStoredIds(STORAGE_KEYS.servers),
-  mutedChannels: readStoredIds(STORAGE_KEYS.channels),
+  serverLevels: readStoredLevels(STORAGE_KEYS.servers),
+  channelLevels: readStoredLevels(STORAGE_KEYS.channels),
 
-  toggleServerMute: (groupId) =>
+  setServerLevel: (groupId, level) =>
     set((s) => {
-      const mutedServers = toggleId(s.mutedServers, groupId);
-      writeStoredIds(STORAGE_KEYS.servers, mutedServers);
-      return { mutedServers };
+      const { serverLevels } = setServerLevel(s, groupId, level);
+      writeStoredLevels(STORAGE_KEYS.servers, serverLevels);
+      return { serverLevels };
     }),
 
-  toggleChannelMute: (groupId, channelId) =>
+  setChannelLevel: (groupId, channelId, level) =>
     set((s) => {
-      const mutedChannels = toggleId(s.mutedChannels, channelKey(groupId, channelId));
-      writeStoredIds(STORAGE_KEYS.channels, mutedChannels);
-      return { mutedChannels };
+      const { channelLevels } = setChannelLevel(s, groupId, channelId, level);
+      writeStoredLevels(STORAGE_KEYS.channels, channelLevels);
+      return { channelLevels };
     }),
 }));
 
 /**
- * Vrai si la conversation notifiée `ref` doit être tue (son + notification
- * native) : le serveur entier ou le salon précis est en sourdine — consultée
- * par `AppShell` avant `isNotificationEligible`/`isSoundEligible` (voir
- * commentaire de tête : les MP ne sont jamais mis en sourdine ici).
+ * Décide si le message entrant `ref` (mentionnant `mentionsMe` l'utilisateur ou
+ * non) doit être tu — son *et* notification native supprimés — selon le niveau
+ * effectif du salon (héritage salon←serveur appliqué par `channelLevel`) :
+ *   - 'none'     → toujours tu (ancienne sourdine totale) ;
+ *   - 'mentions' → tu sauf si le message me mentionne ;
+ *   - 'all'      → jamais tu.
+ * Les MP restent hors périmètre (jamais tus ici) : un MP est toujours « pour
+ * moi », donc le niveau 'mentions' n'a de sens que pour les salons de serveur.
+ * Consultée par `AppShell` avant `isNotificationEligible`/`isSoundEligible`.
  */
-export function isConversationMuted(ref: ConversationRef): boolean {
+export function isConversationSilenced(
+  ref: ConversationRef,
+  mentionsMe: boolean,
+): boolean {
   if (ref.kind === 'dm') return false;
-  const { mutedServers, mutedChannels } = useMute.getState();
-  return (
-    isServerMuted(mutedServers, ref.groupId) ||
-    isChannelMuted(mutedChannels, ref.groupId, ref.channelId)
-  );
+  const level = channelLevel(useMute.getState(), ref.groupId, ref.channelId);
+  if (level === 'none') return true;
+  if (level === 'mentions') return !mentionsMe;
+  return false;
 }

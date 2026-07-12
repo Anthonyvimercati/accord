@@ -120,7 +120,7 @@ describe('ServerRail — pastilles', () => {
     });
     useFriends.setState({ contacts: [] });
     useGroups.setState({ ids: [], states: {}, mentions: {} });
-    useMute.setState({ mutedServers: [], mutedChannels: [] });
+    useMute.setState({ serverLevels: {}, channelLevels: {} });
   });
 
   it('affiche le non-lu agrégé des MP sur le bouton Accueil', () => {
@@ -197,12 +197,12 @@ describe('ServerRail — sourdine des notifications', () => {
       states: { g1: serverState('Guilde') },
       mentions: {},
     });
-    useMute.setState({ mutedServers: [], mutedChannels: [] });
+    useMute.setState({ serverLevels: {}, channelLevels: {} });
     useContextMenu.setState({ menu: null });
   });
 
   it('atténue l’icône (opacité) d’un serveur en sourdine', () => {
-    useMute.setState({ mutedServers: ['g1'] });
+    useMute.setState({ serverLevels: { g1: 'none' } });
 
     render(<ServerRail />);
 
@@ -217,7 +217,7 @@ describe('ServerRail — sourdine des notifications', () => {
     expect(button.className).not.toMatch(/opacity-50/);
   });
 
-  it('le menu contextuel propose « Mettre le serveur en sourdine » puis « Réactiver » une fois activé', () => {
+  it('le sous-menu « Notifications » règle le niveau du serveur (Rien puis Tout)', () => {
     render(
       <>
         <ServerRail />
@@ -227,24 +227,33 @@ describe('ServerRail — sourdine des notifications', () => {
 
     // Rendu réel du menu (plutôt qu'appeler `onClick` à la main) : le clic
     // passe par les gestionnaires React normaux, donc par `act()` via
-    // `fireEvent`, ce qui garantit que le re-rendu déclenché par le store de
-    // sourdine est bien reflété avant l'assertion suivante.
+    // `fireEvent`, ce qui garantit que le re-rendu déclenché par le store est
+    // bien reflété avant l'assertion suivante.
     fireEvent.contextMenu(screen.getByLabelText('Guilde'));
-    expect(
-      screen.getByRole('menuitem', { name: 'Mettre le serveur en sourdine' }),
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Notifications' }));
 
-    fireEvent.click(
-      screen.getByRole('menuitem', { name: 'Mettre le serveur en sourdine' }),
+    // Sous-menu à trois choix, coche sur le niveau actif (« Tout » par défaut).
+    expect(screen.getByRole('menuitemradio', { name: 'Tout' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('menuitemradio', { name: 'Rien' })).toHaveAttribute(
+      'aria-checked',
+      'false',
     );
 
-    expect(useMute.getState().mutedServers).toEqual(['g1']);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Rien' }));
+    expect(useMute.getState().serverLevels).toEqual({ g1: 'none' });
 
+    // Réouverture : la coche suit désormais « Rien », et l'on repasse à « Tout ».
     fireEvent.contextMenu(screen.getByLabelText(/Guilde.*En sourdine/));
-    expect(screen.getByRole('menuitem', { name: 'Réactiver' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Notifications' }));
+    expect(screen.getByRole('menuitemradio', { name: 'Rien' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Réactiver' }));
-
-    expect(useMute.getState().mutedServers).toEqual([]);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Tout' }));
+    expect(useMute.getState().serverLevels).toEqual({ g1: 'all' });
   });
 });

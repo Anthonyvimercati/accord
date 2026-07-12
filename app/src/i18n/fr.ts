@@ -916,12 +916,15 @@ export const fr = {
     voiceUnmuteServer: 'Retirer la sourdine (serveur)',
     voiceDeafenServer: 'Rendre sourd (serveur)',
     voiceUndeafenServer: 'Retirer la surdité (serveur)',
-    // Sourdine des notifications (locale, voir stores/mute.ts) — distincte
-    // de la sourdine vocale de modération ci-dessus.
-    muteServer: 'Mettre le serveur en sourdine',
-    unmuteServer: 'Réactiver',
-    muteChannel: 'Mettre le salon en sourdine',
-    unmuteChannel: 'Réactiver',
+  },
+  // Niveau de notification local d'un serveur ou salon (sous-menu des menus
+  // contextuels de `ServerRail`/`Sidebar`, voir stores/mute.ts) — trois choix
+  // façon Discord, distincts de la sourdine vocale de modération ci-dessus.
+  notifLevel: {
+    title: 'Notifications',
+    all: 'Tout',
+    mentions: '@mentions seulement',
+    none: 'Rien',
   },
   folders: {
     defaultName: 'Nouveau dossier',

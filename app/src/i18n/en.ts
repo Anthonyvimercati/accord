@@ -904,10 +904,12 @@ export const en: Dict = {
     voiceUnmuteServer: 'Remove server mute',
     voiceDeafenServer: 'Server deafen',
     voiceUndeafenServer: 'Remove server deafen',
-    muteServer: 'Mute server',
-    unmuteServer: 'Unmute',
-    muteChannel: 'Mute channel',
-    unmuteChannel: 'Unmute',
+  },
+  notifLevel: {
+    title: 'Notifications',
+    all: 'All',
+    mentions: '@mentions only',
+    none: 'Nothing',
   },
   folders: {
     defaultName: 'New folder',

@@ -28,7 +28,7 @@ export function isNotificationEligible(options: {
   isOwnMessage: boolean;
   /**
    * Vrai si la conversation/le salon visé est en sourdine (voir
-   * `stores/mute.ts#isConversationMuted`) ; absent = jamais en sourdine
+   * `stores/mute.ts#isConversationSilenced`) ; absent = jamais en sourdine
    * (comportement historique, avant l'ajout de la fonctionnalité).
    */
   muted?: boolean;
@@ -68,7 +68,7 @@ export interface SoundEligibilityOptions {
   isMention?: boolean;
   /**
    * Vrai si le serveur ou le salon visé est en sourdine (voir
-   * `stores/mute.ts#isConversationMuted`) ; absent = jamais en sourdine
+   * `stores/mute.ts#isConversationSilenced`) ; absent = jamais en sourdine
    * (comportement historique, avant l'ajout de la fonctionnalité). MVP
    * volontairement simple : une sourdine coupe le son même pour une mention
    * (pas d'exception « les mentions notifient quand même »).

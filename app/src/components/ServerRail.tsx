@@ -10,11 +10,12 @@ import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { folderOfServer, useFolders, type ServerFolder } from '../stores/folders';
 import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
 import { useGroups, sortChannels, hasPerm, PERMISSIONS } from '../stores/groups';
-import { isServerMuted, useMute } from '../stores/mute';
+import { serverLevel, useMute } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import {
   BellOffMenuIcon,
+  buildNotifLevelItems,
   CopyMenuIcon,
   EnvelopeMenuIcon,
   GearMenuIcon,
@@ -183,7 +184,7 @@ export function ServerRail() {
   const ids = useGroups((s) => s.ids);
   const states = useGroups((s) => s.states);
   const groupMentions = useGroups((s) => s.mentions);
-  const mutedServers = useMute((s) => s.mutedServers);
+  const serverLevels = useMute((s) => s.serverLevels);
   const lastChannelByServer = useUi((s) => s.lastChannelByServer);
   const lastDmPeer = useUi((s) => s.lastDmPeer);
   const contacts = useFriends((s) => s.contacts);
@@ -283,12 +284,13 @@ export function ServerRail() {
     // serveur remontent ici (compteur `groups.list.mentions`, par
     // serveur) — le détail par salon reste dans la barre latérale.
     const badge: RailBadgeInfo = { count: groupMentions[id] ?? 0, mention: true };
-    const muted = isServerMuted(mutedServers, id);
+    const level = serverLevel({ serverLevels, channelLevels: {} }, id);
+    const muted = level === 'none';
 
     /**
-     * Items du menu contextuel du serveur : copie d'identifiant,
-     * sourdine des notifications (locale, voir `stores/mute.ts` —
-     * suppression totale du son/de la notification native, sans effet
+     * Items du menu contextuel du serveur : copie d'identifiant, niveau de
+     * notification (sous-menu local à trois choix Tout/@mentions/Rien, voir
+     * `stores/mute.ts` — agit sur le son et la notification native, sans effet
      * sur le compteur de non-lu), rangement dans un dossier (local, voir
      * `stores/folders.ts`), invitation (si permis, D-045 : consentement
      * explicite — ouvre le sélecteur d'ami existant), paramètres (mêmes
@@ -296,9 +298,10 @@ export function ServerRail() {
      * ne peut pas encore quitter (règle du contrat : d'autres membres
      * restent). Pas de « marquer comme lu » global : aucune action
      * équivalente n'existe côté store (seulement par salon, une fois
-     * ouvert).
+     * ouvert). `x`/`y` : point de clic, pour rouvrir le sous-menu au même
+     * endroit.
      */
-    const buildServerItems = (): ContextMenuItem[] => {
+    const buildServerItems = (x: number, y: number): ContextMenuItem[] => {
       const groupState = states[id];
       const isFounder = self !== null && groupState?.founder === self.pubkey;
       const founderBlocked = isFounder && (groupState?.members.length ?? 0) > 1;
@@ -315,9 +318,16 @@ export function ServerRail() {
             ),
         },
         {
-          label: muted ? t.contextMenu.unmuteServer : t.contextMenu.muteServer,
+          label: t.notifLevel.title,
           icon: <BellOffMenuIcon />,
-          onClick: () => useMute.getState().toggleServerMute(id),
+          onClick: () =>
+            useContextMenu.getState().openMenu(
+              x,
+              y,
+              buildNotifLevelItems(t.notifLevel, level, (lvl) =>
+                useMute.getState().setServerLevel(id, lvl),
+              ),
+            ),
         },
       ];
       if (folderOfServer(folders, id) !== null) {
@@ -400,7 +410,9 @@ export function ServerRail() {
         }
         onContextMenu={(e) => {
           e.preventDefault();
-          useContextMenu.getState().openMenu(e.clientX, e.clientY, buildServerItems());
+          useContextMenu
+            .getState()
+            .openMenu(e.clientX, e.clientY, buildServerItems(e.clientX, e.clientY));
         }}
       >
         <ServerIcon icon={states[id]?.icon ?? null} name={name} />

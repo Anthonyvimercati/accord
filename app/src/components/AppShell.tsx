@@ -22,7 +22,7 @@ import { isEditableTarget } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { useGroups, channelKey } from '../stores/groups';
-import { isConversationMuted } from '../stores/mute';
+import { isConversationSilenced } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useTyping, dmTypingKey, groupTypingKey } from '../stores/typing';
 import {
@@ -48,9 +48,16 @@ import { Sidebar } from './Sidebar';
 /**
  * Notification native « Nouveau message de <nom> » si les réglages
  * l'autorisent — jamais le contenu du message, jamais ses propres messages,
- * jamais si le serveur/salon visé est en sourdine (`stores/mute.ts`).
+ * jamais si le niveau de notification du serveur/salon visé le tait
+ * (`stores/mute.ts` : niveau 'none', ou 'mentions' sans mention). `mentionsMe`
+ * porte le drapeau `mentions_me` du message (sans effet pour un MP, toujours
+ * « pour moi »).
  */
-function notifyNewMessage(ref: ConversationRef, author: string): void {
+function notifyNewMessage(
+  ref: ConversationRef,
+  author: string,
+  mentionsMe: boolean,
+): void {
   const self = useSession.getState().self;
   if (self === null) return;
   const ui = useUi.getState();
@@ -64,7 +71,7 @@ function notifyNewMessage(ref: ConversationRef, author: string): void {
     },
     windowFocused,
     isOwnMessage: author === self.pubkey,
-    muted: isConversationMuted(ref),
+    muted: isConversationSilenced(ref, mentionsMe),
   });
   if (!eligible) return;
   const dict = dictionaries[ui.lang];
@@ -112,7 +119,7 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
     dnd: useFriends.getState().ownStatus === 'dnd',
     mode: useUi.getState().notifySoundMode,
     isMention,
-    muted: isConversationMuted(ref),
+    muted: isConversationSilenced(ref, isMention),
   });
   if (!eligible) return;
   playNotificationSound(isMention ? 'mention' : 'message');
@@ -289,7 +296,11 @@ function useNodeEvents() {
                 (m) => m.msg_id === msgId,
               );
               if (message !== undefined) {
-                notifyNewMessage({ kind: 'dm', peer }, message.author);
+                notifyNewMessage(
+                  { kind: 'dm', peer },
+                  message.author,
+                  message.mentions_me === true,
+                );
                 maybePlaySound(
                   { kind: 'dm', peer },
                   message.author,
@@ -358,7 +369,11 @@ function useNodeEvents() {
                 (m) => m.msg_id === msgId,
               );
               if (message !== undefined) {
-                notifyNewMessage({ kind: 'group', groupId, channelId }, message.author);
+                notifyNewMessage(
+                  { kind: 'group', groupId, channelId },
+                  message.author,
+                  message.mentions_me === true,
+                );
                 maybePlaySound(
                   { kind: 'group', groupId, channelId },
                   message.author,

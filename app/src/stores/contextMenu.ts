@@ -18,6 +18,12 @@ export interface ContextMenuItem {
   danger?: boolean;
   /** Trait de séparation au-dessus de cet item (regroupement visuel). */
   separatorBefore?: boolean;
+  /**
+   * Item à choix exclusif (radio) : défini ⇒ rendu `menuitemradio` avec
+   * `aria-checked`, une coche s'affichant quand `true` (choix actif d'un
+   * sous-menu, ex. niveau de notification). Absent ⇒ item d'action ordinaire.
+   */
+  checked?: boolean;
 }
 
 interface OpenContextMenu {
