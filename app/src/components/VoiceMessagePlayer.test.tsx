@@ -1,7 +1,9 @@
 /**
  * Lecteur de message vocal : progression du téléchargement puis lecteur,
- * état d'erreur (fichier introuvable / flux indécodable) sans planter,
- * bascule lecture/pause, coordination « un seul lecteur actif à la fois »
+ * état d'erreur (fichier introuvable / flux indécodable) relançable (bouton
+ * réessayer), classification des rejets de `play()` (AbortError transitoire
+ * vs vrai échec), durée relue du nom de pièce (`voice-12.4s.m4a`), bascule
+ * lecture/pause, coordination « un seul lecteur actif à la fois »
  * (`stores/recorder.ts`). `HTMLMediaElement.play/pause` sont simulés : jsdom
  * ne les implémente pas.
  */
@@ -70,6 +72,31 @@ describe('VoiceMessagePlayer — chargement', () => {
 
     expect(await screen.findByText('Message vocal indisponible')).toBeInTheDocument();
   });
+
+  it('bouton réessayer : relance lireFichier et rend le lecteur au succès', async () => {
+    lireMock.mockRejectedValueOnce(new Error('introuvable'));
+    lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');
+    render(<VoiceMessagePlayer piece={piece()} />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Réessayer la lecture' }),
+    );
+
+    expect(
+      await screen.findByRole('button', { name: 'Lire le message vocal' }),
+    ).toBeInTheDocument();
+    expect(lireMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Message vocal indisponible')).not.toBeInTheDocument();
+  });
+
+  it('relit la durée embarquée dans le nom de pièce quand le blob n’en a pas', async () => {
+    lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');
+    render(<VoiceMessagePlayer piece={piece({ name: 'voice-7.5s.webm' })} />);
+    await screen.findByRole('button', { name: 'Lire le message vocal' });
+
+    // jsdom ne charge pas les métadonnées : la durée vient du nom (7,5 s → 0:07).
+    expect(screen.getByText('0:00 / 0:07')).toBeInTheDocument();
+  });
 });
 
 describe('VoiceMessagePlayer — lecture', () => {
@@ -100,6 +127,38 @@ describe('VoiceMessagePlayer — lecture', () => {
     fireEvent.error(container.querySelector('audio') as HTMLAudioElement);
 
     expect(await screen.findByText('Message vocal indisponible')).toBeInTheDocument();
+  });
+
+  it('un play() rejeté avec AbortError (pause concurrente) ne condamne pas le lecteur', async () => {
+    lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');
+    playSpy.mockImplementationOnce(() =>
+      Promise.reject(new DOMException('interrupted by pause()', 'AbortError')),
+    );
+    render(<VoiceMessagePlayer piece={piece()} />);
+    const bouton = await screen.findByRole('button', { name: 'Lire le message vocal' });
+
+    fireEvent.click(bouton);
+    await waitFor(() => expect(playSpy).toHaveBeenCalled());
+
+    expect(
+      screen.getByRole('button', { name: 'Lire le message vocal' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Message vocal indisponible')).not.toBeInTheDocument();
+  });
+
+  it('un play() rejeté pour flux non supporté bascule en erreur relançable', async () => {
+    lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');
+    playSpy.mockImplementationOnce(() =>
+      Promise.reject(new DOMException('unsupported', 'NotSupportedError')),
+    );
+    render(<VoiceMessagePlayer piece={piece()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Lire le message vocal' }));
+
+    expect(await screen.findByText('Message vocal indisponible')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Réessayer la lecture' }),
+    ).toBeInTheDocument();
   });
 
   it('ne joue jamais tout seul (pas d’autoPlay)', async () => {

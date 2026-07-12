@@ -69,7 +69,9 @@ const { FakeVoiceRecorder } = vi.hoisted(() => {
 
 vi.mock('../lib/voiceRecorder', () => ({
   VoiceRecorder: FakeVoiceRecorder,
-  voiceFileName: (mime: string) => `voice-message.${mime.includes('ogg') ? 'ogg' : 'webm'}`,
+  // Miroir de la convention réelle `voice-<durée>s.<ext>` (durée embarquée).
+  voiceFileName: (mime: string, durationMs: number) =>
+    `voice-${Math.round(durationMs / 100) / 10}s.${mime.includes('ogg') ? 'ogg' : 'webm'}`,
 }));
 
 import { api } from '../lib/client';
@@ -426,17 +428,33 @@ describe('MessageInput — composeur en lecture seule', () => {
 });
 
 describe('MessageInput — message vocal', () => {
-  it('démarre l’enregistrement au clic sur le micro : minuteur, textarea désactivée', () => {
+  it('remplace le composeur par la rangée d’enregistrement au clic sur le micro', () => {
     renderInput();
 
     fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
 
     expect(dernierEnregistreur().started).toBe(true);
-    expect(screen.getByRole('textbox')).toBeDisabled();
+    // Le composeur texte disparaît : rangée dédiée [annuler | compteur | envoyer].
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('0:00');
     expect(screen.getByLabelText('Annuler l’enregistrement')).toBeInTheDocument();
     expect(screen.getByLabelText('Envoyer le message vocal')).toBeInTheDocument();
     expect(screen.queryByLabelText('Enregistrer un message vocal')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Joindre des fichiers', { selector: 'button' })).not.toBeInTheDocument();
+  });
+
+  it('la pastille ne pulse qu’au vrai démarrage de la capture (onStart)', () => {
+    const { container } = render(
+      <MessageInput placeholder="p" onSend={vi.fn(async () => {})} />,
+    );
+    fireEvent.click(screen.getByLabelText('Enregistrer un message vocal'));
+
+    // Micro pas encore obtenu (getUserMedia en cours) : pas de pulsation.
+    expect(container.querySelector('.animate-ping')).toBeNull();
+
+    act(() => dernierEnregistreur().callbacks.onStart?.());
+
+    expect(container.querySelector('.animate-ping')).not.toBeNull();
   });
 
   it('affiche le temps écoulé au fil des rappels onTick', () => {
@@ -471,10 +489,10 @@ describe('MessageInput — message vocal', () => {
     expect(enregistreur.stopped).toBe(true);
   });
 
-  it('publie le blob fini via files.share_bytes puis envoie un message avec la pièce audio', async () => {
+  it('publie le blob fini (durée dans le nom) puis envoie un message avec la pièce audio', async () => {
     const piece = {
       merkle_root: 'ab'.repeat(32),
-      name: 'voice-message.webm',
+      name: 'voice-3s.webm',
       size: 42,
       mime: 'audio/webm;codecs=opus',
     };
@@ -492,8 +510,9 @@ describe('MessageInput — message vocal', () => {
     await act(async () => enregistreur.callbacks.onStop(result));
 
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('', [piece]));
+    // La durée réelle (3 s) est embarquée dans le nom de la pièce.
     expect(shareMock).toHaveBeenCalledWith(
-      'voice-message.webm',
+      'voice-3s.webm',
       'audio/webm;codecs=opus',
       expect.any(String),
     );

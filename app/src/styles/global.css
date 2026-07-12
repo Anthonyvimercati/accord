@@ -579,6 +579,28 @@ select:focus-visible {
   animation: badge-pop var(--duration-fast) var(--ease-spring);
 }
 
+/*
+ * Barres du vumètre décoratif de la rangée d'enregistrement vocal
+ * (`MessageInput`) : pulsation type égaliseur, `transform: scaleY` seul
+ * (compositor). Le déphasage vient d'un `animation-delay` inline par barre ;
+ * `animation-play-state` inline gèle les barres tant que le micro n'est pas
+ * réellement ouvert. Couverte par les blocs de réduction de mouvement
+ * ci-dessous comme toutes les animations.
+ */
+@keyframes voice-eq {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.voice-eq-bar {
+  transform-origin: center;
+  animation: voice-eq 1.1s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

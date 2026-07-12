@@ -879,6 +879,7 @@ export const fr = {
     pause: 'Mettre en pause',
     progression: 'Progression du message vocal',
     indisponible: 'Message vocal indisponible',
+    reessayer: 'Réessayer la lecture',
   },
   notifications: {
     newMessageFrom: 'Nouveau message de {name}',

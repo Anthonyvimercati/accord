@@ -7,6 +7,12 @@
  * l'arrêt, à l'annulation ou en cas d'erreur — jamais d'indicateur micro
  * fantôme après coup.
  *
+ * Machine à états : `settled` reste souverain à travers les `await` de
+ * `start()` — un `cancel()` pendant l'attente du micro ne ressuscite jamais
+ * l'enregistrement, et un `stop()` pendant cette attente est honoré dès que
+ * le `MediaRecorder` existe (finalisation immédiate). `onStart` signale le
+ * vrai début de capture (base du compteur côté UI).
+ *
  * Un enregistreur = un enregistrement : créer une nouvelle instance de
  * `VoiceRecorder` à chaque prise plutôt que de réutiliser la précédente.
  */
@@ -26,18 +32,28 @@ const TICK_INTERVAL_MS = 200;
  */
 const DATA_INTERVAL_MS = 250;
 
-/** Types MIME candidats par ordre de préférence (Opus dans WebM d'abord). */
+/**
+ * Types MIME candidats, ordonnés pour la portabilité inter-moteurs : un blob
+ * enregistré ici doit être décodable chez le pair, qui peut tourner sur un
+ * autre moteur (WKWebView macOS, WebView2 Windows, WebKitGTK Linux). AAC/MP4
+ * d'abord — c'est le format le plus largement décodé (WKWebView ne lit pas
+ * WebM/Opus) ; Opus compresse mieux la voix à bas débit mais reste un repli.
+ */
 const CANDIDATE_MIME_TYPES = [
+  'audio/mp4;codecs=mp4a.40.2',
+  'audio/mp4',
   'audio/webm;codecs=opus',
   'audio/webm',
   'audio/ogg;codecs=opus',
   'audio/ogg',
-  'audio/mp4',
 ] as const;
 
 /**
- * Sonde le premier type MIME supporté par `MediaRecorder` (chaîne vide si
- * aucun candidat n'est supporté, ou si l'API est absente).
+ * Sonde le premier type MIME que ce moteur sait à la fois ENREGISTRER
+ * (`MediaRecorder.isTypeSupported`) et DÉCODER (`Audio#canPlayType`) — un
+ * type enregistrable mais indécodable localement serait a fortiori illisible
+ * chez la plupart des pairs. Chaîne vide si aucun candidat ne passe les deux
+ * sondes, ou si l'API est absente.
  */
 export function pickAudioMimeType(): string {
   if (
@@ -46,7 +62,16 @@ export function pickAudioMimeType(): string {
   ) {
     return '';
   }
-  return CANDIDATE_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) ?? '';
+  const probe = typeof Audio !== 'undefined' ? new Audio() : null;
+  const decodable = (type: string): boolean =>
+    probe === null || typeof probe.canPlayType !== 'function'
+      ? true // Sonde de décodage absente : on retombe sur la seule sonde d'enregistrement.
+      : probe.canPlayType(type) !== '';
+  return (
+    CANDIDATE_MIME_TYPES.find(
+      (type) => MediaRecorder.isTypeSupported(type) && decodable(type),
+    ) ?? ''
+  );
 }
 
 /** Extension de fichier plausible pour un type MIME de capture audio. */
@@ -58,12 +83,28 @@ function extensionForMime(mime: string): string {
 }
 
 /**
- * Nom de fichier conventionnel d'un message vocal. La détection au rendu
- * (`Attachments.tsx`) se fait par type MIME (`audio/*`), pas par ce nom —
- * il ne sert qu'à l'affichage / au téléchargement de repli.
+ * Nom de fichier conventionnel d'un message vocal : `voice-<durée>s.<ext>`
+ * (ex. `voice-12.4s.m4a`, une décimale au plus). La durée est embarquée dans
+ * le nom car les blobs `MediaRecorder` n'ont pas d'en-tête de durée
+ * (`audio.duration` = Infinity) — le lecteur la relit via
+ * `voiceDurationFromName`. La détection au rendu (`Attachments.tsx`) se fait
+ * par type MIME (`audio/*`), pas par ce nom.
  */
-export function voiceFileName(mime: string): string {
-  return `voice-message.${extensionForMime(mime)}`;
+export function voiceFileName(mime: string, durationMs: number): string {
+  const seconds = Math.max(0, Math.round(durationMs / 100) / 10);
+  return `voice-${seconds}s.${extensionForMime(mime)}`;
+}
+
+/**
+ * Relit la durée (en secondes) embarquée dans un nom de pièce vocale par
+ * `voiceFileName`. `null` si le nom ne suit pas la convention (anciens
+ * messages `voice-message.webm`, pièce renommée par le pair).
+ */
+export function voiceDurationFromName(name: string): number | null {
+  const match = /^voice-(\d+(?:\.\d+)?)s\./.exec(name);
+  if (match === null) return null;
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
 }
 
 /** Cause de l'échec du démarrage d'un enregistrement. */
@@ -80,6 +121,8 @@ export interface VoiceRecorderResult {
 }
 
 export interface VoiceRecorderCallbacks {
+  /** Capture réellement démarrée (micro obtenu, `MediaRecorder` lancé). */
+  onStart?: () => void;
   /** Rappelé ~5 fois/s pendant l'enregistrement avec le temps écoulé (ms). */
   onTick: (elapsedMs: number) => void;
   /** Enregistrement finalisé (arrêt manuel ou borne atteinte). */
@@ -99,8 +142,14 @@ export class VoiceRecorder {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private limitTimer: ReturnType<typeof setTimeout> | null = null;
   private stopReason: VoiceRecorderStopReason = 'manual';
-  /** Court-circuite `finish()` une fois l'issue déjà réglée (arrêt ou annulation). */
+  /**
+   * Issue déjà réglée (finalisation ou annulation) : souverain, jamais remis
+   * à `false` — y compris à travers les `await` de `start()`, sinon une
+   * annulation pendant `getUserMedia` ressusciterait l'enregistrement.
+   */
   private settled = false;
+  /** `stop()` reçu pendant l'attente du micro : à honorer dès que possible. */
+  private stopRequested = false;
 
   constructor(callbacks: VoiceRecorderCallbacks) {
     this.callbacks = callbacks;
@@ -120,7 +169,14 @@ export class VoiceRecorder {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      this.callbacks.onError('permission_denied');
+      // Annulé pendant l'attente : l'échec du micro n'intéresse plus personne.
+      if (!this.settled) this.callbacks.onError('permission_denied');
+      return;
+    }
+    if (this.settled) {
+      // `cancel()` pendant l'attente du micro : flux relâché immédiatement,
+      // l'enregistrement ne ressuscite jamais (ni timers, ni MediaRecorder).
+      this.stopTracks(stream);
       return;
     }
     if (typeof MediaRecorder === 'undefined') {
@@ -141,10 +197,6 @@ export class VoiceRecorder {
     this.stream = stream;
     this.recorder = recorder;
     this.mime = mime !== '' ? mime : recorder.mimeType || 'audio/webm';
-    this.chunks = [];
-    this.bytes = 0;
-    this.stopReason = 'manual';
-    this.settled = false;
 
     recorder.ondataavailable = (event: BlobEvent) => {
       if (event.data.size === 0) return;
@@ -158,6 +210,13 @@ export class VoiceRecorder {
     recorder.onstop = () => this.finish();
     recorder.start(DATA_INTERVAL_MS);
     this.startedAt = Date.now();
+    this.callbacks.onStart?.();
+    if (this.stopRequested) {
+      // `stop()` pendant l'attente du micro : honoré maintenant que le
+      // MediaRecorder existe — finalisation immédiate, pas de timers.
+      this.stop();
+      return;
+    }
     this.tickTimer = setInterval(() => {
       this.callbacks.onTick(Date.now() - this.startedAt);
     }, TICK_INTERVAL_MS);
@@ -167,10 +226,19 @@ export class VoiceRecorder {
     }, MAX_RECORD_MS);
   }
 
-  /** Arrête et finalise : `onStop` se déclenche une fois les derniers octets reçus. */
+  /**
+   * Arrête et finalise : `onStop` se déclenche une fois les derniers octets
+   * reçus. Pendant l'attente du micro (`start()` en cours), la demande est
+   * mémorisée et honorée dès que le `MediaRecorder` existe — jamais perdue.
+   */
   stop(): void {
+    if (this.settled) return;
     this.clearTimers();
-    if (this.recorder !== null && this.recorder.state !== 'inactive') {
+    if (this.recorder === null) {
+      this.stopRequested = true;
+      return;
+    }
+    if (this.recorder.state !== 'inactive') {
       this.recorder.stop();
     }
   }
@@ -179,6 +247,7 @@ export class VoiceRecorder {
   cancel(): void {
     this.clearTimers();
     this.settled = true;
+    this.stopRequested = false;
     if (this.recorder !== null && this.recorder.state !== 'inactive') {
       this.recorder.stop();
     }

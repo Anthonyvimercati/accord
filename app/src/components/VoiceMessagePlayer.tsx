@@ -9,8 +9,15 @@
  * Un seul lecteur actif à la fois dans tout le fil (`stores/recorder.ts`).
  * Ne se lance jamais automatiquement (pas d'`autoPlay`). Le mime/nom de la
  * pièce sont contrôlés par le pair : un flux introuvable ou indécodable
- * retombe sur un état d'erreur explicite, sans planter ni tourner
- * indéfiniment.
+ * retombe sur un état d'erreur explicite ET relançable (bouton réessayer —
+ * `lib/files.ts` évince les promesses échouées de son cache). Les rejets
+ * transitoires de `play()` (AbortError/NotAllowedError, ex. pause par la
+ * coordination un-seul-lecteur) ne basculent jamais en erreur.
+ *
+ * Durée : les blobs `MediaRecorder` n'ont pas d'en-tête de durée
+ * (`audio.duration` = Infinity). Repli 1 — la durée embarquée dans le nom de
+ * la pièce (`voiceDurationFromName`) ; repli 2 — l'astuce du seek géant à
+ * `loadedmetadata` qui force le moteur à calculer la vraie durée.
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -18,8 +25,12 @@ import { interpolate } from '../i18n';
 import type { FileAttachment } from '../lib/api';
 import { lireFichier, observerProgression, statutFichier } from '../lib/files';
 import { formatDuration } from '../lib/format';
+import { voiceDurationFromName } from '../lib/voiceRecorder';
 import { useRecorder } from '../stores/recorder';
 import { useT } from '../stores/ui';
+
+/** Seek géant forçant le calcul de la durée d'un blob MediaRecorder. */
+const DURATION_PROBE_SEEK_S = 1e7;
 
 /** Icône lecture (triangle), traits seuls — voir ICON SPEC (styles/global.css). */
 function PlayIcon() {
@@ -84,6 +95,33 @@ function MicOffIcon() {
   );
 }
 
+/** Icône réessayer (flèche circulaire), même jeu de traits. */
+function RetryIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  );
+}
+
+/** Rejet de `audio.play()` transitoire (pause concurrente, geste requis) ? */
+function isTransientPlayError(err: unknown): boolean {
+  const name =
+    err instanceof DOMException || err instanceof Error ? err.name : '';
+  return name === 'AbortError' || name === 'NotAllowedError';
+}
+
 export function VoiceMessagePlayer({
   piece,
   hint,
@@ -102,6 +140,10 @@ export function VoiceMessagePlayer({
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  /** Incrémenté par le bouton réessayer : relance l'effet de chargement. */
+  const [attempt, setAttempt] = useState(0);
+  /** Sonde de durée en cours (seek géant) : geler l'UI de progression. */
+  const probingRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -111,6 +153,7 @@ export function VoiceMessagePlayer({
     setPlaying(false);
     setCurrentTime(0);
     setDuration(0);
+    probingRef.current = false;
     const off = observerProgression(piece.merkle_root, (done, total) => {
       if (alive) setProgression({ done, total });
     });
@@ -134,7 +177,7 @@ export function VoiceMessagePlayer({
       alive = false;
       off();
     };
-  }, [piece.merkle_root, hint]);
+  }, [piece.merkle_root, hint, attempt]);
 
   // Un seul lecteur actif à la fois : un autre lecteur qui démarre nous
   // met en pause (l'inverse — nous démarrons — est géré par `basculerLecture`).
@@ -153,10 +196,19 @@ export function VoiceMessagePlayer({
       return;
     }
     useRecorder.getState().setActivePlayer(id);
-    audio.play().catch(() => setEchec(true));
+    audio.play().catch((err: unknown) => {
+      // AbortError/NotAllowedError sont transitoires (ex. la coordination
+      // un-seul-lecteur nous met en pause pendant le démarrage) : ne jamais
+      // condamner le lecteur pour ça. Seuls les vrais échecs de décodage ou
+      // de flux basculent en erreur.
+      if (!isTransientPlayError(err)) setEchec(true);
+    });
   };
 
-  const dureeSure = Number.isFinite(duration) ? duration : 0;
+  /** Durée embarquée dans le nom de la pièce (`voice-12.4s.m4a`), s'il suit la convention. */
+  const dureeDuNom = voiceDurationFromName(piece.name);
+  const dureeSure =
+    Number.isFinite(duration) && duration > 0 ? duration : dureeDuNom ?? 0;
   const ratioActuel = dureeSure > 0 ? Math.min(1, currentTime / dureeSure) : 0;
 
   const chercher = (ratio: number): void => {
@@ -167,11 +219,25 @@ export function VoiceMessagePlayer({
     setCurrentTime(cible);
   };
 
+  const reessayer = (): void => {
+    setEchec(false);
+    setAttempt((a) => a + 1);
+  };
+
   if (echec) {
     return (
       <div className="flex h-14 w-[280px] max-w-full items-center gap-2 rounded-lg bg-input px-3 text-sm text-faint">
         <MicOffIcon />
-        <span>{t.vocal.indisponible}</span>
+        <span className="min-w-0 flex-1 truncate">{t.vocal.indisponible}</span>
+        <button
+          type="button"
+          aria-label={t.vocal.reessayer}
+          title={t.vocal.reessayer}
+          onClick={reessayer}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-norm active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
+        >
+          <RetryIcon />
+        </button>
       </div>
     );
   }
@@ -206,9 +272,34 @@ export function VoiceMessagePlayer({
         src={url}
         preload="metadata"
         className="hidden"
-        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-        onDurationChange={(e) => setDuration(e.currentTarget.duration)}
-        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => {
+          const d = e.currentTarget.duration;
+          if (Number.isFinite(d) && d > 0) {
+            setDuration(d);
+            return;
+          }
+          // Durée absente/Infinity (blob MediaRecorder) : seek géant pour
+          // forcer le calcul — `durationchange` rapportera la vraie valeur.
+          probingRef.current = true;
+          try {
+            e.currentTarget.currentTime = DURATION_PROBE_SEEK_S;
+          } catch {
+            // Seek refusé : la durée du nom de pièce reste le seul repli.
+          }
+        }}
+        onDurationChange={(e) => {
+          const d = e.currentTarget.duration;
+          if (!Number.isFinite(d) || d <= 0) return;
+          setDuration(d);
+          if (probingRef.current) {
+            probingRef.current = false;
+            e.currentTarget.currentTime = 0;
+          }
+        }}
+        onTimeUpdate={(e) => {
+          if (probingRef.current) return;
+          setCurrentTime(e.currentTarget.currentTime);
+        }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => {

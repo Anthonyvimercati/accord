@@ -4,6 +4,14 @@
  * collage d'image — aperçus retirables, bornes UI (10 pièces, 8 Mio chacune).
  * À l'envoi, chaque pièce est publiée via `files.share_bytes` (état
  * « publication… »), puis le message part avec ses références.
+ *
+ * Message vocal : pendant l'enregistrement, le contenu du composeur est
+ * remplacé par une rangée dédiée — [annuler (corbeille)] [pastille rouge +
+ * compteur + barres pulsées] [arrêter & envoyer (coche)] — tous les contrôles
+ * groupés. `pending` (micro en cours d'obtention) et `active` (capture
+ * réelle, signalée par `onStart`) partagent la rangée ; l'animation ne pulse
+ * qu'en `active`. Arrêt/annulation restent honorés même pendant `pending`
+ * (machine à états de `lib/voiceRecorder.ts`).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -102,6 +110,13 @@ interface MessageInputProps {
 
 let prochainId = 1;
 
+/**
+ * Hauteurs (px) des barres du vumètre décoratif de la rangée d'enregistrement
+ * — statiques, seule leur pulsation (`transform: scaleY`, voir `.voice-eq-bar`
+ * dans global.css) est animée.
+ */
+const EQ_BAR_HEIGHTS = [6, 11, 16, 9, 14, 7, 12, 16, 8, 13, 6, 10, 15, 8] as const;
+
 export function MessageInput({
   placeholder,
   onSend,
@@ -127,7 +142,13 @@ export function MessageInput({
   const [erreur, setErreur] = useState<string | null>(null);
   const [survol, setSurvol] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const [recording, setRecording] = useState(false);
+  /**
+   * Phase d'enregistrement vocal : `pending` dès le clic micro (rangée
+   * affichée, contrôles actifs), `active` quand la capture démarre vraiment
+   * (`onStart` de l'enregistreur — base du compteur et de la pulsation).
+   */
+  const [recPhase, setRecPhase] = useState<'idle' | 'pending' | 'active'>('idle');
+  const recording = recPhase !== 'idle';
   const [elapsedMs, setElapsedMs] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -361,12 +382,18 @@ export function MessageInput({
    * envoie immédiatement un message dédié (texte vide, une pièce audio) —
    * même chemin de publication que `submit()`, indépendant de `pieces`.
    */
-  const envoyerVocal = async (blob: Blob, mime: string): Promise<void> => {
-    setRecording(false);
+  const envoyerVocal = async (
+    blob: Blob,
+    mime: string,
+    durationMs: number,
+  ): Promise<void> => {
+    setRecPhase('idle');
     setElapsedMs(0);
     setSending(true);
     try {
-      const nom = voiceFileName(mime);
+      // La durée réelle est embarquée dans le nom (`voice-12.4s.m4a`) : les
+      // blobs MediaRecorder n'ont pas d'en-tête de durée, le lecteur la relit.
+      const nom = voiceFileName(mime, durationMs);
       const dataB64 = await fichierEnB64(blob);
       const { file } = await api.filesShareBytes(nom, mime, dataB64);
       await onSend('', [file]);
@@ -383,19 +410,20 @@ export function MessageInput({
     if (sending || recording) return;
     setErreur(null);
     setElapsedMs(0);
-    setRecording(true);
+    setRecPhase('pending');
     const recorder = new VoiceRecorder({
+      onStart: () => setRecPhase('active'),
       onTick: (ms) => setElapsedMs(ms),
       onStop: (result) => {
         recorderRef.current = null;
         if (result.reason !== 'manual') {
           toast('info', t.vocal.limiteAtteinte);
         }
-        void envoyerVocal(result.blob, result.mime);
+        void envoyerVocal(result.blob, result.mime, result.durationMs);
       },
       onError: (error) => {
         recorderRef.current = null;
-        setRecording(false);
+        setRecPhase('idle');
         setElapsedMs(0);
         toast(
           'error',
@@ -411,7 +439,7 @@ export function MessageInput({
   const annulerEnregistrement = (): void => {
     recorderRef.current?.cancel();
     recorderRef.current = null;
-    setRecording(false);
+    setRecPhase('idle');
     setElapsedMs(0);
   };
 
@@ -673,11 +701,99 @@ export function MessageInput({
             ajouter(fichiers);
           }}
         />
+        {recording ? (
+          <div className="flex min-h-[44px] flex-1 items-center gap-1">
+            <button
+              type="button"
+              aria-label={t.vocal.annuler}
+              title={t.vocal.annuler}
+              onClick={annulerEnregistrement}
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-red/10 hover:text-red active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M3 6h18" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <line x1="10" x2="10" y1="11" y2="17" />
+                <line x1="14" x2="14" y1="11" y2="17" />
+              </svg>
+            </button>
+            <div className="flex min-w-0 flex-1 items-center gap-2.5 px-1.5">
+              <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
+                {recPhase === 'active' && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red opacity-60" />
+                )}
+                <span
+                  className={`relative inline-flex h-2.5 w-2.5 rounded-full bg-red transition-opacity duration-fast ${
+                    recPhase === 'pending' ? 'opacity-40' : ''
+                  }`}
+                />
+              </span>
+              <span
+                role="status"
+                aria-label={interpolate(t.vocal.enCours, {
+                  time: formatDuration(elapsedMs / 1000),
+                })}
+                className="shrink-0 select-none text-[15px] font-medium tabular-nums text-header"
+              >
+                {formatDuration(elapsedMs / 1000)}
+              </span>
+              <div
+                aria-hidden
+                className="flex h-5 min-w-0 flex-1 items-center justify-center gap-[3px] overflow-hidden"
+              >
+                {EQ_BAR_HEIGHTS.map((h, i) => (
+                  <span
+                    key={i}
+                    className="voice-eq-bar w-[3px] shrink-0 rounded-full bg-red/70"
+                    style={{
+                      height: `${h}px`,
+                      animationDelay: `${i * 0.13}s`,
+                      animationPlayState: recPhase === 'active' ? 'running' : 'paused',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label={t.vocal.envoyer}
+              title={t.vocal.envoyer}
+              onClick={arreterEtEnvoyer}
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blurple text-white shadow-1 transition-all duration-fast hover:scale-105 hover:bg-blurple-hover active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </button>
+          </div>
+        ) : (
+          <>
         <button
           type="button"
           aria-label={t.fichiers.joindre}
           title={t.fichiers.joindre}
-          disabled={sending || recording}
+          disabled={sending}
           onClick={openAttachMenu}
           className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
         >
@@ -695,57 +811,36 @@ export function MessageInput({
             <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
           </svg>
         </button>
-        {recording ? (
-          <div
+        <button
+          type="button"
+          aria-label={t.vocal.enregistrer}
+          title={t.vocal.enregistrer}
+          disabled={sending}
+          onClick={demarrerEnregistrement}
+          className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
             aria-hidden
-            className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center"
           >
-            <span className="h-2.5 w-2.5 rounded-full bg-red animate-pulse" />
-          </div>
-        ) : (
-          <button
-            type="button"
-            aria-label={t.vocal.enregistrer}
-            title={t.vocal.enregistrer}
-            disabled={sending}
-            onClick={demarrerEnregistrement}
-            className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-              <line x1="12" x2="12" y1="18" y2="22" />
-              <line x1="8" x2="16" y1="22" y2="22" />
-            </svg>
-          </button>
-        )}
-        {recording && (
-          <span
-            role="status"
-            aria-label={interpolate(t.vocal.enCours, {
-              time: formatDuration(elapsedMs / 1000),
-            })}
-            className="mx-1 shrink-0 select-none text-[13px] tabular-nums text-muted"
-          >
-            {formatDuration(elapsedMs / 1000)}
-          </span>
-        )}
+            <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+            <line x1="12" x2="12" y1="18" y2="22" />
+            <line x1="8" x2="16" y1="22" y2="22" />
+          </svg>
+        </button>
         <textarea
           ref={textareaRef}
           aria-label={placeholder}
           placeholder={placeholder}
           value={text}
-          disabled={recording}
           rows={1}
           onChange={(e) => {
             const value = e.target.value;
@@ -813,7 +908,7 @@ export function MessageInput({
           }}
           className="max-h-48 min-h-[36px] flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
         />
-        {slowmodeActive && !recording && (
+        {slowmodeActive && (
           <span
             role="status"
             title={interpolate(t.groups.slowmodeWait, {
@@ -841,57 +936,6 @@ export function MessageInput({
             <span aria-hidden>{slowmodeRemaining}s</span>
           </span>
         )}
-        {recording ? (
-          <>
-            <button
-              type="button"
-              aria-label={t.vocal.annuler}
-              title={t.vocal.annuler}
-              onClick={annulerEnregistrement}
-              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-red active:scale-95"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M3 6h18" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                <line x1="10" x2="10" y1="11" y2="17" />
-                <line x1="14" x2="14" y1="11" y2="17" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              aria-label={t.vocal.envoyer}
-              title={t.vocal.envoyer}
-              onClick={arreterEtEnvoyer}
-              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-blurple active:scale-95"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </button>
-          </>
-        ) : (
-          <>
             <div className="relative">
               <button
                 type="button"

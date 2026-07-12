@@ -1,6 +1,9 @@
 /**
  * Tests de lireFichier : lecture directe, cache module-scope, attente de
- * `event.file_progress` sur `{ pending: true }` et abandon sur silence.
+ * `event.file_progress` sur `{ pending: true }`, abandon sur silence, et
+ * reprises automatiques (backoff) après un abandon signalé par le nœud
+ * (`complete: false` sans avancée de `done`) — l'abonnement reste vivant à
+ * travers les reprises (un `complete: true` tardif résout toujours).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,16 +23,21 @@ vi.mock('./client', () => ({
 }));
 
 import { api } from './client';
-import { lireFichier, FILE_WAIT_TIMEOUT_MS } from './files';
+import { lireFichier, FILE_RETRY_BACKOFF_MS, FILE_WAIT_TIMEOUT_MS } from './files';
 
 const readMock = api.filesRead as unknown as Mock;
 
 /** Simule une notification `event.file_progress` du nœud. */
 function pushProgress(merkleRoot: string, complete: boolean): void {
+  pushEvent(merkleRoot, complete ? 4 : 1, complete);
+}
+
+/** Notification brute avec `done` contrôlé (progrès réel vs abandon stagnant). */
+function pushEvent(merkleRoot: string, done: number, complete: boolean): void {
   for (const handler of handlers) {
     handler('event.file_progress', {
       merkle_root: merkleRoot,
-      done: complete ? 4 : 1,
+      done,
       total: 4,
       complete,
     });
@@ -102,5 +110,45 @@ describe('lireFichier', () => {
 
     readMock.mockResolvedValueOnce(COMPLETE);
     await expect(lireFichier('hash-reprise')).resolves.toBe(URL_ATTENDUE);
+  });
+
+  it('survit à un abandon signalé : un complete tardif résout pendant le backoff', async () => {
+    vi.useFakeTimers();
+    let fileComplete = false;
+    readMock.mockImplementation(async () =>
+      fileComplete ? COMPLETE : { pending: true },
+    );
+
+    const promise = lireFichier('hash-abandon');
+    // Laisse la première lecture s'installer avant de pousser les événements.
+    await Promise.resolve();
+    await Promise.resolve();
+    pushEvent('hash-abandon', 1, false); // progrès réel
+    pushEvent('hash-abandon', 1, false); // done stagnant : abandon → backoff
+    // Le nœud retente en arrière-plan et finit pendant le backoff :
+    fileComplete = true;
+    pushEvent('hash-abandon', 4, true);
+
+    await expect(promise).resolves.toBe(URL_ATTENDUE);
+  });
+
+  it('rejette vite après deux reprises quand le nœud abandonne encore et encore', async () => {
+    vi.useFakeTimers();
+    readMock.mockResolvedValue({ pending: true });
+
+    const promise = lireFichier('hash-abandons');
+    const failure = expect(promise).rejects.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+    pushEvent('hash-abandons', 1, false); // premier événement : progrès
+    pushEvent('hash-abandons', 1, false); // abandon → reprise 1
+    await vi.advanceTimersByTimeAsync((FILE_RETRY_BACKOFF_MS[0] ?? 0) + 1);
+    pushEvent('hash-abandons', 1, false); // abandon → reprise 2
+    await vi.advanceTimersByTimeAsync((FILE_RETRY_BACKOFF_MS[1] ?? 0) + 1);
+    pushEvent('hash-abandons', 1, false); // reprises épuisées : rejet immédiat
+
+    await failure;
+    // Bien plus vite que le délai d'inactivité complet : les reprises sont
+    // bornées par les backoffs courts, pas par FILE_WAIT_TIMEOUT_MS.
   });
 });

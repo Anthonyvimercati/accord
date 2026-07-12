@@ -867,6 +867,7 @@ export const en: Dict = {
     pause: 'Pause',
     progression: 'Voice message progress',
     indisponible: 'Voice message unavailable',
+    reessayer: 'Retry playback',
   },
   notifications: {
     newMessageFrom: 'New message from {name}',
