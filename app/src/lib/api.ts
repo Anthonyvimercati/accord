@@ -1411,10 +1411,15 @@ export class Api {
    * Lit un fichier du magasin local par sa racine Merkle (borné à 8 Mio).
    * `hint` : clé publique d'un pair source probable pour le téléchargement.
    */
-  filesRead(merkleRoot: string, hint?: string): Promise<FilesReadResult> {
+  filesRead(merkleRoot: string, hint?: string, media?: boolean): Promise<FilesReadResult> {
     return this.rpc.call('files.read', {
       merkle_root: merkleRoot,
       ...(hint !== undefined ? { hint } : {}),
+      // `media: true` plafonne le téléchargement déclenché à 8 Mio côté nœud
+      // (rendu d'icône/bannière/avatar/émoji — anti-DoS 2 Gio d'un admin
+      // malveillant). Les lectures en ligne sont de toute façon bornées à
+      // 8 Mio, donc ce plafond n'affecte aucun contenu affichable légitime.
+      ...(media === true ? { media: true } : {}),
     });
   }
 

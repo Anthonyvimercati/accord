@@ -79,7 +79,7 @@ function waitForDownload(merkleRoot: string, hint?: string): Promise<void> {
         // Re-signale l'intention au nœud ; s'il a fini entre-temps
         // (événement manqué), on résout tout de suite.
         api
-          .filesRead(merkleRoot, hint)
+          .filesRead(merkleRoot, hint, true)
           .then((r: FilesReadResult) => {
             if (r.pending !== true) finish(null);
           })
@@ -112,7 +112,9 @@ function waitForDownload(merkleRoot: string, hint?: string): Promise<void> {
 }
 
 async function fetchDataUrl(merkleRoot: string, hint?: string): Promise<string> {
-  const first: FilesReadResult = await api.filesRead(merkleRoot, hint);
+  // `media: true` : la lecture en ligne (`lireFichier`) est bornée à 8 Mio,
+  // donc le téléchargement déclenché est plafonné d'autant (anti-DoS média).
+  const first: FilesReadResult = await api.filesRead(merkleRoot, hint, true);
   if (first.pending !== true) return toDataUrl(first.data_b64, first.mime);
   await waitForDownload(merkleRoot, hint);
   const second: FilesReadResult = await api.filesRead(merkleRoot, hint);

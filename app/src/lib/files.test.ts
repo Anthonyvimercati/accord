@@ -66,7 +66,8 @@ describe('lireFichier', () => {
     const url = await lireFichier('hash-direct');
 
     expect(url).toBe(URL_ATTENDUE);
-    expect(readMock).toHaveBeenCalledWith('hash-direct', undefined);
+    // `media: true` : lecture en ligne plafonnée (anti-DoS média serveur).
+    expect(readMock).toHaveBeenCalledWith('hash-direct', undefined, true);
   });
 
   it('met l’URL en cache : une seule lecture pour deux appels', async () => {

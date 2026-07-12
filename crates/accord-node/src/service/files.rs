@@ -109,8 +109,24 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let Some(chemin) = node.files_local_path(&racine)? else {
                 // Pas (encore) complet en local : déclenche ou poursuit le
                 // téléchargement ; l'UI suivra `event.file_progress` puis
-                // rappellera `files.read`.
-                node.files_fetch(&racine, param_indice(params)?)?;
+                // rappellera `files.read`. Média de RENDU (icône/bannière de
+                // serveur, avatar, émoji…) : l'UI passe `media:true` et le
+                // téléchargement est PLAFONNÉ à MEDIA_AUTO_FETCH_MAX (8 Mio) —
+                // un MANAGE_CHANNELS malveillant ne peut pas faire
+                // auto-télécharger un blob de 2 Gio sous couvert d'icône de
+                // serveur (audit 1.0). Une pièce jointe (potentiellement
+                // volumineuse) est lue SANS ce drapeau → téléchargement non
+                // plafonné (borne `MAX_FILE_SIZE`), puis copiée via `files.save`.
+                let indice = param_indice(params)?;
+                if params
+                    .get("media")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    node.files_fetch_media(&racine, indice)?;
+                } else {
+                    node.files_fetch(&racine, indice)?;
+                }
                 return Ok(json!({ "pending": true }));
             };
             let entry = node
