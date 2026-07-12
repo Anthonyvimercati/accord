@@ -1,6 +1,7 @@
 /**
- * Modales : création de groupe/salon, invitation. Les paramètres ouvrent
- * l'écran plein format dédié (components/settings), même déclencheur
+ * Modales : création/rejoindre un serveur (deux onglets), création de salon,
+ * invitation façon Discord (lien partageable auto-créé + amis). Les paramètres
+ * ouvrent l'écran plein format dédié (components/settings), même déclencheur
  * `ui.modal = { kind: 'settings' }`.
  */
 
@@ -27,7 +28,7 @@ import { Avatar } from './Avatar';
 import { ChannelIcon } from './Sidebar';
 import { CloseIcon } from './ContextMenu';
 import { EventsModal } from './EventsModal';
-import { JoinServerModal } from './JoinServerModal';
+import { JoinServerForm } from './JoinServerForm';
 import { messageOf } from './server/controls';
 import { ServerSettingsModal } from './server/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
@@ -73,6 +74,10 @@ const INVITE_LINK_USES: Array<{ value: number; label: (t: Dict) => string }> = [
  * Options du sélecteur « durée de validité » — `value` est le `expires_h` du
  * contrat en heures (`0` = jamais).
  */
+/** Défauts du lien créé automatiquement à l'ouverture : illimité, 7 jours. */
+const INVITE_LINK_DEFAULT_USES = 0;
+const INVITE_LINK_DEFAULT_HOURS = 168;
+
 const INVITE_LINK_DURATIONS: Array<{ value: number; label: (t: Dict) => string }> = [
   { value: 0.5, label: (t) => t.inviteLink.dur30m },
   { value: 1, label: (t) => t.inviteLink.dur1h },
@@ -199,24 +204,69 @@ function NameForm({
   );
 }
 
+/**
+ * Créer ou rejoindre un serveur, en deux onglets : le formulaire de création
+ * historique, et « Rejoindre avec un lien » (`JoinServerForm`, remplace
+ * l'ancien bouton dédié du rail des serveurs).
+ */
 function CreateGroupModal() {
   const t = useT();
   const create = useGroups((s) => s.create);
   const setView = useUi((s) => s.setView);
   const loadState = useGroups((s) => s.loadState);
+  const [tab, setTab] = useState<'create' | 'join'>('create');
+
+  const tabClass = (selected: boolean): string =>
+    `flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal ${
+      selected
+        ? 'bg-blurple text-white'
+        : 'text-muted hover:bg-chat-hover hover:text-norm'
+    }`;
+
   return (
-    <ModalFrame title={t.groups.createTitle} hint={t.groups.createHint}>
-      <NameForm
-        placeholder={t.groups.namePlaceholder}
-        action={t.groups.createAction}
-        onSubmit={async (name) => {
-          const groupId = await create(name, 'général');
-          await loadState(groupId);
-          const channelId =
-            useGroups.getState().states[groupId]?.channels[0]?.channel_id ?? null;
-          setView({ kind: 'group', groupId, channelId });
-        }}
-      />
+    <ModalFrame
+      title={tab === 'create' ? t.groups.createTitle : t.joinServer.title}
+      hint={tab === 'create' ? t.groups.createHint : t.joinServer.hint}
+    >
+      <div
+        role="tablist"
+        aria-label={t.groups.createOrJoin}
+        className="mb-4 flex gap-1 rounded-lg bg-rail p-1"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'create'}
+          onClick={() => setTab('create')}
+          className={tabClass(tab === 'create')}
+        >
+          {t.groups.tabCreate}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'join'}
+          onClick={() => setTab('join')}
+          className={tabClass(tab === 'join')}
+        >
+          {t.groups.tabJoin}
+        </button>
+      </div>
+      {tab === 'create' ? (
+        <NameForm
+          placeholder={t.groups.namePlaceholder}
+          action={t.groups.createAction}
+          onSubmit={async (name) => {
+            const groupId = await create(name, 'général');
+            await loadState(groupId);
+            const channelId =
+              useGroups.getState().states[groupId]?.channels[0]?.channel_id ?? null;
+            setView({ kind: 'group', groupId, channelId });
+          }}
+        />
+      ) : (
+        <JoinServerForm />
+      )}
     </ModalFrame>
   );
 }
@@ -329,32 +379,45 @@ function CreateChannelModal({ groupId }: { groupId: string }) {
 }
 
 /**
- * Section « lien d'invitation partageable » : deux sélecteurs (usages, durée)
- * et un bouton qui crée un code `accord://invite/…` via `invite_link_create`,
- * affiché en lecture seule avec un bouton « Copier ». Autonome (son propre
+ * Section « lien d'invitation partageable » : un lien par défaut (illimité,
+ * 7 jours) est créé automatiquement à l'ouverture via `invite_link_create` et
+ * affiché en lecture seule avec un bouton « Copier » ; à l'échec, un bouton
+ * « Réessayer » relance la création. « Modifier le lien » déplie les
+ * sélecteurs usages/durée pour générer un nouveau code. Autonome (son propre
  * état local), rendue sous la liste d'amis d'`InviteModal`.
  */
 function ShareableLinkSection({ groupId }: { groupId: string }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
-  const [maxUses, setMaxUses] = useState(0);
-  const [expiresH, setExpiresH] = useState(168);
+  const [maxUses, setMaxUses] = useState(INVITE_LINK_DEFAULT_USES);
+  const [expiresH, setExpiresH] = useState(INVITE_LINK_DEFAULT_HOURS);
   const [code, setCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [editing, setEditing] = useState(false);
 
-  const createLink = (): void => {
+  const createLink = (uses: number, hours: number): void => {
     setBusy(true);
+    setFailed(false);
     api
-      .groupsInviteLinkCreate(groupId, maxUses, expiresH)
+      .groupsInviteLinkCreate(groupId, uses, hours)
       .then((res) => {
         setCode(res.code);
         setBusy(false);
       })
       .catch(() => {
-        toast('error', t.errors.actionFailed);
+        setFailed(true);
         setBusy(false);
       });
   };
+
+  // Lien par défaut créé dès l'ouverture de la modale, façon Discord.
+  useEffect(() => {
+    createLink(INVITE_LINK_DEFAULT_USES, INVITE_LINK_DEFAULT_HOURS);
+    // `createLink` ne dépend que de `groupId` (les autres valeurs sont passées
+    // en arguments) — dépendance unique volontaire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId]);
 
   const copyCode = (): void => {
     if (code === null) return;
@@ -373,90 +436,165 @@ function ShareableLinkSection({ groupId }: { groupId: string }) {
     <div className="mt-4 border-t border-input/50 pt-4">
       <h3 className="text-sm font-semibold text-header">{t.inviteLink.title}</h3>
       <p className="mt-1 text-xs text-muted">{t.inviteLink.hint}</p>
-      <div className="mt-3 flex gap-2">
-        <label className="min-w-0 flex-1">
-          <span className={labelClass}>{t.inviteLink.usesLabel}</span>
-          <select
-            aria-label={t.inviteLink.usesLabel}
-            value={maxUses}
-            onChange={(e) => setMaxUses(Number(e.target.value))}
-            className={selectClass}
+      {failed ? (
+        <div className="mt-3 flex items-center gap-2">
+          <p role="alert" className="min-w-0 flex-1 text-sm text-red">
+            {t.inviteLink.failed}
+          </p>
+          <button
+            type="button"
+            onClick={() => createLink(maxUses, expiresH)}
+            className="shrink-0 rounded-lg border border-blurple px-3 py-2 text-sm font-medium text-blurple transition-colors duration-fast hover:bg-blurple hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
           >
-            {INVITE_LINK_USES.map((u) => (
-              <option key={u.value} value={u.value}>
-                {u.label(t)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="min-w-0 flex-1">
-          <span className={labelClass}>{t.inviteLink.durationLabel}</span>
-          <select
-            aria-label={t.inviteLink.durationLabel}
-            value={expiresH}
-            onChange={(e) => setExpiresH(Number(e.target.value))}
-            className={selectClass}
-          >
-            {INVITE_LINK_DURATIONS.map((d) => (
-              <option key={d.value} value={d.value}>
-                {d.label(t)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={createLink}
-        className="mt-3 w-full rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50 active:scale-[0.98]"
-      >
-        {busy ? t.inviteLink.creating : t.inviteLink.create}
-      </button>
-      {code !== null && (
+            {t.inviteLink.retry}
+          </button>
+        </div>
+      ) : (
         <div className="mt-3 flex gap-2">
           <input
             readOnly
             aria-label={t.inviteLink.codeLabel}
-            value={code}
+            value={code ?? t.inviteLink.creating}
             onFocus={(e) => e.currentTarget.select()}
             className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm outline-none"
           />
           <button
             type="button"
+            disabled={code === null}
             onClick={copyCode}
-            className="shrink-0 rounded-lg border border-blurple px-3 py-2 text-sm font-medium text-blurple transition-colors duration-fast hover:bg-blurple hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+            className="shrink-0 rounded-lg border border-blurple px-3 py-2 text-sm font-medium text-blurple transition-colors duration-fast hover:bg-blurple hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50"
           >
             {t.app.copy}
           </button>
         </div>
       )}
+      <button
+        type="button"
+        aria-expanded={editing}
+        onClick={() => setEditing((open) => !open)}
+        className="mt-2 text-xs font-medium text-blurple transition-colors duration-fast hover:text-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+      >
+        {t.inviteLink.edit}
+      </button>
+      {editing && (
+        <>
+          <div className="mt-2 flex gap-2">
+            <label className="min-w-0 flex-1">
+              <span className={labelClass}>{t.inviteLink.usesLabel}</span>
+              <select
+                aria-label={t.inviteLink.usesLabel}
+                value={maxUses}
+                onChange={(e) => setMaxUses(Number(e.target.value))}
+                className={selectClass}
+              >
+                {INVITE_LINK_USES.map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {u.label(t)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-0 flex-1">
+              <span className={labelClass}>{t.inviteLink.durationLabel}</span>
+              <select
+                aria-label={t.inviteLink.durationLabel}
+                value={expiresH}
+                onChange={(e) => setExpiresH(Number(e.target.value))}
+                className={selectClass}
+              >
+                {INVITE_LINK_DURATIONS.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label(t)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => createLink(maxUses, expiresH)}
+            className="mt-3 w-full rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50 active:scale-[0.98]"
+          >
+            {busy ? t.inviteLink.creating : t.inviteLink.create}
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
+/**
+ * Modale d'invitation façon Discord : recherche parmi les amis non-membres,
+ * invitation par rangée (le bouton devient « Invité ✓ » sans fermer la
+ * modale, pour enchaîner plusieurs invitations) et lien partageable créé
+ * automatiquement à l'ouverture (`ShareableLinkSection`).
+ */
 function InviteModal({ groupId }: { groupId: string }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
-  const closeModal = useUi((s) => s.closeModal);
   const contacts = useFriends((s) => s.contacts);
   const state = useGroups((s) => s.states[groupId]);
   const invite = useGroups((s) => s.invite);
+  const [query, setQuery] = useState('');
+  const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
+  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
 
   const members = new Set((state?.members ?? []).map((m) => m.pubkey));
   const candidates = contacts.filter(
     (c) => c.state === 'friend' && !members.has(c.pubkey),
   );
+  const needle = query.trim().toLowerCase();
+  const visible =
+    needle === ''
+      ? candidates
+      : candidates.filter((c) =>
+          displayNameOf(contacts, c.pubkey).toLowerCase().includes(needle),
+        );
+
+  const withKey = (set: ReadonlySet<string>, key: string): ReadonlySet<string> =>
+    new Set([...set, key]);
+  const withoutKey = (set: ReadonlySet<string>, key: string): ReadonlySet<string> =>
+    new Set([...set].filter((k) => k !== key));
+
+  const sendInvite = (pubkey: string): void => {
+    setPending((prev) => withKey(prev, pubkey));
+    invite(groupId, pubkey)
+      .then(() => {
+        setSent((prev) => withKey(prev, pubkey));
+        toast('info', t.groups.invited);
+      })
+      .catch(() => toast('error', t.errors.actionFailed))
+      .finally(() => setPending((prev) => withoutKey(prev, pubkey)));
+  };
 
   return (
-    <ModalFrame title={t.groups.inviteTitle} hint={t.groups.inviteHint}>
-      {candidates.length === 0 && (
+    <ModalFrame
+      title={interpolate(t.groups.inviteTitle, { name: state?.name ?? '…' })}
+      hint={t.groups.inviteHint}
+    >
+      {candidates.length === 0 ? (
         <p className="py-4 text-center text-sm text-muted">
           {t.groups.noFriendsToInvite}
         </p>
+      ) : (
+        <>
+          <input
+            aria-label={t.groups.inviteSearchPlaceholder}
+            placeholder={t.groups.inviteSearchPlaceholder}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="mb-3 w-full rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+          />
+          {visible.length === 0 && (
+            <p className="py-4 text-center text-sm text-muted">
+              {t.groups.inviteNoResults}
+            </p>
+          )}
+        </>
       )}
-      <div className="max-h-72 space-y-1 overflow-y-auto">
-        {candidates.map((c) => (
+      <div className="max-h-60 space-y-1 overflow-y-auto">
+        {visible.map((c) => (
           <div
             key={c.pubkey}
             className="flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors duration-fast hover:bg-chat-hover"
@@ -471,20 +609,24 @@ function InviteModal({ groupId }: { groupId: string }) {
             <span className="min-w-0 flex-1 truncate text-norm">
               {displayNameOf(contacts, c.pubkey)}
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                invite(groupId, c.pubkey)
-                  .then(() => {
-                    toast('info', t.groups.invited);
-                    closeModal();
-                  })
-                  .catch(() => toast('error', t.errors.actionFailed));
-              }}
-              className="rounded-lg border border-green px-3 py-1 text-sm font-medium text-green transition-colors duration-fast hover:bg-green hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
-            >
-              {t.groups.invite}
-            </button>
+            {sent.has(c.pubkey) ? (
+              <button
+                type="button"
+                disabled
+                className="rounded-lg border border-transparent px-3 py-1 text-sm font-medium text-green"
+              >
+                {t.groups.inviteSent}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={pending.has(c.pubkey)}
+                onClick={() => sendInvite(c.pubkey)}
+                className="rounded-lg border border-green px-3 py-1 text-sm font-medium text-green transition-colors duration-fast hover:bg-green hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50"
+              >
+                {t.groups.invite}
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -677,8 +819,6 @@ export function Modals() {
       return <CreateChannelModal groupId={modal.groupId} />;
     case 'invite':
       return <InviteModal groupId={modal.groupId} />;
-    case 'joinServer':
-      return <JoinServerModal />;
     case 'settings':
       return <SettingsModal />;
     case 'serverSettings':

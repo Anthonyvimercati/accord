@@ -183,6 +183,35 @@ describe('ServerRail — pastilles', () => {
   });
 });
 
+describe('ServerRail — actions du rail', () => {
+  beforeEach(() => {
+    useUi.setState({
+      lang: 'fr',
+      view: { kind: 'friends' },
+      modal: null,
+      lastChannelByServer: {},
+      lastDmPeer: null,
+    });
+    useFriends.setState({ contacts: [] });
+    useGroups.setState({ ids: [], states: {}, mentions: {} });
+    useMute.setState({ serverLevels: {}, channelLevels: {} });
+  });
+
+  it('le bouton « + » ouvre la modale créer/rejoindre un serveur', () => {
+    render(<ServerRail />);
+
+    fireEvent.click(screen.getByLabelText('Créer un groupe'));
+
+    expect(useUi.getState().modal).toEqual({ kind: 'createGroup' });
+  });
+
+  it('n’affiche plus de bouton dédié « Rejoindre un serveur » (déplacé dans « + »)', () => {
+    render(<ServerRail />);
+
+    expect(screen.queryByLabelText('Rejoindre un serveur')).not.toBeInTheDocument();
+  });
+});
+
 describe('ServerRail — sourdine des notifications', () => {
   beforeEach(() => {
     useUi.setState({

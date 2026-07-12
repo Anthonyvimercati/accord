@@ -314,6 +314,22 @@ describe('Sidebar — menu du nom de serveur', () => {
     ).toBeInTheDocument();
   });
 
+  it('le bandeau ne porte plus de raccourci Paramètres — seul le menu les propose', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: groupState({ my_permissions: PERMISSIONS.INVITE }) },
+    });
+
+    render(<Sidebar />);
+
+    // L'engrenage direct du bandeau a été retiré (doublon du menu du serveur)…
+    expect(
+      screen.queryByRole('button', { name: 'Paramètres du serveur' }),
+    ).not.toBeInTheDocument();
+    // …mais l'icône d'invitation (personne+) reste avec la permission INVITE.
+    expect(screen.getByRole('button', { name: 'Inviter' })).toBeInTheDocument();
+  });
+
   it('« Créer la catégorie » ouvre les paramètres du serveur sur l’onglet Salons', () => {
     useGroups.setState({
       ids: ['g1'],

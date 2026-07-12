@@ -1,7 +1,9 @@
 /**
- * Tests de la modale d'invitation de serveur (consentement explicite, D-045) :
- * seuls les amis non-membres sont proposés, et le clic appelle bien
- * `groups.invite_create` — jamais l'ancien force-join (`groups.invite`).
+ * Tests des modales : invitation de serveur façon Discord (consentement
+ * explicite D-045 — seuls les amis non-membres sont proposés, le clic appelle
+ * `groups.invite_create` sans fermer la modale, lien partageable auto-créé à
+ * l'ouverture), création/rejoindre un serveur en deux onglets, et création de
+ * sondage (D-048).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,7 +17,17 @@ vi.mock('../lib/client', () => ({
   },
   api: {
     groupsInviteCreate: vi.fn(() => Promise.resolve({ invite_id: 'i1' })),
-    groupsState: vi.fn(() => Promise.resolve(groupStateFixture())),
+    groupsInviteLinkCreate: vi.fn(() =>
+      Promise.resolve({ code: 'accord://invite/CODE123' }),
+    ),
+    groupsInviteLinkRedeem: vi.fn(() =>
+      Promise.resolve({ ok: true, group_id: 'g9', group_name: 'Nouvelle Guilde' }),
+    ),
+    // `invite` (store) rafraîchit l'état après invite_create : le fixture doit
+    // garder « Déjà membre » membre, sinon il réapparaîtrait dans la liste.
+    groupsState: vi.fn(() =>
+      Promise.resolve(groupStateFixture([{ pubkey: 'pk_membre', roles: [] }])),
+    ),
     groupsSendPoll: vi.fn(() => Promise.resolve({ msg_id: 'm1', poll_id: 'p1' })),
   },
 }));
@@ -49,6 +61,7 @@ describe('InviteModal (Modals.tsx) — invitation par consentement (D-045)', () 
     useFriends.setState({
       contacts: [
         { pubkey: 'pk_bob', display_name: 'Bob', state: 'friend' },
+        { pubkey: 'pk_carole', display_name: 'Carole', state: 'friend' },
         { pubkey: 'pk_membre', display_name: 'Déjà membre', state: 'friend' },
       ] as unknown as Contact[],
     });
@@ -56,24 +69,180 @@ describe('InviteModal (Modals.tsx) — invitation par consentement (D-045)', () 
       states: { g1: groupStateFixture([{ pubkey: 'pk_membre', roles: [] }]) },
     });
     (api.groupsInviteCreate as unknown as ReturnType<typeof vi.fn>).mockClear();
+    (api.groupsInviteLinkCreate as unknown as ReturnType<typeof vi.fn>)
+      .mockClear()
+      .mockResolvedValue({ code: 'accord://invite/CODE123' });
     (api.groupsState as unknown as ReturnType<typeof vi.fn>).mockClear();
   });
 
-  it('propose seulement les amis qui ne sont pas déjà membres', () => {
+  /** Attend le lien auto-créé (évite les avertissements act sur l'effet). */
+  async function attendreLien(): Promise<void> {
+    expect(
+      await screen.findByDisplayValue('accord://invite/CODE123'),
+    ).toBeInTheDocument();
+  }
+
+  it('affiche le nom du serveur dans le titre et propose seulement les amis non-membres', async () => {
     render(<Modals />);
 
+    expect(
+      screen.getByRole('dialog', { name: 'Inviter des amis sur Guilde' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('Bob')).toBeInTheDocument();
     expect(screen.queryByText('Déjà membre')).not.toBeInTheDocument();
+    await attendreLien();
   });
 
   it('appelle groups.invite_create au clic — jamais l’ancien force-join', async () => {
     render(<Modals />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Inviter' }));
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Inviter' })[0] as HTMLElement,
+    );
 
     await vi.waitFor(() =>
       expect(api.groupsInviteCreate).toHaveBeenCalledWith('g1', 'pk_bob'),
     );
+    await attendreLien();
+  });
+
+  it('le bouton devient « Invité ✓ » désactivé sans fermer la modale', async () => {
+    render(<Modals />);
+
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Inviter' })[0] as HTMLElement,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Invité ✓' })).toBeDisabled();
+    // La modale reste ouverte pour enchaîner d'autres invitations.
+    expect(useUi.getState().modal).toEqual({ kind: 'invite', groupId: 'g1' });
+    // Carole reste invitable.
+    expect(screen.getByRole('button', { name: 'Inviter' })).toBeInTheDocument();
+    await attendreLien();
+  });
+
+  it('filtre les amis via le champ de recherche', async () => {
+    render(<Modals />);
+
+    fireEvent.change(screen.getByLabelText('Rechercher des amis'), {
+      target: { value: 'caro' },
+    });
+
+    expect(screen.getByText('Carole')).toBeInTheDocument();
+    expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Rechercher des amis'), {
+      target: { value: 'zzz' },
+    });
+    expect(
+      screen.getByText('Aucun ami ne correspond à la recherche.'),
+    ).toBeInTheDocument();
+    await attendreLien();
+  });
+
+  it('crée automatiquement un lien par défaut (illimité, 7 jours) à l’ouverture', async () => {
+    render(<Modals />);
+
+    await attendreLien();
+    expect(api.groupsInviteLinkCreate).toHaveBeenCalledWith('g1', 0, 168);
+    expect(screen.getByRole('button', { name: 'Copier' })).toBeEnabled();
+  });
+
+  it('affiche « Réessayer » quand la création du lien échoue, puis récupère', async () => {
+    (api.groupsInviteLinkCreate as unknown as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('réseau'))
+      .mockResolvedValueOnce({ code: 'accord://invite/CODE123' });
+
+    render(<Modals />);
+
+    expect(
+      await screen.findByText('Impossible de créer le lien d’invitation.'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Réessayer' }));
+
+    await attendreLien();
+  });
+
+  it('« Modifier le lien » déplie les sélecteurs usages/durée, repliés par défaut', async () => {
+    render(<Modals />);
+    await attendreLien();
+
+    expect(screen.queryByLabelText('Utilisations')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Modifier le lien' }));
+
+    expect(screen.getByLabelText('Utilisations')).toBeInTheDocument();
+    expect(screen.getByLabelText('Expire')).toBeInTheDocument();
+
+    // Générer un nouveau lien avec les valeurs choisies.
+    fireEvent.change(screen.getByLabelText('Utilisations'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Générer un nouveau lien' }));
+    await vi.waitFor(() =>
+      expect(api.groupsInviteLinkCreate).toHaveBeenLastCalledWith('g1', 5, 168),
+    );
+  });
+});
+
+describe('CreateGroupModal (Modals.tsx) — créer ou rejoindre en deux onglets', () => {
+  beforeEach(() => {
+    useUi.setState({ lang: 'fr', modal: { kind: 'createGroup' } });
+    useGroups.setState({ loadList: vi.fn(() => Promise.resolve()) });
+    (api.groupsInviteLinkRedeem as unknown as ReturnType<typeof vi.fn>)
+      .mockClear()
+      .mockResolvedValue({ ok: true, group_id: 'g9', group_name: 'Nouvelle Guilde' });
+  });
+
+  it('affiche l’onglet Créer par défaut, avec le formulaire de nom', () => {
+    render(<Modals />);
+
+    expect(screen.getByRole('tab', { name: 'Créer un serveur' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByLabelText('Nom du groupe')).toBeInTheDocument();
+    expect(screen.queryByLabelText('accord://invite/…')).not.toBeInTheDocument();
+  });
+
+  it('l’onglet « Rejoindre avec un lien » affiche le champ de lien', () => {
+    render(<Modals />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Rejoindre avec un lien' }));
+
+    expect(screen.getByLabelText('accord://invite/…')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Nom du groupe')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('dialog', { name: 'Rejoindre un serveur' }),
+    ).toBeInTheDocument();
+  });
+
+  it('rejoint via groups.invite_link_redeem puis ferme la modale', async () => {
+    render(<Modals />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Rejoindre avec un lien' }));
+    fireEvent.change(screen.getByLabelText('accord://invite/…'), {
+      target: { value: 'accord://invite/CODE123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Rejoindre' }));
+
+    await vi.waitFor(() =>
+      expect(api.groupsInviteLinkRedeem).toHaveBeenCalledWith(
+        'accord://invite/CODE123',
+      ),
+    );
+    await vi.waitFor(() => expect(useUi.getState().modal).toBeNull());
+  });
+
+  it('refuse un lien mal formé sans appeler le nœud', () => {
+    render(<Modals />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Rejoindre avec un lien' }));
+    fireEvent.change(screen.getByLabelText('accord://invite/…'), {
+      target: { value: 'https://pas-un-lien' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Rejoindre' }));
+
+    expect(api.groupsInviteLinkRedeem).not.toHaveBeenCalled();
   });
 });
 

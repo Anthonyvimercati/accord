@@ -2,8 +2,9 @@
  * Rejoindre un serveur via un lien d'invitation partageable : un champ pour
  * coller un code `accord://invite/…`, validé côté UI (préfixe) avant l'appel
  * `groups.invite_link_redeem`. Au succès, rafraîchit la liste des groupes
- * (`loadList`, comme `create`), notifie et ferme ; à l'échec, garde le modal
- * ouvert avec un toast d'erreur.
+ * (`loadList`, comme `create`), notifie et ferme la modale hôte ; à l'échec,
+ * garde le formulaire ouvert avec un toast d'erreur. Rendu dans l'onglet
+ * « Rejoindre avec un lien » de la modale de création de serveur.
  */
 
 import { useState } from 'react';
@@ -12,9 +13,8 @@ import { api } from '../lib/client';
 import { isInviteLink } from '../lib/invite';
 import { useGroups } from '../stores/groups';
 import { useT, useUi } from '../stores/ui';
-import { ModalFrame } from './Modals';
 
-export function JoinServerModal() {
+export function JoinServerForm() {
   const t = useT();
   const toast = useUi((s) => s.toast);
   const closeModal = useUi((s) => s.closeModal);
@@ -47,7 +47,7 @@ export function JoinServerModal() {
   };
 
   return (
-    <ModalFrame title={t.joinServer.title} hint={t.joinServer.hint}>
+    <>
       <input
         aria-label={t.joinServer.placeholder}
         placeholder={t.joinServer.placeholder}
@@ -75,6 +75,6 @@ export function JoinServerModal() {
           {t.joinServer.action}
         </button>
       </div>
-    </ModalFrame>
+    </>
   );
 }
