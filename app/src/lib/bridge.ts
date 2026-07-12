@@ -253,13 +253,24 @@ export function registerCloseInterception(shouldHideOnClose: () => boolean): voi
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const fenetre = getCurrentWindow();
       await fenetre.onCloseRequested((event) => {
-        if (!shouldHideOnClose()) return;
+        if (shouldHideOnClose()) {
+          // « Fermer réduit dans la barre des menus » : on masque au lieu de
+          // fermer (quitter reste accessible via le menu de la tray).
+          event.preventDefault();
+          void fenetre.hide();
+          return;
+        }
+        // Sinon : quitter RÉELLEMENT l'application. On ne laisse pas le
+        // comportement par défaut de la plateforme s'appliquer car sur macOS
+        // fermer la fenêtre ne quitte pas l'app (le process et le nœud
+        // restent vivants) — d'où une sortie explicite via l'hôte, cohérente
+        // sur macOS comme sur Windows/Linux.
         event.preventDefault();
-        void fenetre.hide();
+        void invoke('app_quit');
       });
     } catch {
       // Best effort : indisponible hors Tauri ou erreur de plateforme —
-      // la fermeture reprend alors son comportement par défaut (quitter).
+      // la fermeture reprend alors son comportement par défaut.
     }
   })();
 }

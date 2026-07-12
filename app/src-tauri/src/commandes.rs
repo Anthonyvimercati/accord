@@ -28,6 +28,18 @@ pub fn vault_status(etat: State<'_, EtatHote>) -> StatutCoffre {
     etat.statut_coffre()
 }
 
+/// Quitte complètement l'application (déclenche `RunEvent::Exit`, donc l'arrêt
+/// propre du nœud). Appelée par l'interception de fermeture de la fenêtre
+/// quand « réduire dans la barre des menus » est désactivé : laisser le
+/// comportement par défaut de la plateforme ne quitte PAS l'app sur macOS
+/// (fermer la fenêtre y garde le process et le nœud en vie), d'où une sortie
+/// explicite et cohérente sur toutes les plateformes. « Quitter » depuis la
+/// tray suit le même chemin (`app.exit(0)`, voir `tray.rs`).
+#[tauri::command]
+pub fn app_quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 /// Crée une identité neuve (PoW + scellement), démarre le nœud et rend la
 /// session ainsi que la phrase de récupération à faire noter.
 #[tauri::command]

@@ -57,6 +57,7 @@ pub fn executer() -> ExitCode {
         })
         .invoke_handler(tauri::generate_handler![
             commandes::vault_status,
+            commandes::app_quit,
             commandes::create_identity,
             commandes::restore_identity,
             commandes::unlock,
