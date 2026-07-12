@@ -638,6 +638,7 @@ export const en: Dict = {
     recent: 'Recent',
     noResults: 'No results.',
     voiceChannelHint: 'voice channel',
+    serverHint: 'server',
     open: 'Open the quick switcher',
   },
   settings: {

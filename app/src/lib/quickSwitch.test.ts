@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { Contact, GroupStateJson } from './api';
 import {
   buildQuickSwitchItems,
+  serverItemId,
   buildRecentItems,
   channelItemId,
   cycleChannel,
@@ -111,6 +112,19 @@ describe('rankQuickSwitchItems', () => {
 });
 
 describe('buildQuickSwitchItems', () => {
+  it('inclut chaque serveur rejoint comme destination', () => {
+    const items = buildQuickSwitchItems({
+      friendsLabel: 'Amis',
+      contacts: [],
+      groupIds: ['g1'],
+      groupStates: { g1: groupState() },
+      selfPubkey: null,
+    });
+    expect(items.filter((i) => i.kind === 'server')).toEqual([
+      { id: serverItemId('g1'), kind: 'server', label: 'Guilde', groupId: 'g1' },
+    ]);
+  });
+
   it('inclut toujours l’entrée Amis en tête', () => {
     const items = buildQuickSwitchItems({
       friendsLabel: 'Amis',

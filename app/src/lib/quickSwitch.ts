@@ -19,6 +19,11 @@ export function channelItemId(groupId: string, channelId: string): string {
   return `channel:${groupId}/${channelId}`;
 }
 
+/** Identifiant stable d'un résultat « serveur ». */
+export function serverItemId(groupId: string): string {
+  return `server:${groupId}`;
+}
+
 interface QuickSwitchItemBase {
   /** Clé stable, unique dans la liste des résultats (voir `dmItemId`/`channelItemId`). */
   id: string;
@@ -49,11 +54,28 @@ export interface ChannelSwitchItem extends QuickSwitchItemBase {
   channelId: string;
 }
 
-export type QuickSwitchItem = FriendsSwitchItem | DmSwitchItem | ChannelSwitchItem;
+/**
+ * Serveur rejoint. Pas de `view` figée : la destination (dernier salon
+ * consulté) est résolue à la sélection, comme un clic sur l'icône du rail
+ * (`ServerRail.channelToRestore`).
+ */
+export interface ServerSwitchItem {
+  id: string;
+  kind: 'server';
+  label: string;
+  groupId: string;
+}
+
+export type QuickSwitchItem =
+  | FriendsSwitchItem
+  | DmSwitchItem
+  | ChannelSwitchItem
+  | ServerSwitchItem;
 
 /**
  * Construit l'ensemble des destinations proposées par le sélecteur : la vue
- * Amis, les conversations privées établies et les salons (tous genres) que
+ * Amis, les conversations privées établies, chaque serveur rejoint et les
+ * salons (tous genres) que
  * l'utilisateur local peut voir dans chaque serveur rejoint. `isChannelVisible`
  * reproduit ici le même filtre que la barre latérale (`Sidebar.GroupSidebar`).
  */
@@ -83,6 +105,7 @@ export function buildQuickSwitchItems(params: {
   for (const groupId of params.groupIds) {
     const state = params.groupStates[groupId];
     if (state === undefined) continue;
+    items.push({ id: serverItemId(groupId), kind: 'server', label: state.name, groupId });
     for (const channel of state.channels) {
       if (!isChannelVisible(state, channel.channel_id, params.selfPubkey)) continue;
       items.push({

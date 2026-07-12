@@ -1,6 +1,6 @@
 /**
  * Sélecteur rapide (Ctrl/Cmd+K) : palette centrée façon Discord pour sauter
- * vers la vue Amis, une conversation privée ou un salon de serveur sans
+ * vers la vue Amis, une conversation privée, un serveur ou un salon sans
  * quitter le clavier. Classement flou pur (`lib/quickSwitch.ts`) ; sans
  * texte, propose les dernières destinations visitées. Sélectionner un salon
  * vocal ne le rejoint jamais (rejoindre reste un clic explicite dans la
@@ -77,6 +77,13 @@ function ItemIcon({ item }: { item: QuickSwitchItem }) {
       <Avatar id={item.pubkey} name={item.label} size={32} avatarHash={item.avatarHash} hint={item.pubkey} />
     );
   }
+  if (item.kind === 'server') {
+    return (
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-input text-xs font-semibold text-faint">
+        {initials(item.label)}
+      </span>
+    );
+  }
   return (
     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-input text-faint">
       <ChannelIcon kind={item.channelKind} />
@@ -115,6 +122,9 @@ function ResultRow({
       <ItemIcon item={item} />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{item.label}</span>
+        {item.kind === 'server' && (
+          <span className="block truncate text-xs text-faint">{t.quickSwitch.serverHint}</span>
+        )}
         {item.kind === 'channel' && (
           <span className="flex items-center gap-1 truncate text-xs text-faint">
             <ServerInitialBadge name={item.subtitle} />
@@ -165,12 +175,15 @@ export function QuickSwitcher() {
     [items, trimmed, groupIds, lastChannelByServer, lastDmPeer],
   );
 
-  // Réinitialise la requête et le focus à chaque ouverture.
+  // Réinitialise la requête et le focus à chaque ouverture ; à la fermeture,
+  // rend le focus à l'élément qui l'avait (déclencheur du raccourci).
   useEffect(() => {
     if (!open) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setQuery('');
     setActiveIndex(0);
     inputRef.current?.focus();
+    return () => trigger?.focus();
   }, [open]);
 
   // Le curseur virtuel revient en tête à chaque nouveau jeu de résultats.
@@ -186,9 +199,10 @@ export function QuickSwitcher() {
   if (!open) return null;
 
   const select = (item: QuickSwitchItem): void => {
-    if (item.kind === 'channel' && item.channelKind === 'voice') {
-      // Ne jamais rejoindre la voix depuis le sélecteur : on navigue vers le
-      // serveur (même comportement qu'un clic sur son icône dans le rail).
+    if (item.kind === 'server' || (item.kind === 'channel' && item.channelKind === 'voice')) {
+      // Serveur : même destination qu'un clic sur son icône dans le rail
+      // (dernier salon consulté). Salon vocal : ne jamais rejoindre la voix
+      // depuis le sélecteur, on navigue vers le serveur de la même façon.
       setView({
         kind: 'group',
         groupId: item.groupId,

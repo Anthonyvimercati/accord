@@ -645,6 +645,7 @@ export const fr = {
     recent: 'Récent',
     noResults: 'Aucun résultat.',
     voiceChannelHint: 'salon vocal',
+    serverHint: 'serveur',
     open: 'Ouvrir le sélecteur rapide',
   },
   settings: {

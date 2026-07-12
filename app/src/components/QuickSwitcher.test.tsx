@@ -5,7 +5,7 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
@@ -181,5 +181,32 @@ describe('QuickSwitcher', () => {
 
     expect(screen.getByText('Bobby')).toBeInTheDocument();
     expect(screen.getByText('général')).toBeInTheDocument();
+  });
+  it('propose les serveurs et navigue vers leur dernier salon consulté', () => {
+    useUi.setState({ quickSwitcherOpen: true, lastChannelByServer: { g1: 'c1' } });
+    render(<QuickSwitcher />);
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Guilde' } });
+    fireEvent.click(screen.getByText('Guilde'));
+
+    expect(useUi.getState().view).toEqual({ kind: 'group', groupId: 'g1', channelId: 'c1' });
+    expect(useUi.getState().quickSwitcherOpen).toBe(false);
+  });
+
+  it('rend le focus au déclencheur à la fermeture par Échap', () => {
+    render(
+      <>
+        <button>déclencheur</button>
+        <QuickSwitcher />
+      </>,
+    );
+    const trigger = screen.getByRole('button', { name: 'déclencheur' });
+    trigger.focus();
+
+    act(() => useUi.setState({ quickSwitcherOpen: true }));
+    expect(screen.getByRole('combobox')).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
+    expect(trigger).toHaveFocus();
   });
 });
