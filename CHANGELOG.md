@@ -2,6 +2,19 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.0.1] — 2026-07-13
+
+Correctness patch from a frontend audit.
+
+### Fixed
+- Switching/locking accounts now clears in-memory data (conversations,
+  server state, contacts) and returns to Friends — the previous account's
+  content can no longer briefly appear under the new one. Saved preferences
+  (theme, density, language) are preserved.
+- Failed optimistic updates (event RSVP, poll vote, server invite) now roll
+  back only the affected item, preserving concurrent changes.
+- Reactions no longer duplicate on a rapid double-click.
+
 ## [1.0.0] — 2026-07-13
 
 First stable release. Feature-complete, with a peer-to-peer core hardened
