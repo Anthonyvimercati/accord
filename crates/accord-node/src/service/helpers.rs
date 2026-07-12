@@ -118,14 +118,16 @@ pub(super) fn param_opt_u16(params: &Value, key: &str) -> Result<Option<u16>, No
     }
 }
 
-/// Nature de salon : `"text"` (défaut), `"voice"` ou `"announcement"`.
+/// Nature de salon : `"text"` (défaut), `"voice"`, `"announcement"` ou
+/// `"forum"`.
 pub(super) fn param_channel_kind(params: &Value, key: &str) -> Result<ChannelKind, NodeError> {
     match param_opt_str(params, key)? {
         None | Some("text") => Ok(ChannelKind::Text),
         Some("voice") => Ok(ChannelKind::Voice),
         Some("announcement") => Ok(ChannelKind::Announcement),
+        Some("forum") => Ok(ChannelKind::Forum),
         Some(_) => Err(NodeError::Invalid(
-            "kind de salon inconnu (text, voice ou announcement)",
+            "kind de salon inconnu (text, voice, announcement ou forum)",
         )),
     }
 }
@@ -380,6 +382,7 @@ fn channel_kind_str(kind: ChannelKind) -> &'static str {
         ChannelKind::Text => "text",
         ChannelKind::Voice => "voice",
         ChannelKind::Announcement => "announcement",
+        ChannelKind::Forum => "forum",
     }
 }
 

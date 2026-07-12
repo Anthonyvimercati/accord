@@ -336,6 +336,13 @@ fn group_op_bodies_roundtrip() {
             kind: ChannelKind::Voice,
             position: 1,
         },
+        GroupOpBody::AddChannel {
+            channel_id: [5; 16],
+            name: "Forum".into(),
+            category: None,
+            kind: ChannelKind::Forum,
+            position: 3,
+        },
         GroupOpBody::EditChannel {
             channel_id: [2; 16],
             name: "général-2".into(),

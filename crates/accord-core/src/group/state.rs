@@ -605,6 +605,15 @@ impl GroupState {
         if channel.kind == ChannelKind::Announcement && eff & perms::MANAGE_CHANNELS == 0 {
             return false;
         }
+        // Forum root: no direct messages, only posts (threads). Reject only if
+        // the ORIGINAL target is itself a Forum channel — a forum POST is a
+        // thread whose id is absent from `channels` (it resolves to the forum
+        // for perms/slow-mode via `resolve_channel_for_perms`, but stays a valid
+        // write target). Checking `channel.kind` (the RESOLVED channel) would
+        // wrongly block forum posts too. Always refused, whatever the role.
+        if self.channels.get(channel_id).map(|c| c.kind) == Some(ChannelKind::Forum) {
+            return false;
+        }
         true
     }
 
@@ -1414,6 +1423,13 @@ impl GroupState {
                 if channel.kind == ChannelKind::Announcement && eff & perms::MANAGE_CHANNELS == 0 {
                     return self.ignore("salon d'annonces en lecture seule");
                 }
+                // A forum root holds no direct messages (a poll included): polls
+                // belong in posts, not the forum root. `PollCreate` targets a
+                // real channel only (`channel_id` ∈ `channels`), so this rejects
+                // the forum root itself, consistent with `can_send_message`.
+                if channel.kind == ChannelKind::Forum {
+                    return self.ignore("salon forum : crée un post");
+                }
                 // Dedup by id (like every other random-id-keyed create op)
                 // makes the *first* PollCreate for a given `poll_id` in
                 // Lamport order the one that wins, so a racing forgery from
@@ -1536,13 +1552,16 @@ impl GroupState {
                 if !is_valid_display_label(&name, MAX_THREAD_NAME_CHARS) {
                     return self.ignore("nom de fil invalide");
                 }
-                // Parent must exist and be a text channel (a thread hangs off
-                // a `#` channel, never a voice/announcement one).
+                // Parent must exist and be a Text or Forum channel: a thread
+                // hangs off a `#` channel or is a POST of a forum, never off a
+                // voice/announcement one. A forum post is exactly a thread whose
+                // parent is a `Forum` channel — the whole thread infrastructure
+                // (inherited perms, per-parent cap, fresh id) is reused as-is.
                 let Some(parent) = self.channels.get(&parent_channel) else {
                     return self.ignore("salon parent inconnu");
                 };
-                if parent.kind != ChannelKind::Text {
-                    return self.ignore("salon parent non textuel");
+                if !matches!(parent.kind, ChannelKind::Text | ChannelKind::Forum) {
+                    return self.ignore("salon parent ni textuel ni forum");
                 }
                 // Gated on effective VIEW+SEND in the parent, exactly like a
                 // plain message send / `PollCreate` — bare membership is NOT
@@ -4680,5 +4699,162 @@ mod tests {
         assert!(GroupState::fold(&make("discussion"))
             .threads
             .contains_key(&THREAD));
+    }
+
+    /// Salons FORUM : un post = un fil ancré à un salon `Forum`. La création
+    /// de fil est autorisée sous un parent `Forum` ; l'envoi DIRECT dans la
+    /// racine du forum est toujours refusé (quel que soit le rôle, fondateur
+    /// compris) ; l'envoi dans un POST (fil) du forum est autorisé — piège
+    /// n°3 : `resolve_channel_for_perms` mappe le post sur le forum, un check
+    /// naïf sur le kind résolu bloquerait aussi les posts. Les permissions du
+    /// forum (dont un `deny SEND`) sont héritées par ses posts.
+    #[test]
+    fn forum_root_rejects_direct_send_but_allows_posts() {
+        const FORUM_CHAN: [u8; 16] = [0xF0; 16];
+        const POST: [u8; 16] = [0x50; 16];
+        const ROOT: [u8; 16] = [0x11; 16];
+        const MUET: [u8; 16] = [0x03; 16];
+
+        let mut ops = base_ops();
+        // Salon forum créé par le fondateur.
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: FORUM_CHAN,
+                name: "annonces-forum".into(),
+                category: None,
+                kind: ChannelKind::Forum,
+                position: 0,
+            },
+            FOUNDER,
+            4,
+        ));
+        // Rôle « Muet » : deny SEND sur le forum, assigné à Bob → l'héritage
+        // du forum doit priver Bob d'écriture dans TOUT post du forum.
+        ops.push(signed(
+            GroupOpBody::AddRole {
+                role_id: MUET,
+                name: "Muet".into(),
+                color: 0,
+                position: 1,
+                permissions: 0,
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::AssignRole {
+                member: BOB,
+                role_id: MUET,
+            },
+            FOUNDER,
+            6,
+        ));
+        ops.push(signed(
+            GroupOpBody::SetChannelPerms {
+                channel_id: FORUM_CHAN,
+                role_id: MUET,
+                allow: 0,
+                deny: perms::SEND,
+            },
+            FOUNDER,
+            7,
+        ));
+        // Alice (VIEW+SEND par défaut) crée un post = un fil sous le forum.
+        ops.push(signed(
+            GroupOpBody::CreateThread {
+                thread_id: POST,
+                parent_channel: FORUM_CHAN,
+                root_msg: ROOT,
+                name: "premier post".into(),
+            },
+            ALICE,
+            8,
+        ));
+
+        let st = GroupState::fold(&ops);
+
+        // CreateThread sous un parent Forum → accepté (post créé), parent = forum.
+        let post = st.threads.get(&POST).expect("post de forum créé");
+        assert_eq!(post.parent_channel, FORUM_CHAN);
+        assert_eq!(st.resolve_channel_for_perms(&POST), Some(FORUM_CHAN));
+
+        // Envoi DIRECT dans la racine du forum → TOUJOURS refusé, même pour le
+        // fondateur (ALL_PERMS) : aucun message racine dans un forum.
+        assert!(
+            !st.can_send_message(&FOUNDER, &FORUM_CHAN, 0),
+            "le fondateur lui-même ne poste pas dans la racine d'un forum"
+        );
+        assert!(!st.can_send_message(&ALICE, &FORUM_CHAN, 0));
+
+        // Envoi dans un POST du forum → autorisé (piège n°3) : le post résout
+        // sur le forum pour les perms mais reste une cible d'écriture valide.
+        assert!(
+            st.can_send_message(&ALICE, &POST, 0),
+            "un message dans un post de forum doit passer (piège n°3)"
+        );
+
+        // Permission héritée du forum : Bob (deny SEND sur le forum) ne peut
+        // écrire NI dans la racine NI dans un post.
+        assert!(!st.can_send_message(&BOB, &FORUM_CHAN, 0));
+        assert!(
+            !st.can_send_message(&BOB, &POST, 0),
+            "le deny SEND du forum est hérité par ses posts"
+        );
+    }
+
+    /// Le kind d'un salon est immuable : `EditChannel` ne porte pas de champ
+    /// `kind`, donc un salon Forum ne peut pas être détourné (en vocal ou
+    /// autre) et un salon existant ne peut pas devenir Forum par édition.
+    #[test]
+    fn edit_channel_never_changes_kind() {
+        const FORUM_CHAN: [u8; 16] = [0xF0; 16];
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: FORUM_CHAN,
+                name: "forum".into(),
+                category: None,
+                kind: ChannelKind::Forum,
+                position: 0,
+            },
+            FOUNDER,
+            4,
+        ));
+        // Édition (renommage/repositionnement) : le kind reste Forum.
+        ops.push(signed(
+            GroupOpBody::EditChannel {
+                channel_id: FORUM_CHAN,
+                name: "forum-renommé".into(),
+                position: 9,
+            },
+            FOUNDER,
+            5,
+        ));
+        let ch = GroupState::fold(&ops).channels.remove(&FORUM_CHAN).unwrap();
+        assert_eq!(ch.kind, ChannelKind::Forum, "kind immuable via EditChannel");
+        assert_eq!(ch.name, "forum-renommé");
+        assert_eq!(ch.position, 9);
+
+        // Miroir : un salon textuel reste Text après édition (pas de bascule
+        // possible vers Forum).
+        let mut text_ops = base_ops();
+        add_poll_channel(&mut text_ops, 4);
+        text_ops.push(signed(
+            GroupOpBody::EditChannel {
+                channel_id: POLL_CHAN,
+                name: "toujours-texte".into(),
+                position: 1,
+            },
+            FOUNDER,
+            5,
+        ));
+        assert_eq!(
+            GroupState::fold(&text_ops)
+                .channels
+                .get(&POLL_CHAN)
+                .unwrap()
+                .kind,
+            ChannelKind::Text,
+        );
     }
 }

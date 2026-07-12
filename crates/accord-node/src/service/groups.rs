@@ -72,6 +72,7 @@ fn audit_entry_json(op: &GroupOp) -> Value {
         ChannelKind::Text => "text",
         ChannelKind::Voice => "voice",
         ChannelKind::Announcement => "announcement",
+        ChannelKind::Forum => "forum",
     };
     let (kind, params) = match GroupOpBody::decode_body(op.kind, &op.body) {
         Ok(body) => match body {

@@ -98,6 +98,15 @@ fn require_send(
     if channel.kind == ChannelKind::Announcement && eff & perms::MANAGE_CHANNELS == 0 {
         return Err(CoreError::OpRejected("salon d'annonces en lecture seule"));
     }
+    // Forum root: no direct messages, only posts (threads). Reject only if the
+    // ORIGINAL target (`channel_id`, before resolution) is itself a Forum
+    // channel — a forum POST is a thread whose id is absent from `channels`, so
+    // it resolves to the forum for perms but stays a valid write target.
+    // Testing `channel.kind` (the RESOLVED channel) would wrongly block posts
+    // too. Mirrors `GroupState::can_send_message`; always refused, any role.
+    if state.channels.get(channel_id).map(|c| c.kind) == Some(ChannelKind::Forum) {
+        return Err(CoreError::OpRejected("salon forum : crée un post"));
+    }
     Ok(state)
 }
 
@@ -1899,6 +1908,107 @@ mod tests {
                 attachments: vec![],
             },
             3_002,
+        )
+        .expect("scellement");
+        assert_eq!(ingest(&db_a, &bob, forged), GroupMsgEvent::Ignored);
+    }
+
+    /// Salons FORUM : la racine ne reçoit aucun message direct (refusé quel que
+    /// soit le rôle, fondateur compris, à la composition ET à l'ingestion),
+    /// mais un POST (fil ancré au forum) est parfaitement inscriptible — piège
+    /// n°3 : le post résout sur le forum pour les permissions, mais reste une
+    /// cible d'écriture valide (`require_send` teste le `channel_id` ORIGINAL,
+    /// pas le salon résolu).
+    #[test]
+    fn forum_root_read_only_but_post_is_writable() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, _text) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        // Alice crée un salon forum ; réplication chez Bob.
+        let forum = new_id16();
+        let add = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::AddChannel {
+                channel_id: forum,
+                name: "forum".into(),
+                category: None,
+                kind: ChannelKind::Forum,
+                position: 5,
+            },
+            2_000,
+        )
+        .unwrap();
+        ingest_op(&db_b, &add).unwrap();
+
+        // Alice crée un POST (fil) sous le forum ; réplication chez Bob.
+        let post = new_id16();
+        let create_post = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::CreateThread {
+                thread_id: post,
+                parent_channel: forum,
+                root_msg: new_id16(),
+                name: "premier post".into(),
+            },
+            2_001,
+        )
+        .unwrap();
+        ingest_op(&db_b, &create_post).unwrap();
+
+        // Envoi DIRECT dans la racine du forum → refusé à la composition, même
+        // pour le fondateur (ALL_PERMS) : aucun message racine dans un forum.
+        for (db, who, recipient) in [(&db_b, &bob, [2u8; 32]), (&db_a, &alice, [1u8; 32])] {
+            let err = compose_group_message(
+                db,
+                who,
+                &recipient,
+                &gid,
+                &forum,
+                "racine",
+                None,
+                vec![],
+                3_000,
+            );
+            assert!(
+                matches!(err, Err(CoreError::OpRejected(_))),
+                "la racine d'un forum n'accepte aucun message direct"
+            );
+        }
+
+        // Envoi dans le POST → autorisé (piège n°3) : Bob (VIEW+SEND hérités du
+        // forum) publie normalement dans le fil.
+        compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &post,
+            "dans le post",
+            None,
+            vec![],
+            3_100,
+        )
+        .expect("un message dans un post de forum doit passer (piège n°3)");
+
+        // Symétrie ingestion : un message forgé par Bob dans la racine du forum
+        // est ignoré côté Alice, exactement comme la garde de composition.
+        let forged = seal_body(
+            &db_b,
+            &gid,
+            &forum,
+            &MsgBody::Text {
+                text: "spam racine".into(),
+                reply_to: None,
+                attachments: vec![],
+            },
+            3_200,
         )
         .expect("scellement");
         assert_eq!(ingest(&db_a, &bob, forged), GroupMsgEvent::Ignored);

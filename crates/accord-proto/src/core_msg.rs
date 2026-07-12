@@ -413,6 +413,11 @@ pub enum ChannelKind {
     Voice = 1,
     /// Salon d'annonces (lecture seule hors rôles autorisés).
     Announcement = 2,
+    /// Salon forum : ne contient aucun message direct, seulement des POSTS
+    /// (chaque post est un fil ancré à ce salon — cf. `GroupOpBody::CreateThread`).
+    /// L'envoi direct dans la racine du forum est toujours refusé ; on ne
+    /// « parle » que dans les posts.
+    Forum = 3,
 }
 
 impl ChannelKind {
@@ -422,6 +427,7 @@ impl ChannelKind {
             0 => Ok(Self::Text),
             1 => Ok(Self::Voice),
             2 => Ok(Self::Announcement),
+            3 => Ok(Self::Forum),
             _ => Err(DecodeError::InvalidValue("channel kind")),
         }
     }
@@ -2050,6 +2056,38 @@ mod tests {
     /// Round-trips a group op body through its wire discriminant + encoding.
     fn roundtrip(body: &GroupOpBody) -> GroupOpBody {
         GroupOpBody::decode_body(body.kind(), &body.encode_body()).expect("decode")
+    }
+
+    #[test]
+    fn channel_kind_from_u8_covers_all_variants() {
+        assert_eq!(ChannelKind::from_u8(0).unwrap(), ChannelKind::Text);
+        assert_eq!(ChannelKind::from_u8(1).unwrap(), ChannelKind::Voice);
+        assert_eq!(ChannelKind::from_u8(2).unwrap(), ChannelKind::Announcement);
+        assert_eq!(ChannelKind::from_u8(3).unwrap(), ChannelKind::Forum);
+        // Round-trip the discriminant through the enum's `as u8`.
+        for k in [
+            ChannelKind::Text,
+            ChannelKind::Voice,
+            ChannelKind::Announcement,
+            ChannelKind::Forum,
+        ] {
+            assert_eq!(ChannelKind::from_u8(k as u8).unwrap(), k);
+        }
+        // Unknown discriminant is rejected cleanly (no panic).
+        assert!(ChannelKind::from_u8(4).is_err());
+    }
+
+    #[test]
+    fn add_channel_forum_roundtrips() {
+        let body = GroupOpBody::AddChannel {
+            channel_id: [0x5F; 16],
+            name: "Forum".into(),
+            category: None,
+            kind: ChannelKind::Forum,
+            position: 7,
+        };
+        assert_eq!(body.kind(), 0x03);
+        assert_eq!(roundtrip(&body), body);
     }
 
     #[test]
