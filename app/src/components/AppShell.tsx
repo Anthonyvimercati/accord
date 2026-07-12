@@ -36,6 +36,7 @@ import {
 import { useVoice } from '../stores/voice';
 import { DmView, GroupView } from './ChatView';
 import { ContextMenu } from './ContextMenu';
+import { ErrorBoundary } from './ErrorBoundary';
 import { FriendsView } from './FriendsView';
 import { IncomingCall } from './IncomingCall';
 import { Modals } from './Modals';
@@ -503,8 +504,12 @@ export function AppShell() {
   usePushToTalk(onPttError);
 
   useEffect(() => {
-    void loadFriends();
-    void loadGroups();
+    loadFriends().catch(() => {
+      // Best effort : sans réponse du nœud, la liste d'amis reste vide.
+    });
+    loadGroups().catch(() => {
+      // Best effort : sans réponse du nœud, la liste de serveurs reste vide.
+    });
     // Reprise vocale : resynchronise le salon actif éventuel (voice.status).
     syncVoice().catch(() => {
       // Best effort : sans réponse du nœud, l'état vocal local reste vide.
@@ -546,11 +551,26 @@ export function AppShell() {
         className="min-w-0 flex-1 bg-chat focus:outline-none"
         aria-label={t.app.name}
       >
-        {view.kind === 'friends' && <FriendsView />}
-        {view.kind === 'dm' && <DmView peer={view.peer} />}
-        {view.kind === 'group' && (
-          <GroupView groupId={view.groupId} channelId={view.channelId} />
-        )}
+        {/*
+         * Garde-fou : un crash de la vue courante affiche un repli local ;
+         * rail, barre latérale et navigation restent utilisables, et changer
+         * de vue (resetKey) retente un rendu normal.
+         */}
+        <ErrorBoundary
+          resetKey={
+            view.kind === 'dm'
+              ? `dm:${view.peer}`
+              : view.kind === 'group'
+                ? `group:${view.groupId}:${view.channelId ?? ''}`
+                : view.kind
+          }
+        >
+          {view.kind === 'friends' && <FriendsView />}
+          {view.kind === 'dm' && <DmView peer={view.peer} />}
+          {view.kind === 'group' && (
+            <GroupView groupId={view.groupId} channelId={view.channelId} />
+          )}
+        </ErrorBoundary>
       </main>
       <Modals />
       <ProfilePopover />

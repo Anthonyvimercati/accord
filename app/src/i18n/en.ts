@@ -930,6 +930,8 @@ export const en: Dict = {
     sendFailed: 'Failed to send',
     loadFailed: 'Failed to load',
     actionFailed: 'Action failed',
+    boundaryTitle: 'Something went wrong',
+    boundaryReload: 'Reload',
   },
   contextMenu: {
     copyText: 'Copy text',

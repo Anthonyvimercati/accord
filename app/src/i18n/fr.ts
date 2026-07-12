@@ -942,6 +942,8 @@ export const fr = {
     sendFailed: 'Échec de l’envoi',
     loadFailed: 'Échec du chargement',
     actionFailed: 'Action impossible',
+    boundaryTitle: 'Une erreur est survenue',
+    boundaryReload: 'Recharger',
   },
   contextMenu: {
     copyText: 'Copier le texte',
