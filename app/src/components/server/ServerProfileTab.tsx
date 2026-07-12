@@ -1,13 +1,16 @@
 /**
- * Onglet Profil du serveur : renommage (1 à 100 caractères) et icône —
+ * Onglet Profil du serveur : renommage (1 à 100 caractères), icône —
  * image locale choisie via <input type="file">, recadrée dans un recadreur
- * interactif (carré) puis envoyée en base64 à `groups.set_icon`.
+ * interactif (carré) puis envoyée en base64 à `groups.set_icon` — et
+ * bannière (image paysage envoyée telle quelle à `groups.set_banner`).
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { fichierEnDataUrl } from '../../lib/attachments';
 import { profileCardGradient } from '../../lib/color';
 import { lireFichier } from '../../lib/files';
 import { initials } from '../../lib/format';
+import { AVATAR_OCTETS_MAX } from '../../lib/image';
 import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useUi, useT } from '../../stores/ui';
 import { AvatarCropper } from '../AvatarCropper';
@@ -17,6 +20,132 @@ import { messageOf } from './controls';
 /** Bornes du nom de serveur (contrat groups.rename). */
 const NAME_MIN = 1;
 const NAME_MAX = 100;
+
+/**
+ * Section bannière du serveur (image) : aperçu paysage 16:9, envoi direct du
+ * fichier choisi (validation locale : MIME image + ≤ 512 Kio, mêmes limites
+ * que le nœud pour `groups.set_banner`) et retrait. Gouvernée par
+ * MANAGE_CHANNELS, comme l'icône.
+ */
+function ServerBannerSection({ groupId }: { groupId: string }) {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+  const state = useGroups((s) => s.states[groupId]);
+  const setBanner = useGroups((s) => s.setBanner);
+  const [busy, setBusy] = useState(false);
+  /** Aperçu courant : bannière publiée, remplacée par l'image fraîche choisie. */
+  const [preview, setPreview] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const banner = state?.banner ?? null;
+  useEffect(() => {
+    let alive = true;
+    setPreview(null);
+    if (banner === null) return undefined;
+    lireFichier(banner)
+      .then((url) => {
+        if (alive) setPreview(url);
+      })
+      .catch(() => {
+        // Bannière indisponible : l'aperçu retombe sur le fond neutre.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [banner]);
+
+  if (!state) return null;
+  const canManage = hasPerm(state.my_permissions, PERMISSIONS.MANAGE_CHANNELS);
+
+  const upload = async (file: File): Promise<void> => {
+    if (!file.type.startsWith('image/')) {
+      toast('error', t.serveur.bannerInvalidType);
+      return;
+    }
+    if (file.size > AVATAR_OCTETS_MAX) {
+      toast('error', t.serveur.bannerTooLarge);
+      return;
+    }
+    setBusy(true);
+    try {
+      const dataUrl = await fichierEnDataUrl(file);
+      const dataB64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      await setBanner(groupId, dataB64, file.type);
+      setPreview(dataUrl);
+      toast('info', t.serveur.bannerUpdated);
+    } catch (e) {
+      toast('error', messageOf(e, t.errors.actionFailed));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      await setBanner(groupId, null, null);
+      setPreview(null);
+      toast('info', t.serveur.bannerRemoved);
+    } catch (e) {
+      toast('error', messageOf(e, t.errors.actionFailed));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsSection title={t.serveur.banner} hint={t.serveur.bannerHint}>
+      <div className="rounded-lg bg-sidebar p-4">
+        {preview !== null ? (
+          <img
+            src={preview}
+            alt={t.serveur.banner}
+            className="aspect-video w-full rounded-lg object-cover"
+          />
+        ) : (
+          <div aria-hidden className="aspect-video w-full rounded-lg bg-rail" />
+        )}
+        {canManage && (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              aria-label={t.serveur.bannerChoose}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                // Autorise de re-choisir le même fichier plus tard.
+                e.target.value = '';
+                if (file !== undefined) void upload(file);
+              }}
+            />
+            <div className="mt-4 flex gap-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => fileRef.current?.click()}
+                className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+              >
+                {t.serveur.bannerChoose}
+              </button>
+              {(banner !== null || preview !== null) && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void remove()}
+                  className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+                >
+                  {t.serveur.bannerRemove}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </SettingsSection>
+  );
+}
 
 /** Section couleur de bannière de serveur : réutilise le préréglage de couleurs de profil. */
 function BannerColorSection({ groupId }: { groupId: string }) {
@@ -213,6 +342,7 @@ export function ServerProfileTab({ groupId }: { groupId: string }) {
         />
       )}
 
+      <ServerBannerSection groupId={groupId} />
       <BannerColorSection groupId={groupId} />
     </div>
   );

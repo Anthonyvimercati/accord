@@ -551,6 +551,15 @@ interface GroupsState {
   create: (name: string, defaultChannel: string) => Promise<string>;
   rename: (groupId: string, name: string) => Promise<void>;
   setIcon: (groupId: string, dataB64: string, mime: string) => Promise<void>;
+  /**
+   * Publie la bannière du serveur (image ≤ 512 Kio) puis recharge l'état ;
+   * `dataB64` et `mime` à `null` retirent la bannière (même flux que l'icône).
+   */
+  setBanner: (
+    groupId: string,
+    dataB64: string | null,
+    mime: string | null,
+  ) => Promise<void>;
   setTopic: (groupId: string, channelId: string, topic: string) => Promise<void>;
   addChannel: (
     groupId: string,
@@ -968,6 +977,11 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   setIcon: async (groupId, dataB64, mime) => {
     await api.groupsSetIcon(groupId, dataB64, mime);
+    await get().loadState(groupId);
+  },
+
+  setBanner: async (groupId, dataB64, mime) => {
+    await api.groupsSetBanner(groupId, mime, dataB64);
     await get().loadState(groupId);
   },
 

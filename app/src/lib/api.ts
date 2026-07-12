@@ -371,6 +371,12 @@ export interface GroupStateJson {
   name: string;
   /** Racine Merkle de l'icône (hex 64), ou `null` sans icône. */
   icon: string | null;
+  /**
+   * Racine Merkle de la bannière du serveur (hex 64), ou `null` sans
+   * bannière. Champ additif de `SetMeta` ; optionnel par tolérance (nœud
+   * plus ancien).
+   */
+  banner?: string | null;
   founder: string | null;
   members: GroupMember[];
   bans: string[];
@@ -1011,6 +1017,23 @@ export class Api {
       group_id: groupId,
       data_b64: dataB64,
       mime,
+    });
+  }
+
+  /**
+   * Publie la bannière du serveur (image ≤ 512 Kio décodés) et rend sa racine
+   * Merkle ; `dataB64: null` retire la bannière (rend `{ banner: null }`).
+   * Permission MANAGE_CHANNELS, comme l'icône.
+   */
+  groupsSetBanner(
+    groupId: string,
+    mime: string | null,
+    dataB64: string | null,
+  ): Promise<{ banner: string | null }> {
+    return this.rpc.call('groups.set_banner', {
+      group_id: groupId,
+      ...(mime !== null ? { mime } : {}),
+      ...(dataB64 !== null ? { data_b64: dataB64 } : {}),
     });
   }
 

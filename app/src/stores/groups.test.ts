@@ -48,6 +48,7 @@ vi.mock('../lib/client', () => ({
     groupsStickersRemove: vi.fn(),
     groupsSendSticker: vi.fn(),
     groupsSetMemberAvatar: vi.fn(),
+    groupsSetBanner: vi.fn(),
     groupsSetBannerColor: vi.fn(),
     groupsSendPoll: vi.fn(),
     groupsPollVote: vi.fn(),
@@ -132,6 +133,7 @@ const stickersAddMock = api.groupsStickersAdd as unknown as Mock;
 const stickersRemoveMock = api.groupsStickersRemove as unknown as Mock;
 const sendStickerMock = api.groupsSendSticker as unknown as Mock;
 const setMemberAvatarMock = api.groupsSetMemberAvatar as unknown as Mock;
+const setBannerMock = api.groupsSetBanner as unknown as Mock;
 const setBannerColorMock = api.groupsSetBannerColor as unknown as Mock;
 const sendPollMock = api.groupsSendPoll as unknown as Mock;
 const pollVoteMock = api.groupsPollVote as unknown as Mock;
@@ -222,6 +224,7 @@ beforeEach(() => {
     stickersRemoveMock,
     sendStickerMock,
     setMemberAvatarMock,
+    setBannerMock,
     setBannerColorMock,
     sendPollMock,
     pollVoteMock,
@@ -819,6 +822,26 @@ describe('useGroups — avatar de serveur et couleur de bannière', () => {
     await useGroups.getState().setMemberAvatar('g1');
 
     expect(setMemberAvatarMock).toHaveBeenCalledWith('g1', undefined);
+  });
+
+  it('setBanner publie l’image puis recharge l’état (mime avant data côté RPC)', async () => {
+    setBannerMock.mockResolvedValueOnce({ banner: 'ab'.repeat(32) });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().setBanner('g1', 'YWJj', 'image/png');
+
+    expect(setBannerMock).toHaveBeenCalledWith('g1', 'image/png', 'YWJj');
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('setBanner sans image retire la bannière puis recharge l’état', async () => {
+    setBannerMock.mockResolvedValueOnce({ banner: null });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().setBanner('g1', null, null);
+
+    expect(setBannerMock).toHaveBeenCalledWith('g1', null, null);
+    expect(stateMock).toHaveBeenCalledWith('g1');
   });
 
   it('setBannerColor fixe la couleur puis recharge l’état', async () => {

@@ -1,7 +1,9 @@
 /**
  * Barre latérale (240 px) : en mode accueil, navigation Amis + conversations
  * privées ; en mode groupe, nom du groupe + salons groupés par catégorie
- * (les sans-catégorie d'abord), boutons gérés par les permissions.
+ * (les sans-catégorie d'abord), boutons gérés par les permissions. Si le
+ * serveur a une bannière (`groups.state.banner`), l'en-tête devient un
+ * bandeau image façon Discord, nom et actions posés sur un scrim en bas.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -9,6 +11,7 @@ import { interpolate } from '../i18n';
 import type { GroupChannel } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { profileCardGradient } from '../lib/color';
+import { lireFichier } from '../lib/files';
 import { useCalls } from '../stores/calls';
 import { presenceOf, useFriends } from '../stores/friends';
 import {
@@ -52,11 +55,14 @@ function HeaderIconButton({
   label,
   onClick,
   active = false,
+  onBanner = false,
   children,
 }: {
   label: string;
   onClick: () => void;
   active?: boolean;
+  /** Posé sur la bannière du serveur : teintes claires lisibles sur le scrim. */
+  onBanner?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -65,8 +71,10 @@ function HeaderIconButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-95 ${
-        active ? 'text-header' : 'text-muted hover:text-norm'
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-95 ${
+        onBanner
+          ? 'text-white/80 hover:bg-white/10 hover:text-white'
+          : `hover:bg-chat-hover ${active ? 'text-header' : 'text-muted hover:text-norm'}`
       }`}
     >
       {children}
@@ -506,7 +514,14 @@ function ChannelRow({
 }
 
 /** Petit chevron du bouton d'en-tête serveur : pointe vers le bas, 180° une fois ouvert. */
-function HeaderChevronIcon({ open }: { open: boolean }) {
+function HeaderChevronIcon({
+  open,
+  colorClassName = 'text-faint',
+}: {
+  open: boolean;
+  /** Teinte du chevron (claire sur la bannière du serveur). */
+  colorClassName?: string;
+}) {
   return (
     <svg
       width="16"
@@ -518,7 +533,7 @@ function HeaderChevronIcon({ open }: { open: boolean }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
-      className={`shrink-0 text-faint transition-transform duration-fast ease-expo ${open ? 'rotate-180' : 'rotate-0'}`}
+      className={`shrink-0 ${colorClassName} transition-transform duration-fast ease-expo ${open ? 'rotate-180' : 'rotate-0'}`}
     >
       <path d="m6 9 6 6 6-6" />
     </svg>
@@ -729,6 +744,29 @@ function GroupSidebar({ groupId }: { groupId: string }) {
   const self = useSession((s) => s.self);
   /** Menu déroulant du nom de serveur (ouvert/fermé). */
   const [serverMenuOpen, setServerMenuOpen] = useState(false);
+  /**
+   * URL `data:` de la bannière du serveur, chargée par sa racine Merkle
+   * (`groups.state.banner`). Tant qu'elle n'est pas résolue (chargement en
+   * cours, échec ou absence de bannière), l'en-tête simple s'affiche —
+   * `lib/files` gère lui-même les reprises, aucun re-essai ici.
+   */
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const banner = state?.banner ?? null;
+  useEffect(() => {
+    let alive = true;
+    setBannerUrl(null);
+    if (banner === null) return undefined;
+    lireFichier(banner)
+      .then((url) => {
+        if (alive) setBannerUrl(url);
+      })
+      .catch(() => {
+        // Bannière indisponible : repli silencieux sur l'en-tête simple.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [banner]);
   /** Catégories repliées (état d'affichage local, propre à ce panneau). */
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggleCategory = (categoryId: string): void =>
@@ -759,56 +797,93 @@ function GroupSidebar({ groupId }: { groupId: string }) {
 
   const bannerGradient = profileCardGradient(state?.banner_color ?? null);
   const upcomingCount = upcomingEvents(state).length;
+  /** Bannière chargée : l'en-tête devient un bandeau image façon Discord. */
+  const hasBanner = bannerUrl !== null;
 
   return (
     <>
       <div
-        className="relative flex h-12 items-center gap-1 border-b border-rail bg-sidebar px-4 shadow-1"
-        style={bannerGradient !== null ? { backgroundImage: bannerGradient } : undefined}
+        className={`relative border-b border-rail bg-sidebar shadow-1 ${hasBanner ? 'h-32' : 'h-12'}`}
+        style={
+          !hasBanner && bannerGradient !== null
+            ? { backgroundImage: bannerGradient }
+            : undefined
+        }
       >
-        <button
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={serverMenuOpen}
-          onClick={() => setServerMenuOpen((open) => !open)}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded-md py-0.5 pr-1 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-        >
-          <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-header">
-            {state?.name ?? '…'}
-          </span>
-          <HeaderChevronIcon open={serverMenuOpen} />
-        </button>
-        {serverMenuOpen && (
-          <ServerHeaderMenu
-            groupId={groupId}
-            name={state?.name ?? ''}
-            onClose={() => setServerMenuOpen(false)}
-          />
-        )}
-        {mentionCount > 0 && <MentionBadge count={mentionCount} />}
-        {hasPerm(myPerms, PERMISSIONS.INVITE) && (
-          <HeaderIconButton
-            label={t.groups.invite}
-            onClick={() => openModal({ kind: 'invite', groupId })}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
+        {hasBanner && (
+          <>
+            <img
+              src={bannerUrl}
+              alt=""
               aria-hidden
-            >
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <line x1="19" x2="19" y1="8" y2="14" />
-              <line x1="22" x2="16" y1="11" y2="11" />
-            </svg>
-          </HeaderIconButton>
+              data-testid="server-banner"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            {/* Scrim de lisibilité sous le nom : dégradé noir → transparent. */}
+            <div
+              aria-hidden
+              data-testid="server-banner-scrim"
+              className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"
+            />
+          </>
         )}
+        <div
+          className={`relative flex h-full gap-1 px-4 ${hasBanner ? 'items-end pb-2' : 'items-center'}`}
+        >
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={serverMenuOpen}
+            onClick={() => setServerMenuOpen((open) => !open)}
+            className={`flex min-w-0 flex-1 items-center gap-1 rounded-md py-0.5 pr-1 text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+              hasBanner ? 'hover:bg-white/10' : 'hover:bg-chat-hover'
+            }`}
+          >
+            <span
+              className={`min-w-0 flex-1 truncate text-[15px] font-semibold ${
+                hasBanner ? 'text-white' : 'text-header'
+              }`}
+            >
+              {state?.name ?? '…'}
+            </span>
+            <HeaderChevronIcon
+              open={serverMenuOpen}
+              colorClassName={hasBanner ? 'text-white/80' : 'text-faint'}
+            />
+          </button>
+          {serverMenuOpen && (
+            <ServerHeaderMenu
+              groupId={groupId}
+              name={state?.name ?? ''}
+              onClose={() => setServerMenuOpen(false)}
+            />
+          )}
+          {mentionCount > 0 && <MentionBadge count={mentionCount} />}
+          {hasPerm(myPerms, PERMISSIONS.INVITE) && (
+            <HeaderIconButton
+              label={t.groups.invite}
+              onClick={() => openModal({ kind: 'invite', groupId })}
+              onBanner={hasBanner}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <line x1="19" x2="19" y1="8" y2="14" />
+                <line x1="22" x2="16" y1="11" y2="11" />
+              </svg>
+            </HeaderIconButton>
+          )}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         <button

@@ -312,6 +312,16 @@ export const en: Dict = {
     chooseImage: 'Choose an image',
     iconUpdated: 'Icon updated!',
     iconInvalid: 'This file is not a usable image',
+    // Server banner (image).
+    banner: 'Server banner',
+    bannerHint:
+      'Landscape image (16:9 recommended), 512 KiB max — shown at the top of the channel list.',
+    bannerChoose: 'Choose a banner',
+    bannerRemove: 'Remove the banner',
+    bannerUpdated: 'Banner updated!',
+    bannerRemoved: 'Banner removed.',
+    bannerInvalidType: 'This file is not an image.',
+    bannerTooLarge: 'Image too large (512 KiB max).',
     // Channels.
     newChannelTitle: 'New channel',
     newCategoryTitle: 'New category',

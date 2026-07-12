@@ -5,8 +5,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import type { Mock } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Contact, GroupStateJson } from '../lib/api';
+import { lireFichier } from '../lib/files';
 import { useContextMenu } from '../stores/contextMenu';
 import { useFriends } from '../stores/friends';
 import { PERMISSIONS, useGroups } from '../stores/groups';
@@ -15,6 +17,12 @@ import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 import { ContextMenu } from './ContextMenu';
 import { Sidebar } from './Sidebar';
+
+vi.mock('../lib/files', () => ({
+  lireFichier: vi.fn(() => new Promise(() => {})),
+}));
+
+const lireFichierMock = lireFichier as unknown as Mock;
 
 function contact(
   pubkey: string,
@@ -449,5 +457,63 @@ describe('Sidebar — sourdine des notifications (salon)', () => {
     expect(useMute.getState().channelLevels).toEqual({ 'g1/c1': 'none' });
     const rows = screen.getAllByLabelText('Salon en sourdine : notifications désactivées');
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe('Sidebar — bannière du serveur', () => {
+  const BANNER_HASH = 'ab'.repeat(32);
+
+  beforeEach(() => {
+    useUi.setState({ view: { kind: 'group', groupId: 'g1', channelId: 'c1' } });
+    lireFichierMock.mockReset();
+  });
+
+  it('affiche le bandeau image avec scrim, nom par-dessus et menu intact', async () => {
+    // Arrange
+    lireFichierMock.mockResolvedValue('data:image/png;base64,YWJj');
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: groupState({ banner: BANNER_HASH }) },
+    });
+
+    // Act
+    render(<Sidebar />);
+
+    // Assert — image chargée par sa racine Merkle, scrim de lisibilité posé.
+    const img = await screen.findByTestId('server-banner');
+    expect(img).toHaveAttribute('src', 'data:image/png;base64,YWJj');
+    expect(lireFichierMock).toHaveBeenCalledWith(BANNER_HASH);
+    expect(screen.getByTestId('server-banner-scrim')).toBeInTheDocument();
+
+    // Le nom reste superposé et le menu déroulant s'ouvre comme avant.
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+    expect(screen.getByRole('menu', { name: 'Menu du serveur' })).toBeInTheDocument();
+  });
+
+  it("garde l'en-tête simple sans bannière", () => {
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+
+    render(<Sidebar />);
+
+    expect(screen.queryByTestId('server-banner')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('server-banner-scrim')).not.toBeInTheDocument();
+    expect(lireFichierMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Guilde/ })).toBeInTheDocument();
+  });
+
+  it("retombe en silence sur l'en-tête simple si la lecture échoue", async () => {
+    lireFichierMock.mockRejectedValue(new Error('indisponible'));
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: groupState({ banner: BANNER_HASH }) },
+    });
+
+    render(<Sidebar />);
+
+    await waitFor(() => expect(lireFichierMock).toHaveBeenCalled());
+    expect(screen.queryByTestId('server-banner')).not.toBeInTheDocument();
+    // Une seule tentative — les reprises vivent dans lib/files, pas ici.
+    expect(lireFichierMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: /Guilde/ })).toBeInTheDocument();
   });
 });

@@ -312,6 +312,16 @@ export const fr = {
     chooseImage: 'Choisir une image',
     iconUpdated: 'Icône mise à jour !',
     iconInvalid: 'Ce fichier n’est pas une image exploitable',
+    // Bannière du serveur (image).
+    banner: 'Bannière du serveur',
+    bannerHint:
+      'Image paysage (16:9 conseillé), 512 Kio maximum — affichée en haut de la liste des salons.',
+    bannerChoose: 'Choisir une bannière',
+    bannerRemove: 'Retirer la bannière',
+    bannerUpdated: 'Bannière mise à jour !',
+    bannerRemoved: 'Bannière retirée.',
+    bannerInvalidType: 'Ce fichier n’est pas une image.',
+    bannerTooLarge: 'Image trop lourde (512 Kio maximum).',
     // Salons.
     newChannelTitle: 'Nouveau salon',
     newCategoryTitle: 'Nouvelle catégorie',
