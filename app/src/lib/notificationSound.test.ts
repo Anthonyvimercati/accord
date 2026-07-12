@@ -26,7 +26,9 @@ class FakeOscillator {
 
 class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
-  state: 'running' | 'suspended' = 'running';
+  /** État initial des prochaines instances (simule l'autoplay WKWebView). */
+  static initialState: 'running' | 'suspended' = 'running';
+  state: 'running' | 'suspended' = FakeAudioContext.initialState;
   currentTime = 0;
   destination = {};
   createGain = vi.fn(() => new FakeGain());
@@ -50,6 +52,7 @@ describe('playNotificationSound', () => {
   beforeEach(() => {
     originalAudioContext = w.AudioContext;
     FakeAudioContext.instances = [];
+    FakeAudioContext.initialState = 'running';
     vi.resetModules();
     vi.useFakeTimers();
     vi.setSystemTime(0);
@@ -98,6 +101,27 @@ describe('playNotificationSound', () => {
 
     expect(FakeAudioContext.instances).toHaveLength(1);
     expect(FakeAudioContext.instances[0]?.createOscillator).toHaveBeenCalledTimes(4);
+  });
+
+  it('ne consomme pas la limitation quand le contexte est suspendu (rejoue une fois déverrouillé)', async () => {
+    w.AudioContext = FakeAudioContext as unknown as typeof AudioContext;
+    FakeAudioContext.initialState = 'suspended';
+    const { playNotificationSound } = await import('./notificationSound');
+
+    vi.setSystemTime(50_000);
+    playNotificationSound('message');
+
+    // Contexte verrouillé : rien ne sonne, mais une reprise a été tentée.
+    const context = FakeAudioContext.instances[0];
+    expect(context?.createOscillator).not.toHaveBeenCalled();
+    expect(context?.resume).toHaveBeenCalled();
+
+    // Déverrouillé par un geste utilisateur : le blip suivant joue AUSSITÔT,
+    // même dans la même seconde — la limitation n'a pas été consommée à vide.
+    if (context !== undefined) context.state = 'running';
+    playNotificationSound('message');
+
+    expect(context?.createOscillator).toHaveBeenCalledTimes(2);
   });
 
   it('ne joue rien quand le réglage « Sons de notification » est désactivé', async () => {

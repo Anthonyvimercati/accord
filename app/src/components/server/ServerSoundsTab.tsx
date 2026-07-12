@@ -1,21 +1,29 @@
 /**
  * Onglet Soundboard : ajout d'un clip audio (choix d'un fichier + nom validé
- * `[a-z0-9_]` 2-32), liste des sons existants avec préécoute locale (bouton ▶)
- * et suppression confirmée. Réservé à la permission `MANAGE_EMOJIS` (l'onglet
- * n'apparaît pas sinon, mais on revérifie ici). Contrairement aux émojis, aucun
- * ré-encodage : on vérifie seulement le type MIME et la taille (≤ 256 Kio),
- * puis on transmet le clip tel quel via `groups.sounds.add`.
+ * `[a-z0-9_]` 2-32), liste des sons existants en cartes — pastille d'initiale
+ * à teinte stable (dérivée du nom, `lib/color`), préécoute avec retour visuel
+ * de lecture — et suppression confirmée. Réservé à la permission
+ * `MANAGE_EMOJIS` (l'onglet n'apparaît pas sinon, mais on revérifie ici).
+ * Contrairement aux émojis, aucun ré-encodage : on vérifie seulement le type
+ * MIME et la taille (≤ 256 Kio), puis on transmet le clip tel quel via
+ * `groups.sounds.add`. Toute lecture passe par le contexte Web Audio partagé
+ * (`lib/audio`), jamais par un élément `Audio` (autoplay/CSP).
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { interpolate } from '../../i18n';
 import { fichierEnDataUrl } from '../../lib/attachments';
+import { playClip } from '../../lib/audio';
+import { soundBadgeColor } from '../../lib/color';
 import { hasPerm, PERMISSIONS, useGroups } from '../../stores/groups';
 import { playSound } from '../../stores/soundboard';
 import { useUi, useT } from '../../stores/ui';
 import { estMimeSonValide, estNomSonValide, estTailleSonValide } from '../../lib/sound';
 import { SettingsSection } from '../settings/controls';
 import { ConfirmButton, messageOf } from './controls';
+
+/** Durée du retour visuel « en lecture » sur une carte (ms). */
+const PLAYING_PULSE_MS = 900;
 
 /** Icône note de musique (emplacement d'ajout d'un son). */
 function NoteIcon() {
@@ -81,7 +89,17 @@ export function ServerSoundsTab({ groupId }: { groupId: string }) {
   const [son, setSon] = useState<SonChoisi | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [playingName, setPlayingName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Nettoyage du minuteur de pulsation au démontage.
+  useEffect(
+    () => () => {
+      if (pulseTimer.current !== null) clearTimeout(pulseTimer.current);
+    },
+    [],
+  );
 
   if (!state) return null;
 
@@ -113,9 +131,20 @@ export function ServerSoundsTab({ groupId }: { groupId: string }) {
 
   const preecouterChoix = (): void => {
     if (son === null) return;
-    new Audio(son.apercu).play().catch(() => {
+    playClip(son.apercu).catch(() => {
       toast('error', t.soundboard.playbackFailed);
     });
+  };
+
+  /** Préécoute d'un son existant avec pulsation bornée de la carte. */
+  const preecouter = (soundName: string, merkleRoot: string): void => {
+    setPlayingName(soundName);
+    if (pulseTimer.current !== null) clearTimeout(pulseTimer.current);
+    pulseTimer.current = setTimeout(() => setPlayingName(null), PLAYING_PULSE_MS);
+    // Aucun indice de source : le clip d'un serveur dont on est membre est
+    // local ou téléchargeable via le groupe — un id de groupe n'est PAS une
+    // clé de pair (`files.read` rejetterait l'indice).
+    void playSound(merkleRoot);
   };
 
   const nomOk = estNomSonValide(name);
@@ -211,39 +240,56 @@ export function ServerSoundsTab({ groupId }: { groupId: string }) {
         {sounds.length === 0 ? (
           <p className="text-sm text-muted">{t.soundboard.empty}</p>
         ) : (
-          <div className="space-y-1">
-            {sounds.map((sound) => (
-              <div
-                key={sound.name}
-                className="flex items-center gap-3 rounded-lg bg-sidebar px-3 py-2"
-              >
-                <button
-                  type="button"
-                  aria-label={interpolate(t.soundboard.playOf, { name: sound.name })}
-                  title={t.soundboard.play}
-                  onClick={() => playSound(sound.merkle_root, groupId)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-rail text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+          <div className="space-y-1.5">
+            {sounds.map((sound) => {
+              const playing = playingName === sound.name;
+              return (
+                <div
+                  key={sound.name}
+                  className={`flex items-center gap-3 rounded-lg bg-sidebar px-3 py-2 transition-colors duration-fast hover:bg-chat-hover ${
+                    playing ? 'ring-1 ring-blurple' : ''
+                  }`}
                 >
-                  <PlayIcon />
-                </button>
-                <span className="min-w-0 flex-1 truncate font-mono text-sm text-norm">
-                  {sound.name}
-                </span>
-                {canManage && (
-                  <ConfirmButton
-                    action={t.soundboard.delete}
-                    question={interpolate(t.soundboard.deleteConfirm, {
-                      name: sound.name,
-                    })}
-                    onConfirm={() => {
-                      delSound(groupId, sound.name).catch((e: unknown) =>
-                        toast('error', messageOf(e, t.errors.actionFailed)),
-                      );
-                    }}
-                  />
-                )}
-              </div>
-            ))}
+                  <span
+                    aria-hidden
+                    style={{ backgroundColor: soundBadgeColor(sound.name) }}
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-sm font-bold text-white shadow-1 ${
+                      playing ? 'animate-pulse' : ''
+                    }`}
+                  >
+                    {sound.name.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-norm">
+                    {sound.name}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={interpolate(t.soundboard.playOf, { name: sound.name })}
+                    title={t.soundboard.play}
+                    aria-pressed={playing}
+                    onClick={() => preecouter(sound.name, sound.merkle_root)}
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-rail transition-[transform,color] duration-fast active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+                      playing ? 'text-blurple' : 'text-faint hover:text-norm'
+                    }`}
+                  >
+                    <PlayIcon />
+                  </button>
+                  {canManage && (
+                    <ConfirmButton
+                      action={t.soundboard.delete}
+                      question={interpolate(t.soundboard.deleteConfirm, {
+                        name: sound.name,
+                      })}
+                      onConfirm={() => {
+                        delSound(groupId, sound.name).catch((e: unknown) =>
+                          toast('error', messageOf(e, t.errors.actionFailed)),
+                        );
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </SettingsSection>

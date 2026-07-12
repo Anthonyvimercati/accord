@@ -537,7 +537,7 @@ export function MessageInput({
 
   if (notice !== null) {
     return (
-      <div className="px-4 pb-6">
+      <div className="px-4 pb-3">
         <div
           role="status"
           className="flex items-center gap-2.5 rounded-xl bg-input px-4 py-3 text-sm text-muted"
@@ -564,7 +564,7 @@ export function MessageInput({
   }
 
   return (
-    <div className="px-4 pb-6">
+    <div className="px-4 pb-3">
       {pieces.length > 0 && (
         <div className="flex flex-wrap gap-2 rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-3 py-2.5">
           {pieces.map((piece) => (
@@ -679,7 +679,7 @@ export function MessageInput({
           title={t.fichiers.joindre}
           disabled={sending || recording}
           onClick={openAttachMenu}
-          className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
+          className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
         >
           <svg
             width="18"
@@ -698,7 +698,7 @@ export function MessageInput({
         {recording ? (
           <div
             aria-hidden
-            className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center"
+            className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center"
           >
             <span className="h-2.5 w-2.5 rounded-full bg-red animate-pulse" />
           </div>
@@ -709,7 +709,7 @@ export function MessageInput({
             title={t.vocal.enregistrer}
             disabled={sending}
             onClick={demarrerEnregistrement}
-            className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
+            className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
           >
             <svg
               width="18"
@@ -811,7 +811,7 @@ export function MessageInput({
               void submit();
             }
           }}
-          className="max-h-48 min-h-[40px] flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
+          className="max-h-48 min-h-[36px] flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
         />
         {slowmodeActive && !recording && (
           <span
@@ -848,7 +848,7 @@ export function MessageInput({
               aria-label={t.vocal.annuler}
               title={t.vocal.annuler}
               onClick={annulerEnregistrement}
-              className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-red active:scale-95"
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-red active:scale-95"
             >
               <svg
                 width="18"
@@ -873,7 +873,7 @@ export function MessageInput({
               aria-label={t.vocal.envoyer}
               title={t.vocal.envoyer}
               onClick={arreterEtEnvoyer}
-              className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-blurple active:scale-95"
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-blurple active:scale-95"
             >
               <svg
                 width="18"
@@ -900,7 +900,7 @@ export function MessageInput({
                 aria-expanded={emojiOpen}
                 disabled={sending}
                 onClick={() => setEmojiOpen((open) => !open)}
-                className={`m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all duration-fast disabled:opacity-40 ${
+                className={`m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-fast disabled:opacity-40 ${
                   emojiOpen
                     ? 'bg-blurple/15 text-blurple'
                     : 'text-muted enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95'
@@ -950,7 +950,7 @@ export function MessageInput({
                 (text.trim() === '' && pieces.length === 0) || sending || slowmodeActive
               }
               onClick={() => void submit()}
-              className="m-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
             >
               <svg
                 width="18"

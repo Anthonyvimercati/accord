@@ -1,32 +1,64 @@
 /**
  * Soundboard : lecture des clips audio. Deux chemins convergent vers le même
- * `playSound` best-effort :
+ * `playSound` :
  * - l'émetteur joue le son localement dès le clic (feedback immédiat) ;
  * - les récepteurs présents dans le vocal reçoivent `event.soundboard_play`
  *   et jouent le clip désigné par sa racine Merkle.
  *
- * La lecture est best-effort : un autoplay refusé par la WKWebView ou un
- * fichier indisponible est silencieusement ignoré (jamais d'erreur remontée).
- * Câblé au chargement du module comme `stores/groups.ts` (garde d'environnement
- * pour les tests qui simulent `../lib/client` sans `rpc.onEvent`).
+ * La lecture passe par le contexte Web Audio partagé (`lib/audio.playClip`)
+ * plutôt que par un élément `Audio` : un contexte déverrouillé une fois joue
+ * sans nouveau geste (les récepteurs n'ont aucun geste au moment de
+ * l'événement) et le décodage ne dépend pas de la CSP `media-src`. Un échec
+ * (fichier indisponible, contexte encore verrouillé) est signalé par un
+ * toast — plus jamais avalé en silence.
+ *
+ * En rejoignant un salon vocal de groupe, tous les clips du serveur sont
+ * préchargés (`lireFichier` met la promesse en cache) : la première lecture
+ * distante est instantanée. Câblé au chargement du module comme
+ * `stores/groups.ts` (garde d'environnement pour les tests qui simulent
+ * `../lib/client` sans `rpc.onEvent` ou `./voice` sans `subscribe`).
  */
 
+import { dictionaries } from '../i18n';
+import { playClip } from '../lib/audio';
 import { rpc } from '../lib/client';
 import { lireFichier } from '../lib/files';
+import { useGroups } from './groups';
 import { useSession } from './session';
+import { useUi } from './ui';
 import { useVoice } from './voice';
 
 /**
- * Joue un clip de soundboard par sa racine Merkle (best-effort, silencieux en
- * cas d'échec). `hint` : clé publique d'un pair source probable (l'émetteur),
- * utilisée pour amorcer le téléchargement si le clip n'est pas encore local.
+ * Joue un clip de soundboard par sa racine Merkle. `hint` : clé publique d'un
+ * pair source probable (l'émetteur), utilisée pour amorcer le téléchargement
+ * si le clip n'est pas encore local. Rend `true` si la lecture a démarré ;
+ * `false` en échec (déjà signalé à l'utilisateur par un toast d'erreur).
  */
-export function playSound(merkleRoot: string, hint?: string): void {
-  lireFichier(merkleRoot, hint)
-    .then((url) => new Audio(url).play())
-    .catch(() => {
-      // Best effort : autoplay refusé, fichier indisponible ou lecture avortée.
+export async function playSound(merkleRoot: string, hint?: string): Promise<boolean> {
+  try {
+    const url = await lireFichier(merkleRoot, hint);
+    await playClip(url);
+    return true;
+  } catch {
+    const ui = useUi.getState();
+    ui.toast('error', dictionaries[ui.lang].soundboard.playbackFailed);
+    return false;
+  }
+}
+
+/**
+ * Précharge tous les clips de soundboard d'un groupe (best effort) : les
+ * promesses entrent dans le cache de `lireFichier`, la première lecture —
+ * locale ou distante — est alors immédiate au lieu d'attendre un
+ * téléchargement pair-à-pair.
+ */
+export function prefetchGroupSounds(groupId: string): void {
+  const sounds = useGroups.getState().states[groupId]?.sounds ?? [];
+  for (const sound of sounds) {
+    lireFichier(sound.merkle_root).catch(() => {
+      // Best effort : le clip retentera sa chance à la lecture réelle.
     });
+  }
 }
 
 /**
@@ -57,13 +89,28 @@ export function handleSoundboardEvent(method: string, params: unknown): void {
   }
   const self = useSession.getState().self;
   if (self !== null && p.from === self.pubkey) return;
-  playSound(p.sound, typeof p.from === 'string' ? p.from : undefined);
+  void playSound(p.sound, typeof p.from === 'string' ? p.from : undefined);
+}
+
+/**
+ * Précharge les sons du groupe à chaque entrée dans un salon vocal de groupe
+ * (jamais pour la session d'appel 1-à-1, `group_id` sentinelle sans sons).
+ */
+function wirePrefetchOnVoiceJoin(): void {
+  let previousGroupId: string | null = null;
+  useVoice.subscribe((s) => {
+    const next = s.active !== null && !s.active.isCall ? s.active.groupId : null;
+    if (next !== null && next !== previousGroupId) prefetchGroupSounds(next);
+    previousGroupId = next;
+  });
 }
 
 // Garde d'environnement : les tests qui simulent `../lib/client` sans
-// `rpc.onEvent` doivent pouvoir importer ce module sans câblage.
+// `rpc.onEvent` (ou `./voice` sans `subscribe`) doivent pouvoir importer ce
+// module sans câblage.
 try {
   rpc.onEvent(handleSoundboardEvent);
+  wirePrefetchOnVoiceJoin();
 } catch {
   // Client simulé (tests) : pas d'événements à câbler.
 }

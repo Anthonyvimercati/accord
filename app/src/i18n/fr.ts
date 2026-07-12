@@ -586,7 +586,10 @@ export const fr = {
     playbackFailed: 'Lecture du son impossible',
     // Déclencheur du salon vocal.
     open: 'Soundboard',
-    panelEmpty: 'Aucun son — ajoute-en dans les réglages du serveur.',
+    panelEmpty: 'Aucun son sur ce serveur pour le moment.',
+    openSettings: 'Ouvrir les réglages du serveur',
+    searchPlaceholder: 'Rechercher un son',
+    noResults: 'Aucun son ne correspond.',
   },
   calls: {
     startCall: 'Appeler',

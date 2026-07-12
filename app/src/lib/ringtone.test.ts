@@ -28,7 +28,9 @@ class FakeOscillator {
 
 class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
-  state: 'running' | 'suspended' = 'running';
+  /** État initial des prochaines instances (simule l'autoplay WKWebView). */
+  static initialState: 'running' | 'suspended' = 'running';
+  state: 'running' | 'suspended' = FakeAudioContext.initialState;
   currentTime = 0;
   destination = {};
   createGain = vi.fn(() => new FakeGain());
@@ -52,6 +54,7 @@ describe('startRingtone / stopRingtone', () => {
   beforeEach(() => {
     originalAudioContext = w.AudioContext;
     FakeAudioContext.instances = [];
+    FakeAudioContext.initialState = 'running';
     vi.resetModules();
     vi.useFakeTimers();
   });
@@ -111,6 +114,25 @@ describe('startRingtone / stopRingtone', () => {
 
     // Un seul minuteur : un cycle immédiat + un cycle après 2 s = 2 au total.
     expect(FakeAudioContext.instances[0]?.createOscillator).toHaveBeenCalledTimes(4);
+  });
+
+  it('devient audible dès le déverrouillage : chaque cycle revérifie le contexte', async () => {
+    w.AudioContext = FakeAudioContext as unknown as typeof AudioContext;
+    FakeAudioContext.initialState = 'suspended';
+    const { startRingtone } = await import('./ringtone');
+
+    startRingtone();
+
+    // Contexte verrouillé : rien ne sonne encore, mais la reprise est tentée.
+    const context = FakeAudioContext.instances[0];
+    expect(context?.createOscillator).not.toHaveBeenCalled();
+    expect(context?.resume).toHaveBeenCalled();
+
+    // Déverrouillage (geste utilisateur) : le cycle suivant sonne réellement.
+    if (context !== undefined) context.state = 'running';
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(context?.createOscillator).toHaveBeenCalledTimes(2);
   });
 
   it('stopRingtone est un no-op sans sonnerie en cours', async () => {

@@ -579,7 +579,10 @@ export const en: Dict = {
     playbackFailed: 'Sound playback failed',
     // Voice channel trigger.
     open: 'Soundboard',
-    panelEmpty: 'No sound — add some in the server settings.',
+    panelEmpty: 'No sound on this server yet.',
+    openSettings: 'Open the server settings',
+    searchPlaceholder: 'Search sounds',
+    noResults: 'No sound matches.',
   },
   calls: {
     startCall: 'Call',

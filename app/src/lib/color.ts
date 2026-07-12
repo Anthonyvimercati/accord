@@ -43,3 +43,25 @@ export function profileCardGradient(color: number | null | undefined): string | 
   const b = c & 0xff;
   return `linear-gradient(to bottom, rgba(${r}, ${g}, ${b}, ${CARD_TINT_ALPHA}) 0%, rgba(${r}, ${g}, ${b}, 0) 100%)`;
 }
+
+/**
+ * Teinte stable (0-359) dérivée d'une chaîne — badge coloré d'un son de
+ * soundboard, pastille d'initiale… Même entrée, même teinte, sur toutes les
+ * plateformes (hachage 32 bits façon Java, déterministe et sans dépendance).
+ */
+export function hueFromString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash % 360;
+}
+
+/**
+ * Couleur CSS du badge d'un son de soundboard : teinte stable dérivée du nom,
+ * saturation/luminosité fixes choisies pour porter une initiale blanche
+ * lisible sur les deux thèmes (clair et sombre).
+ */
+export function soundBadgeColor(name: string): string {
+  return `hsl(${hueFromString(name)} 58% 46%)`;
+}
