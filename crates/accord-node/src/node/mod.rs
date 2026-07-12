@@ -553,10 +553,15 @@ impl Node {
                         now_ms(),
                     )?)
                 })?;
-                self.emit(
-                    "event.friend_request",
-                    json!({ "peer": hex::encode(peer_pubkey) }),
-                );
+                // Rien à signaler pour une demande silencieusement écartée
+                // (pair bloqué ou débit d'ingestion saturé) : ne pas laisser un
+                // flot d'inconnus inonder l'UI d'événements.
+                if outcome != friends::IncomingOutcome::Ignored {
+                    self.emit(
+                        "event.friend_request",
+                        json!({ "peer": hex::encode(peer_pubkey) }),
+                    );
+                }
                 Ok(match outcome {
                     friends::IncomingOutcome::AutoAccepted
                     | friends::IncomingOutcome::AlreadyFriend => {

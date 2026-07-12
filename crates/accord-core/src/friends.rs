@@ -23,6 +23,44 @@ const MAX_DISPLAY_NAME: usize = 128;
 /// Durée de vie d'un record d'identité publié (1 h, republication continue).
 const IDENTITY_EXPIRY_S: u32 = 3600;
 
+/// Plafond dur de demandes d'ami entrantes en attente : au-delà, la plus
+/// ancienne est évincée. Empêche un flot d'inconnus (Sybil, un PoW chacun,
+/// désormais joignables via relais domicile) de faire croître `PendingIn`
+/// sans borne.
+const MAX_PENDING_IN: usize = 256;
+/// Fenêtre fixe du débit d'ingestion des demandes d'ami entrantes.
+const FRIEND_REQ_WINDOW_MS: u64 = 60_000;
+/// Nouvelles demandes entrantes acceptées au plus par fenêtre — au-delà,
+/// rejet silencieux. Miroir de la fenêtre fixe de `files_debit_ok`.
+const FRIEND_REQ_MAX_PAR_FENETRE: usize = 20;
+/// Clé `meta` de la fenêtre de débit (persistée : un redémarrage ne remet pas
+/// le compteur à zéro).
+const FRIEND_REQ_WINDOW_KEY: &str = "friends.reqin.window";
+
+/// Débit d'ingestion des demandes entrantes : fenêtre fixe GLOBALE (persistée
+/// en `meta`, car une attaque Sybil vient de clés toutes distinctes — un
+/// débit par pair serait inopérant). Rend `false` si la fenêtre courante est
+/// saturée. Miroir du motif de `files_debit_ok`.
+fn friend_request_rate_ok(db: &Db, now_ms: u64) -> Result<bool, CoreError> {
+    let (mut debut, mut compte) = match db.meta(FRIEND_REQ_WINDOW_KEY)? {
+        Some(b) if b.len() == 16 => (
+            u64::from_le_bytes(b[..8].try_into().expect("8 octets")),
+            u64::from_le_bytes(b[8..16].try_into().expect("8 octets")),
+        ),
+        _ => (now_ms, 0u64),
+    };
+    if now_ms.saturating_sub(debut) >= FRIEND_REQ_WINDOW_MS {
+        debut = now_ms;
+        compte = 0;
+    }
+    compte = compte.saturating_add(1);
+    let mut buf = [0u8; 16];
+    buf[..8].copy_from_slice(&debut.to_le_bytes());
+    buf[8..].copy_from_slice(&compte.to_le_bytes());
+    db.set_meta(FRIEND_REQ_WINDOW_KEY, &buf)?;
+    Ok(compte <= FRIEND_REQ_MAX_PAR_FENETRE as u64)
+}
+
 /// Action à entreprendre après une demande sortante.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutgoingAction {
@@ -173,6 +211,17 @@ pub fn ingest_friend_request(
         }
         Some(ContactState::PendingIn) => Ok(IncomingOutcome::Pending),
         None => {
+            // Anti-DoS (un inconnu est désormais joignable via relais
+            // domicile) : débit borné puis plafond de demandes en attente.
+            // Rejet silencieux au-delà du débit (aucune réponse observable,
+            // comme un pair bloqué).
+            if !friend_request_rate_ok(db, now_ms)? {
+                return Ok(IncomingOutcome::Ignored);
+            }
+            let en_attente = db.pending_in_count()?;
+            if en_attente >= MAX_PENDING_IN {
+                db.evict_oldest_pending_in(en_attente + 1 - MAX_PENDING_IN)?;
+            }
             db.upsert_contact(&new_contact(
                 *peer_pubkey,
                 display_name,
@@ -461,5 +510,70 @@ mod tests {
         assert!(request_friend(&db, &bob.public_key(), "a\u{0007}b", 1).is_err());
         let long = "x".repeat(129);
         assert!(request_friend(&db, &bob.public_key(), &long, 1).is_err());
+    }
+
+    /// Clé publique factice distincte (simulation Sybil : chaque demande vient
+    /// d'une identité différente).
+    fn cle(i: usize) -> [u8; 32] {
+        let mut k = [0u8; 32];
+        k[0] = (i & 0xff) as u8;
+        k[1] = (i >> 8) as u8;
+        k
+    }
+
+    #[test]
+    fn debit_ingestion_rejette_une_rafale_dans_la_meme_fenetre() {
+        let (db, _, _) = setup();
+        // Dans une même fenêtre, seules FRIEND_REQ_MAX_PAR_FENETRE demandes
+        // d'inconnus sont acceptées ; le reste est ignoré silencieusement.
+        for i in 0..FRIEND_REQ_MAX_PAR_FENETRE {
+            assert_eq!(
+                ingest_friend_request(&db, &cle(i), "x", 1_000).unwrap(),
+                IncomingOutcome::Pending
+            );
+        }
+        for i in FRIEND_REQ_MAX_PAR_FENETRE..FRIEND_REQ_MAX_PAR_FENETRE + 10 {
+            assert_eq!(
+                ingest_friend_request(&db, &cle(i), "x", 1_000).unwrap(),
+                IncomingOutcome::Ignored
+            );
+        }
+        assert_eq!(db.pending_in_count().unwrap(), FRIEND_REQ_MAX_PAR_FENETRE);
+        // Fenêtre suivante : le débit se réarme.
+        assert_eq!(
+            ingest_friend_request(&db, &cle(9_999), "x", 1_000 + FRIEND_REQ_WINDOW_MS).unwrap(),
+            IncomingOutcome::Pending
+        );
+    }
+
+    #[test]
+    fn plafond_pending_in_evince_les_plus_anciennes_a_l_ingestion() {
+        let (db, _, _) = setup();
+        // Pré-remplit exactement au plafond (added_ms croissant : cle(0) la plus
+        // ancienne), sans passer par le débit.
+        for i in 0..MAX_PENDING_IN {
+            db.upsert_contact(&new_contact(
+                cle(i),
+                "x",
+                ContactState::PendingIn,
+                i as u64 + 1,
+            ))
+            .unwrap();
+        }
+        assert_eq!(db.pending_in_count().unwrap(), MAX_PENDING_IN);
+        // Une nouvelle demande (fenêtre neuve) évince la plus ancienne, pas de
+        // dépassement du plafond.
+        assert_eq!(
+            ingest_friend_request(&db, &cle(MAX_PENDING_IN), "x", 10 * FRIEND_REQ_WINDOW_MS)
+                .unwrap(),
+            IncomingOutcome::Pending
+        );
+        assert_eq!(db.pending_in_count().unwrap(), MAX_PENDING_IN);
+        // La plus ancienne (cle(0)) a disparu, la nouvelle est présente.
+        assert!(db.contact(&node_id_of(&cle(0)).0).unwrap().is_none());
+        assert!(db
+            .contact(&node_id_of(&cle(MAX_PENDING_IN)).0)
+            .unwrap()
+            .is_some());
     }
 }

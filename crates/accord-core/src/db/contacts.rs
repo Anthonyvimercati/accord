@@ -120,6 +120,34 @@ impl Db {
         raws.into_iter().map(build).collect()
     }
 
+    /// Nombre de demandes d'ami entrantes en attente (`PendingIn`).
+    pub fn pending_in_count(&self) -> Result<usize, CoreError> {
+        let n: u32 = self.conn().query_row(
+            "SELECT count(*) FROM contacts WHERE state = ?1",
+            [ContactState::PendingIn as u8],
+            |row| row.get(0),
+        )?;
+        Ok(n as usize)
+    }
+
+    /// Évince les `surplus` demandes entrantes (`PendingIn`) les plus anciennes
+    /// (par `added_ms`) — anti-DoS : borne le nombre de demandes qu'un flot
+    /// d'inconnus peut accumuler. Sous-requête `IN (…)` car `DELETE … LIMIT`
+    /// n'est pas compilé dans le SQLite embarqué.
+    pub fn evict_oldest_pending_in(&self, surplus: usize) -> Result<(), CoreError> {
+        if surplus == 0 {
+            return Ok(());
+        }
+        self.conn().execute(
+            "DELETE FROM contacts WHERE node_id IN (
+               SELECT node_id FROM contacts WHERE state = ?1
+               ORDER BY added_ms ASC LIMIT ?2
+             )",
+            params![ContactState::PendingIn as u8, surplus as i64],
+        )?;
+        Ok(())
+    }
+
     /// Change l'état relationnel d'un contact existant.
     pub fn set_contact_state(
         &self,

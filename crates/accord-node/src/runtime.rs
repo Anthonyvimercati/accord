@@ -66,10 +66,18 @@ const FILES_TICK: Duration = Duration::from_millis(250);
 const FILES_REQS_PAR_S: u32 = 256;
 /// Borne du suivi de débit par pair (au-delà, la table est réinitialisée).
 const FILES_DEBIT_MAX_PAIRS: usize = 1024;
-/// Annonce `Have` à la complétion d'un blob : sessions vives ciblées au plus
-/// (borne anti-inondation ; les pairs qui téléchargent encore ce fichier y
-/// gagnent une source secondaire).
+/// Annonce `Have` à la complétion d'un blob : pairs ciblés au plus (borne
+/// anti-inondation ; les pairs qui téléchargent encore ce fichier y gagnent
+/// une source secondaire).
 const FILES_HAVE_MAX_PAIRS: usize = 16;
+/// Suivi des pairs ayant demandé une racine cette session (sémantique
+/// « Have » de BitTorrent : ne l'annoncer qu'à qui est déjà dans l'essaim,
+/// donc connaît déjà la racine — sinon on divulguerait la capacité de lecture
+/// d'un blob privé à des inconnus). Bornes façon [`FILES_DEBIT_MAX_PAIRS`] :
+/// au-delà, la table est vidée.
+const FILES_REQUESTERS_MAX_ROOTS: usize = 1024;
+/// Demandeurs mémorisés au plus par racine (au-delà, éviction du plus ancien).
+const FILES_REQUESTERS_MAX_PAR_ROOT: usize = 16;
 /// Cadence minimale, par pair, du repli de joignabilité des transferts
 /// (résolution de présence DHT + circuit relais) : au-delà d'un déclenchement
 /// par fenêtre, les émissions échouées n'empilent pas de nouvelles tâches.
@@ -188,6 +196,10 @@ pub struct Runtime {
     files: Mutex<fetch::Coordinator>,
     /// Fenêtres de débit du service de fichiers, par pair : `(début_ms, n)`.
     files_debit: Mutex<HashMap<[u8; 32], (u64, u32)>>,
+    /// Pairs ayant demandé une racine (`GetManifest`/`GetBlock`) cette session :
+    /// seuls destinataires légitimes d'une annonce `Have` de cette racine (ils
+    /// la connaissent déjà — aucune divulgation). Auto-borné.
+    files_requesters: Mutex<HashMap<[u8; 32], Vec<[u8; 32]>>>,
     /// Dernier repli de joignabilité déclenché par pair pour les transferts
     /// (présence DHT + relais), cadencé par [`FILES_REPLI_MIN_MS`].
     files_repli: Mutex<HashMap<[u8; 32], u64>>,
@@ -253,6 +265,7 @@ impl Runtime {
             voice: OnceLock::new(),
             files: Mutex::new(fetch::Coordinator::new()),
             files_debit: Mutex::new(HashMap::new()),
+            files_requesters: Mutex::new(HashMap::new()),
             files_repli: Mutex::new(HashMap::new()),
             net_last: Mutex::new(None),
             boot_backoff: Mutex::new(HashMap::new()),
@@ -1168,34 +1181,48 @@ impl Runtime {
         self.files.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Pairs joignables candidats au sondage de manifest (bornés) : les
-    /// sessions VIVES d'abord (joignabilité prouvée), puis le reste du carnet
-    /// d'adresses — plutôt que les premières entrées arbitraires du carnet,
-    /// qui pouvaient toutes être périmées.
-    fn known_peers(&self, cap: usize) -> Vec<[u8; 32]> {
-        let mut out: Vec<[u8; 32]> = self
-            .live
+    /// Vivier de sondage d'un téléchargement : pairs du CARNET uniquement
+    /// (relations établies), borné. Confidentialité : ne JAMAIS sonder
+    /// `GetManifest{racine privée}` auprès d'inconnus — une session vive avec
+    /// un étranger (premier contact via relais domicile, membre de groupe non
+    /// ami) n'est pas un candidat. L'indice (auteur) et les sources ayant
+    /// annoncé `Have` pour CETTE racine sont ajoutés par le coordinateur,
+    /// indépendamment de ce vivier.
+    fn fetch_probe_peers(&self, cap: usize) -> Vec<[u8; 32]> {
+        let book = self.book.lock().unwrap_or_else(|e| e.into_inner());
+        probe_pool_from_book(book.by_pubkey.keys().copied(), cap)
+    }
+
+    /// Mémorise qu'un pair a demandé une racine cette session (destinataire
+    /// légitime d'une annonce `Have` de cette racine). Auto-borné façon
+    /// [`FILES_DEBIT_MAX_PAIRS`] : au-delà de [`FILES_REQUESTERS_MAX_ROOTS`]
+    /// racines la table est vidée ; au-delà de
+    /// [`FILES_REQUESTERS_MAX_PAR_ROOT`] demandeurs le plus ancien est évincé.
+    fn note_file_requester(&self, root: [u8; 32], peer: [u8; 32]) {
+        let mut map = self
+            .files_requesters
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .take(cap)
-            .copied()
-            .collect();
-        for p in self
-            .book
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .by_pubkey
-            .keys()
-        {
-            if out.len() >= cap {
-                break;
-            }
-            if !out.contains(p) {
-                out.push(*p);
-            }
+            .unwrap_or_else(|e| e.into_inner());
+        if map.len() > FILES_REQUESTERS_MAX_ROOTS {
+            map.clear();
         }
-        out
+        let peers = map.entry(root).or_default();
+        if !peers.contains(&peer) {
+            if peers.len() >= FILES_REQUESTERS_MAX_PAR_ROOT {
+                peers.remove(0);
+            }
+            peers.push(peer);
+        }
+    }
+
+    /// Pairs ayant demandé cette racine cette session (essaim connu).
+    fn file_requesters_of(&self, root: &[u8; 32]) -> Vec<[u8; 32]> {
+        self.files_requesters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(root)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Anti-abus du service de fichiers : au plus [`FILES_REQS_PAR_S`]
@@ -1333,6 +1360,9 @@ impl Runtime {
                 if !self.files_debit_ok(&static_pub) {
                     return;
                 }
+                // Ce pair connaît la racine (il la demande) : seul destinataire
+                // légitime d'une future annonce `Have` de cette racine.
+                self.note_file_requester(root, static_pub);
                 let reply = match self.node.files_serve_manifest(&root) {
                     Ok(Some(manifest)) => FileMsg::ManifestMsg { manifest },
                     _ => FileMsg::NotFound {
@@ -1346,6 +1376,7 @@ impl Runtime {
                 if !self.files_debit_ok(&static_pub) {
                     return;
                 }
+                self.note_file_requester(root, static_pub);
                 let reply = match self.node.files_serve_block(&root, index) {
                     Ok(Some(data)) => FileMsg::Block { root, index, data },
                     _ => FileMsg::NotFound { root, index },
@@ -1462,9 +1493,9 @@ impl Runtime {
                 if let Err(e) = self.node.files_fetch_clear(&root) {
                     tracing::debug!(erreur = %e, "fichiers : intention insoldable");
                 }
-                // Blob complet : annonce `Have` bornée aux sessions vives —
-                // les pairs qui téléchargent encore ce fichier gagnent une
-                // source secondaire sans sondage aveugle.
+                // Blob complet : annonce `Have` aux seuls pairs qui ont
+                // demandé cette racine (essaim connu) — ils y gagnent une
+                // source secondaire, sans divulguer la racine à des tiers.
                 self.announce_have(root, bitmap.clone().unwrap_or_default())
                     .await;
             }
@@ -1476,15 +1507,22 @@ impl Runtime {
         self.send_file_actions(actions).await;
     }
 
-    /// Annonce `Have{root}` aux pairs des sessions vives, borné à
-    /// [`FILES_HAVE_MAX_PAIRS`] (anti-inondation : une seule annonce, à la
-    /// complétion d'un téléchargement — jamais de rediffusion périodique).
-    /// `FileMsg::Have` est déjà décodé par les nœuds existants : aucun
-    /// nouveau type filaire.
+    /// Annonce `Have{root}` à la complétion, UNIQUEMENT aux pairs qui ont
+    /// demandé cette racine cette session ET encore en session vive, borné à
+    /// [`FILES_HAVE_MAX_PAIRS`]. Confidentialité (sémantique « Have » de
+    /// BitTorrent) : ces pairs connaissent déjà la racine, donc rien n'est
+    /// divulgué ; un blob privé (photo de DM, avatar) n'est jamais annoncé à
+    /// un tiers. Sans demandeur enregistré : on n'annonce à PERSONNE.
+    /// `FileMsg::Have` est déjà décodé par les nœuds existants : aucun nouveau
+    /// type filaire.
     async fn announce_have(&self, root: [u8; 32], bitmap: Vec<u8>) {
         let cibles = {
+            let requesters = self.file_requesters_of(&root);
+            if requesters.is_empty() {
+                return;
+            }
             let live = self.live.lock().unwrap_or_else(|e| e.into_inner());
-            have_targets(&live, FILES_HAVE_MAX_PAIRS)
+            have_targets(&requesters, &live, FILES_HAVE_MAX_PAIRS)
         };
         for pair in cibles {
             let msg = FileMsg::Have {
@@ -1519,8 +1557,10 @@ impl Runtime {
         self.files_adopt_intents(now);
         // Un vivier plus large que la borne par téléchargement : quand des
         // pairs refusent (`NotFound`), le coordinateur pioche des remplaçants
-        // — il borne lui-même à [`fetch::MAX_SOURCES`] par racine.
-        let pairs = self.known_peers(fetch::MAX_SOURCES * 2);
+        // — il borne lui-même à [`fetch::MAX_SOURCES`] par racine. Restreint
+        // au carnet (relations établies) : ne pas divulguer une racine privée
+        // à des inconnus en session vive.
+        let pairs = self.fetch_probe_peers(fetch::MAX_SOURCES * 2);
         let (actions, abandons) = self.files_lock().tick(now, &pairs);
         self.send_file_actions(actions).await;
         for (root, progress) in abandons {
@@ -1746,12 +1786,26 @@ async fn tcp_punch_toward(
     }
 }
 
-/// Cibles d'une annonce `Have` à la complétion d'un blob : les pairs des
-/// sessions vives, bornés (anti-inondation) et en ordre stable (l'itération
-/// d'un `HashSet` ne l'est pas). Pure, testable.
-fn have_targets(live: &HashSet<[u8; 32]>, cap: usize) -> Vec<[u8; 32]> {
-    let mut cibles: Vec<[u8; 32]> = live.iter().copied().collect();
+/// Cibles d'une annonce `Have` à la complétion d'un blob : intersection des
+/// DEMANDEURS de cette racine (essaim connu) et des sessions vives, bornée
+/// (anti-inondation) et en ordre stable. Un pair qui n'a pas demandé la
+/// racine — inconnu ou non — n'est jamais ciblé. Pure, testable.
+/// Vivier de sondage à partir des seuls pairs du carnet, borné. Isolé pour le
+/// test : la propriété de sécurité est qu'un pair en session vive mais absent
+/// du carnet (inconnu) ne peut PAS y figurer (l'entrée ne provient que du
+/// carnet). Pure, testable.
+fn probe_pool_from_book(book_peers: impl Iterator<Item = [u8; 32]>, cap: usize) -> Vec<[u8; 32]> {
+    book_peers.take(cap).collect()
+}
+
+fn have_targets(requesters: &[[u8; 32]], live: &HashSet<[u8; 32]>, cap: usize) -> Vec<[u8; 32]> {
+    let mut cibles: Vec<[u8; 32]> = requesters
+        .iter()
+        .copied()
+        .filter(|p| live.contains(p))
+        .collect();
     cibles.sort_unstable();
+    cibles.dedup();
     cibles.truncate(cap);
     cibles
 }
@@ -1905,16 +1959,27 @@ mod tests {
     }
 
     #[test]
-    fn annonce_have_bornee_aux_sessions_vives_en_ordre_stable() {
+    fn annonce_have_ciblee_demandeurs_intersection_vives_en_ordre_stable() {
+        let demandeurs: Vec<[u8; 32]> = (0..5u8).map(|i| [i; 32]).collect();
         let live: HashSet<[u8; 32]> = (0..5u8).map(|i| [i; 32]).collect();
         // Ordre stable (trié) malgré l'itération non déterministe du set.
         assert_eq!(
-            have_targets(&live, 16),
+            have_targets(&demandeurs, &live, 16),
             (0..5u8).map(|i| [i; 32]).collect::<Vec<_>>()
         );
         // Borne anti-inondation respectée.
-        assert_eq!(have_targets(&live, 2).len(), 2);
-        // Aucune session vive : aucune annonce.
-        assert!(have_targets(&HashSet::new(), 16).is_empty());
+        assert_eq!(have_targets(&demandeurs, &live, 2).len(), 2);
+        // Confidentialité : un pair vif qui n'a PAS demandé la racine n'est
+        // jamais ciblé (inconnu via relais domicile, membre hors audience).
+        let live_avec_inconnu: HashSet<[u8; 32]> = (0..8u8).map(|i| [i; 32]).collect();
+        assert_eq!(
+            have_targets(&demandeurs, &live_avec_inconnu, 16),
+            (0..5u8).map(|i| [i; 32]).collect::<Vec<_>>(),
+            "seuls les demandeurs sont ciblés, pas les autres sessions vives"
+        );
+        // Un demandeur hors ligne (absent des vives) n'est pas ciblé.
+        assert!(have_targets(&demandeurs, &HashSet::new(), 16).is_empty());
+        // Aucun demandeur : aucune annonce.
+        assert!(have_targets(&[], &live, 16).is_empty());
     }
 }
