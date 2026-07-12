@@ -554,9 +554,20 @@ mod tests {
             })
             .collect();
         assert_eq!(index_demandes.len(), 2);
+        // Corrélation demande→réponse : chaque bloc doit être livré depuis la
+        // source qui l'a réellement en fenêtre (celle assignée par le
+        // coordinateur), sinon il est ignoré.
+        let source_de = |reqs: &[Action], idx: u32| -> [u8; 32] {
+            reqs.iter()
+                .find_map(|a| match a {
+                    Action::GetBlock { to, index, .. } if *index == idx => Some(*to),
+                    _ => None,
+                })
+                .expect("bloc non demandé")
+        };
         // Bloc 0 accepté : progression émise (pas de 5 % franchi).
         assert_eq!(
-            c.on_block(&HINT, &root, 0, blocks[0].clone(), 20),
+            c.on_block(&source_de(&reqs, 0), &root, 0, blocks[0].clone(), 20),
             Some(BlockOutcome::Verified)
         );
         assert_eq!(
@@ -569,13 +580,15 @@ mod tests {
         );
         assert_eq!(c.should_emit(&root), None, "double émission du même pas");
         assert_eq!(c.drain(&root), vec![(0, blocks[0].clone())]);
-        // Bloc corrompu rejeté, puis bloc final : complet.
+        // Bloc 1 corrompu (de sa source assignée) : rejeté, fenêtre libérée.
         assert_eq!(
-            c.on_block(&HINT, &root, 1, vec![0xFF; 300], 30),
+            c.on_block(&source_de(&reqs, 1), &root, 1, vec![0xFF; 300], 30),
             Some(BlockOutcome::Rejected)
         );
+        // Le coordinateur réassigne le bloc 1 ; le bon bloc est alors accepté.
+        let reqs2 = c.requests_for(&root);
         assert_eq!(
-            c.on_block(&HINT, &root, 1, blocks[1].clone(), 40),
+            c.on_block(&source_de(&reqs2, 1), &root, 1, blocks[1].clone(), 40),
             Some(BlockOutcome::Verified)
         );
         let fin = c.should_emit(&root).unwrap();

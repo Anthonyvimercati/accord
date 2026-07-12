@@ -608,6 +608,35 @@ pub fn ingest_group_message(
     let body = MsgBody::decode_body(*kind, encoded)?;
     db.bump_lamport(lamport)?;
 
+    // Modération déjà appliquée : le tombstone `DeleteMsg` de ce message a été
+    // folded (canal anti-entropie de l'op-log) AVANT que le message lui-même
+    // n'arrive (canal outbox/GroupCast, livraison indépendante et non
+    // ordonnée). Sans cette garde, le message serait inséré `deleted:false` et
+    // réapparaîtrait comme VIVANT, échappant à la suppression du modérateur
+    // (`apply_moderation` ne repasse pas à l'ingestion d'un message). On le
+    // persiste comme SUPPRIMÉ — présent dans l'historique en tant que
+    // tombstone, jamais notifié ni indexé pour la recherche.
+    if matches!(
+        body,
+        MsgBody::Text { .. } | MsgBody::Sticker { .. } | MsgBody::Poll { .. }
+    ) && state.moderated_deletions.contains(msg_id)
+        && db.group_msg(msg_id)?.is_none()
+    {
+        db.insert_group_msg(&GroupMsgRecord {
+            msg_id: *msg_id,
+            group_id: *group_id,
+            channel_id: *channel_id,
+            author: *sender,
+            lamport,
+            sent_ms,
+            kind: *kind,
+            body: encoded.to_vec(),
+            deleted: true,
+            edited: None,
+        })?;
+        return Ok(GroupMsgEvent::Duplicate);
+    }
+
     match body {
         MsgBody::Text {
             ref text,

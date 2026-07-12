@@ -198,8 +198,16 @@ impl Reassembler {
         }
 
         // Cohérence avec un réassemblage existant (borrow relâché aussitôt).
+        // On n'indexe `p.tranches[index]` QUE si le total concorde : `index`
+        // n'a été borné que par le `total` du fragment ENTRANT (l. 183), pas
+        // par la longueur du partiel existant (dimensionnée à son propre
+        // total). Sans cette garde, un pair pouvait envoyer un 2ᵉ fragment de
+        // même msg_id avec un total plus grand et un index hors des bornes du
+        // partiel → panique d'indexation (Vec), sous le verrou d'état →
+        // empoisonnement du Mutex → arrêt de toute la messagerie.
         let (existe, meme_total, deja_recu) = match self.en_cours.get(&msg_id) {
-            Some(p) => (true, p.total == total, p.tranches[index as usize].is_some()),
+            Some(p) if p.total == total => (true, true, p.tranches[index as usize].is_some()),
+            Some(_) => (true, false, false),
             None => (false, true, false),
         };
         if existe && !meme_total {
@@ -398,6 +406,30 @@ mod tests {
         assert_eq!(r.accept(&c1, 0).unwrap(), None);
         assert!(r.accept(&c2, 0).is_err());
         assert_eq!(r.en_cours(), 0); // le réassemblage fautif est abandonné
+    }
+
+    #[test]
+    fn total_croissant_avec_index_hors_bornes_du_partiel_ne_panique_pas() {
+        // Régression (audit 1.0, CRITICAL) : un 1er fragment fixe le partiel à
+        // un total de 2 (tranches de longueur 2), puis un 2e fragment de même
+        // id annonce un total plus grand ET un index >= 2 — valide vis-à-vis du
+        // NOUVEAU total, mais hors des bornes du partiel existant. Avant le
+        // correctif, `p.tranches[index]` paniquait (empoisonnement du Mutex
+        // d'état). Doit désormais être rejeté proprement comme incohérent.
+        let mut c1 = vec![FRAME_FRAG];
+        c1.extend_from_slice(&5u32.to_be_bytes());
+        c1.extend_from_slice(&2u16.to_be_bytes()); // total = 2 → tranches len 2
+        c1.extend_from_slice(&0u16.to_be_bytes());
+        c1.extend_from_slice(&[1, 2, 3]);
+        let mut c2 = vec![FRAME_FRAG];
+        c2.extend_from_slice(&5u32.to_be_bytes());
+        c2.extend_from_slice(&10u16.to_be_bytes()); // total plus grand
+        c2.extend_from_slice(&9u16.to_be_bytes()); // index 9 : hors du partiel len 2
+        c2.extend_from_slice(&[4, 5, 6]);
+        let mut r = Reassembler::new();
+        assert_eq!(r.accept(&c1, 0).unwrap(), None);
+        assert!(r.accept(&c2, 0).is_err()); // rejeté, PAS de panique
+        assert_eq!(r.en_cours(), 0); // partiel incohérent abandonné
     }
 
     #[test]

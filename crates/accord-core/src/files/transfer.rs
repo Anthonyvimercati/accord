@@ -162,8 +162,23 @@ impl Transfer {
     /// Réception d'un bloc depuis une source. Vérifie les blocs de données
     /// contre le manifest ; retient la parité ; libère la fenêtre.
     pub fn on_block(&mut self, source: &[u8; 32], index: u32, data: Vec<u8>) -> BlockOutcome {
-        self.settle(source, index);
         let count = self.have.len() as u32;
+        // Corrélation demande↔réponse (blocs de DONNÉES) : n'accepter un bloc
+        // que d'une source à qui on l'a effectivement demandé (index dans sa
+        // fenêtre `in_flight`). Un bloc non sollicité est rejeté à bas coût
+        // AVANT `settle` et AVANT toute vérification Merkle — un pair ne peut
+        // donc pas nous faire hacher des blocs arbitraires. La livraison
+        // légitime correspond toujours à un index poussé par `next_requests`,
+        // donc aucun débit honnête n'est bridé.
+        if index < count
+            && !self
+                .sources
+                .get(source)
+                .is_some_and(|s| s.in_flight.contains(&index))
+        {
+            return BlockOutcome::Ignored;
+        }
+        self.settle(source, index);
         if index < count {
             let i = index as usize;
             if self.have[i] {
@@ -177,7 +192,13 @@ impl Transfer {
             self.accept(index, data);
             BlockOutcome::Verified
         } else if index < count + (fec::group_count(count as usize) * fec::RS_PARITY) as u32 {
-            self.parity.entry(index).or_insert(data);
+            // Parité (envoyée proactivement, donc non corrélable) : bornée par
+            // le manifest. Ne déclencher la réparation RS (coûteuse) qu'UNE
+            // fois par index — un flot de parités dupliquées est ignoré.
+            if self.parity.contains_key(&index) {
+                return BlockOutcome::Ignored;
+            }
+            self.parity.insert(index, data);
             BlockOutcome::ParityStored
         } else {
             BlockOutcome::Ignored
@@ -380,6 +401,50 @@ mod tests {
         // Drainage : chaque bloc sort une seule fois.
         assert_eq!(t.take_block(0).unwrap(), blocks[0]);
         assert!(t.take_block(0).is_none());
+    }
+
+    #[test]
+    fn bloc_de_donnees_non_sollicite_est_ignore_sans_verification() {
+        // Régression (audit 1.0) : un pair ne peut pas nous faire vérifier
+        // (hacher) des blocs de données non demandés. Sans demande préalable,
+        // le bloc n'est pas en fenêtre → ignoré à bas coût.
+        let (manifest, blocks) = fixture(2, 300);
+        let mut t = Transfer::new(manifest).unwrap();
+        let src = [1u8; 32];
+        t.add_source(src);
+        assert_eq!(
+            t.on_block(&src, 0, blocks[0].clone()),
+            BlockOutcome::Ignored
+        );
+        // Une fois demandé (dans la fenêtre de sa source), il est accepté.
+        let (node, index) = t
+            .next_requests()
+            .into_iter()
+            .find(|(_, i)| *i == 0)
+            .unwrap();
+        assert_eq!(
+            t.on_block(&node, index, blocks[index as usize].clone()),
+            BlockOutcome::Verified
+        );
+    }
+
+    #[test]
+    fn parite_dupliquee_ne_relance_pas_la_reparation() {
+        // Régression (audit 1.0) : un flot de blocs de parité identiques ne
+        // déclenche la réparation RS (coûteuse) qu'une seule fois par index.
+        let (manifest, _) = fixture(2, 300);
+        let mut t = Transfer::new(manifest).unwrap();
+        let src = [1u8; 32];
+        t.add_source(src);
+        let parite = 2u32; // premier index de parité (au-delà des 2 données)
+        assert_eq!(
+            t.on_block(&src, parite, vec![0u8; 300]),
+            BlockOutcome::ParityStored
+        );
+        assert_eq!(
+            t.on_block(&src, parite, vec![0u8; 300]),
+            BlockOutcome::Ignored
+        );
     }
 
     #[test]
