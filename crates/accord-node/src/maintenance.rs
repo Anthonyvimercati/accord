@@ -1,20 +1,24 @@
 //! Boucles de maintenance réseau du nœud (D-024).
 //!
-//! Six tâches périodiques, bornées et à intervalles jitterés (aucun réveil
+//! Sept tâches périodiques, bornées et à intervalles jitterés (aucun réveil
 //! intempestif : chaque tâche dort entre deux passes, et s'arrête au signal
 //! d'arrêt du runtime) :
 //!
 //! 1. republication du record d'identité DHT (re-signé à chaque passe) ;
 //! 2. publication de la présence (adresses du nœud) sous une clé dérivée de
 //!    l'identité, avec demande d'observation d'adresse si besoin ;
-//! 3. résolution de la présence des amis, qui alimente le carnet d'adresses
-//!    appris du runtime ;
+//! 3. résolution de la présence des amis, des demandes d'ami sortantes et des
+//!    destinataires d'outbox, qui alimente le carnet d'adresses appris du
+//!    runtime ;
 //! 4. vidage de l'outbox : renvoi direct avec backoff (géré par la base) et
 //!    dépôt en boîte aux lettres DHT (D-016/D-017) après échecs répétés ;
 //! 5. relève des boîtes aux lettres (dépôts hors-ligne des amis) et offres
 //!    `GroupSync` périodiques vers les membres joignables des groupes ;
 //! 6. ré-annonce du profil local (pseudo, bio, hash d'avatar — D-027) aux
-//!    amis joignables, à la cadence de la republication d'identité.
+//!    amis joignables, à la cadence de la republication d'identité ;
+//! 7. entretien des relais « domicile » (SPEC §11.3, premier contact) :
+//!    sessions directes maintenues vers les relais les plus proches de notre
+//!    identifiant, point de rendez-vous d'un expéditeur encore inconnu.
 //!
 //! Les décisions (jitter, fenêtres de rotation, éligibilité à la file
 //! hors-ligne, seuil de dépôt, validation de présence) sont des fonctions
@@ -174,6 +178,36 @@ pub fn reconnect_backoff(base: Duration, fails: u32) -> Duration {
     const PLAFOND: u32 = 5;
     let facteur = 1u32 << fails.min(PLAFOND);
     base.saturating_mul(facteur)
+}
+
+/// Borne du nombre de destinataires d'outbox ajoutés aux cibles de résolution
+/// de présence par passe : l'outbox locale ne peut pas nous faire composer
+/// vers un ensemble arbitrairement grand de pairs en une passe (anti-abus —
+/// un contenu malveillant qui gonflerait la file ne démultiplie pas nos
+/// numérotations sortantes).
+pub const OUTBOX_DEST_MAX: usize = 16;
+
+/// Cibles d'une passe de résolution de présence : amis confirmés, demandes
+/// d'ami sortantes (premier contact — le destinataire doit être joignable pour
+/// que la demande parte) et destinataires d'outbox (déjà bornés à
+/// [`OUTBOX_DEST_MAX`] par l'appelant), sans doublon, ordre stable (amis
+/// d'abord). Fonction pure — testable sans horloge ni réseau.
+pub fn cibles_de_resolution(
+    friends: &[[u8; 32]],
+    pending_out: &[[u8; 32]],
+    outbox_dests: &[[u8; 32]],
+) -> Vec<[u8; 32]> {
+    let mut out: Vec<[u8; 32]> = Vec::new();
+    for key in friends
+        .iter()
+        .chain(pending_out.iter())
+        .chain(outbox_dests.iter().take(OUTBOX_DEST_MAX))
+    {
+        if !out.contains(key) {
+            out.push(*key);
+        }
+    }
+    out
 }
 
 /// Fenêtre de rotation sur `len` éléments à partir de `cursor` : rend les
@@ -373,6 +407,12 @@ pub(crate) fn spawn_loops(rt: &Arc<Runtime>) {
     spawn_periodic(Arc::clone(rt), cfg.bootstrap_reconnect, |r, c| {
         Box::pin(bootstrap_reconnect_tick(r, c))
     });
+    // Entretien des relais domicile (premier contact, SPEC §11.3) : même
+    // cadence que la publication de présence, pas de bouton supplémentaire ;
+    // la première passe part au délai de démarrage commun (≤ 2 s).
+    spawn_periodic(Arc::clone(rt), cfg.presence_publish, |r, c| {
+        Box::pin(home_relay_tick(r, c))
+    });
 }
 
 /// Reconnecte les pairs d'amorçage injoignables (backoff par pair géré par le
@@ -436,17 +476,21 @@ async fn request_observations(rt: &Runtime) {
     }
 }
 
-/// Résout la présence d'une fenêtre d'amis, alimente le carnet d'adresses et
-/// déclenche un poinçonnage NAT vers chaque ami résolu (SPEC §11).
+/// Résout la présence d'une fenêtre de cibles — amis, demandes d'ami sortantes
+/// et destinataires d'outbox ([`cibles_de_resolution`]) —, alimente le carnet
+/// d'adresses et déclenche un poinçonnage NAT vers chaque cible résolue
+/// (SPEC §11). Le premier contact (destinataire pas encore ami) emprunte le
+/// même chemin : présence → numérotation directe → repli relais (clé de paire
+/// puis relais domicile du pair).
 ///
-/// Pour chaque ami dont la présence est vérifiée :
+/// Pour chaque cible dont la présence est vérifiée :
 /// - une adresse de repli est posée au carnet *sans écraser* une adresse déjà
 ///   connue (cf. [`Runtime::register_peer_if_absent`]) : l'outbox a une cible
 ///   même avant l'établissement d'une session, sans jamais dégrader une adresse
 ///   prouvée joignable ;
 /// - toutes les adresses publiées sont classées en candidats
 ///   ([`classer_candidat`]) et un poinçonnage [`accord_transport::Endpoint::punch`]
-///   est lancé. `punch` est idempotent (no-op si une session avec l'ami existe
+///   est lancé. `punch` est idempotent (no-op si une session avec le pair existe
 ///   déjà), donc le relancer à chaque passe est sûr et borné par la fenêtre
 ///   `contacts_per_tick`.
 ///
@@ -462,15 +506,21 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
             return;
         }
     };
-    let window = rt.presence_window(friends.len(), cfg.contacts_per_tick);
+    // Cibles élargies (premier contact) : demandes sortantes et destinataires
+    // d'outbox, best-effort — une erreur de lecture n'empêche pas les amis.
+    let pending_out = rt.node().pending_out_pubkeys().unwrap_or_default();
+    let outbox_dests = rt.node().outbox_dests(OUTBOX_DEST_MAX).unwrap_or_default();
+    let cibles = cibles_de_resolution(&friends, &pending_out, &outbox_dests);
+    let amis: std::collections::HashSet<[u8; 32]> = friends.iter().copied().collect();
+    let window = rt.presence_window(cibles.len(), cfg.contacts_per_tick);
     let mut resolved = 0usize;
     let mut punched = 0usize;
     for i in window {
-        let friend = friends[i];
-        let Some(record) = rt.dht().get(rt.dht_rpc(), presence_key(&friend), now).await else {
+        let peer = cibles[i];
+        let Some(record) = rt.dht().get(rt.dht_rpc(), presence_key(&peer), now).await else {
             continue;
         };
-        let addrs = match verify_presence_record(&friend, &record, now) {
+        let addrs = match verify_presence_record(&peer, &record, now) {
             Ok(addrs) if !addrs.is_empty() => addrs,
             Ok(_) => continue, // record valide mais sans adresse : rien à essayer
             Err(e) => {
@@ -480,13 +530,13 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
         };
         resolved += 1;
         // Cible de repli pour l'outbox, sans écraser une adresse déjà prouvée.
-        rt.register_peer_if_absent(friend, addrs[0]);
+        rt.register_peer_if_absent(peer, addrs[0]);
         // Poinçonnage best-effort vers TOUS les candidats classés, détaché pour
-        // ne pas bloquer la résolution des amis suivants.
+        // ne pas bloquer la résolution des cibles suivantes.
         let candidats: Vec<Candidate> = addrs.into_iter().map(classer_candidat).collect();
         let endpoint = rt.endpoint_arc();
         tokio::spawn(async move {
-            if let Err(e) = endpoint.punch(&candidats, friend).await {
+            if let Err(e) = endpoint.punch(&candidats, peer).await {
                 tracing::debug!(erreur = %e, "présence : poinçonnage échoué");
             }
         });
@@ -494,29 +544,70 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
 
         // Repli relais (SPEC §11.3) : si le poinçonnage n'établit pas de session
         // dans le délai imparti — NAT symétrique où le punch ne peut pas passer,
-        // ou NAT cone dont le punch a échoué — on bascule sur un relais partagé.
-        // Détaché et idempotent : `ensure_relay_to` ne fait rien si l'ami est
+        // ou NAT cone dont le punch a échoué — on bascule sur un relais partagé
+        // (clé de paire, puis relais domicile du pair pour un premier contact).
+        // Détaché et idempotent : `ensure_relay_to` ne fait rien si le pair est
         // déjà joignable (session directe/relayée) ou si un circuit existe déjà.
+        let est_ami = amis.contains(&peer);
         if let Some(rt_arc) = rt.arc() {
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(relay::PUNCH_FALLBACK_MS)).await;
-                if !rt_arc.is_peer_live(&friend) {
-                    rt_arc.ensure_relay_to(friend).await;
+                if !rt_arc.is_peer_live(&peer) {
+                    rt_arc.ensure_relay_to(peer).await;
                 }
-                // Upgrade relais → direct (SPEC §11.2) : une fois un lien en
-                // place (typiquement relayé), demande un poinçonnage coordonné
-                // avec échange de candidats FRAIS et salves synchronisées des
-                // deux côtés (UDP puis repli TCP). Cadencé par le coordinateur
-                // et sans effet si une session directe existe déjà.
-                rt_arc.request_punch(friend).await;
+                // Upgrade relais → direct (SPEC §11.2), AMIS SEULEMENT (le
+                // destinataire rejette un `PunchRequest` d'un non-ami ; pour un
+                // premier contact, le circuit relais suffit à livrer) : une
+                // fois un lien en place (typiquement relayé), demande un
+                // poinçonnage coordonné avec échange de candidats FRAIS et
+                // salves synchronisées des deux côtés (UDP puis repli TCP).
+                // Cadencé par le coordinateur et sans effet si une session
+                // directe existe déjà.
+                if est_ami {
+                    rt_arc.request_punch(peer).await;
+                }
             });
         }
     }
     tracing::debug!(
-        amis = friends.len(),
+        cibles = cibles.len(),
         resolus = resolved,
         poinconnes = punched,
         "présence : passe de résolution"
+    );
+}
+
+/// Entretient des sessions directes vers nos relais « domicile » (SPEC §11.3,
+/// premier contact) : les [`relay::HOME_RELAY_COUNT`] relais annoncés les plus
+/// proches (distance XOR) de `node_id_of(notre clé)` — dérivation déterministe
+/// que N'IMPORTE QUI peut recalculer à partir de notre seule clé publique
+/// ([`Runtime::home_relays_of`]). Un expéditeur encore inconnu (demande d'ami)
+/// qui ne partage aucune clé de paire avec nous essaie ces relais en repli :
+/// la table du relais n'acheminant que vers des pairs AVEC session, notre
+/// session entretenue est ce qui rend le circuit — donc le premier contact —
+/// possible sans port ouvert.
+///
+/// Inconditionnel (pas de détection de NAT : entretenir 1-2 sessions est bon
+/// marché) et borné : au plus [`relay::HOME_RELAY_COUNT`] sessions, une passe
+/// par cadence de publication de présence. [`accord_transport::Endpoint::connect`]
+/// est idempotent — il établit la session si absente, sinon son Ping porteur
+/// rafraîchit le keep-alive ; entre deux passes, le keep-alive du transport
+/// (25 s ≪ idle 120 s) maintient la session de lui-même.
+async fn home_relay_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
+    let me = rt.node().public_key();
+    let mut entretenus = 0usize;
+    for info in rt.home_relays_of(&me) {
+        let Some(addr) = info.addrs.first().map(|a| a.0) else {
+            continue;
+        };
+        match rt.endpoint().connect(addr).await {
+            Ok(()) => entretenus += 1,
+            Err(e) => tracing::debug!(erreur = %e, "relais domicile : connexion impossible"),
+        }
+    }
+    tracing::debug!(
+        relais = entretenus,
+        "relais domicile : sessions entretenues"
     );
 }
 
@@ -882,6 +973,30 @@ mod tests {
         assert_eq!(cands[0].kind, CandidateKind::LocalDirect);
         assert_eq!(cands[0].addr, "192.168.1.5:4433".parse().unwrap());
         assert_eq!(cands[1].kind, CandidateKind::PublicDirect);
+    }
+
+    #[test]
+    fn cibles_de_resolution_union_sans_doublon_et_bornee() {
+        let k = |v: u8| [v; 32];
+        // Union ordonnée : amis, puis demandes sortantes, puis outbox — les
+        // doublons inter-ensembles sont écartés (première occurrence gagne).
+        let cibles = cibles_de_resolution(
+            &[k(1), k(2)],
+            &[k(2), k(3)], // 2 déjà ami
+            &[k(3), k(4)], // 3 déjà en demande sortante
+        );
+        assert_eq!(cibles, vec![k(1), k(2), k(3), k(4)]);
+
+        // Ensembles vides : simple passthrough des amis.
+        assert_eq!(cibles_de_resolution(&[k(7)], &[], &[]), vec![k(7)]);
+        assert!(cibles_de_resolution(&[], &[], &[]).is_empty());
+
+        // Les destinataires d'outbox sont bornés à OUTBOX_DEST_MAX même si
+        // l'appelant en fournit davantage (défense en profondeur : la file ne
+        // peut pas nous faire composer en masse).
+        let trop: Vec<[u8; 32]> = (0..(OUTBOX_DEST_MAX as u8 + 10)).map(k).collect();
+        let cibles = cibles_de_resolution(&[], &[], &trop);
+        assert_eq!(cibles.len(), OUTBOX_DEST_MAX);
     }
 
     #[test]

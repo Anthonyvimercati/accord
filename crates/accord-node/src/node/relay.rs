@@ -26,6 +26,16 @@ pub const PUNCH_FALLBACK_MS: u64 = 3_000;
 /// de la sélection (les suivants servent de repli si le plus proche échoue).
 pub const RELAY_SELECT_K: usize = 8;
 
+/// Nombre de relais « domicile » entretenus par un nœud (sessions directes
+/// maintenues) et essayés en repli par un expéditeur. Volontairement petit :
+/// borne le coût des sessions côté destinataire comme le nombre de tentatives
+/// côté expéditeur.
+pub const HOME_RELAY_COUNT: usize = 2;
+
+/// Borne dure du nombre total de candidats relais essayés pour joindre un pair
+/// (candidats de clé de paire puis relais domicile du pair, sans doublon).
+pub const RELAY_TRY_MAX: usize = RELAY_SELECT_K + HOME_RELAY_COUNT;
+
 /// Nature du NAT local déduite par recoupement d'observations d'adresse
 /// (SPEC §11.1). Champ additif exposé par `network.status`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -100,6 +110,34 @@ pub fn select_relays(candidates: Vec<NodeInfo>, exclude: &[[u8; 32]]) -> Vec<Nod
         .into_iter()
         .filter(|info| is_relay_candidate(info, exclude))
         .collect()
+}
+
+/// Relais « domicile » d'un nœud : les candidats (déjà triés par distance XOR
+/// à `node_id_of(pubkey)` du propriétaire, tels que rendus par `closest_local`)
+/// filtrés sur le drapeau relais, bornés à [`HOME_RELAY_COUNT`]. Dérivation
+/// DÉTERMINISTE et symétrique : le propriétaire (qui entretient une session
+/// vers chacun) et un expéditeur inconnu (premier contact, SPEC §11.3) qui lit
+/// une table cohérente convergent vers les MÊMES relais — c'est le point de
+/// rendez-vous qui rend le premier contact possible sans port ouvert.
+pub fn select_home_relays(candidates: Vec<NodeInfo>, exclude: &[[u8; 32]]) -> Vec<NodeInfo> {
+    let mut relays = select_relays(candidates, exclude);
+    relays.truncate(HOME_RELAY_COUNT);
+    relays
+}
+
+/// Liste ordonnée des candidats relais à essayer pour joindre un pair : les
+/// candidats de clé de paire d'abord (chemin historique, convergent entre
+/// amis), puis les relais domicile du pair (repli premier contact), sans
+/// doublon (par identifiant de nœud) et bornée à [`RELAY_TRY_MAX`].
+pub fn merge_relay_candidates(pair: Vec<NodeInfo>, home: Vec<NodeInfo>) -> Vec<NodeInfo> {
+    let mut out = pair;
+    for info in home {
+        if !out.iter().any(|c| c.node_id == info.node_id) {
+            out.push(info);
+        }
+    }
+    out.truncate(RELAY_TRY_MAX);
+    out
 }
 
 #[cfg(test)]
@@ -182,5 +220,58 @@ mod tests {
         // Filtre unitaire cohérent.
         assert!(is_relay_candidate(&relay_pub, &[]));
         assert!(!is_relay_candidate(&relay_pub, &[relay_pub.static_pub]));
+    }
+
+    #[test]
+    fn selection_relais_domicile_deterministe_filtre_et_bornee() {
+        // Quatre relais valides + un non-relais + le propriétaire lui-même :
+        // seuls les relais (drapeau + adresse), hors exclus, sont retenus,
+        // dans l'ordre d'entrée (distance XOR), bornés à HOME_RELAY_COUNT.
+        let moi = node(9, node_flags::RELAY, &["203.0.113.99:5000"]);
+        let candidates = vec![
+            moi.clone(), // soi-même : exclu
+            node(1, node_flags::RELAY, &["203.0.113.1:5000"]),
+            node(2, 0, &["203.0.113.2:5000"]), // pas relais : filtré
+            node(3, node_flags::RELAY, &["203.0.113.3:5000"]),
+            node(4, node_flags::RELAY, &["203.0.113.4:5000"]),
+        ];
+        let domicile = select_home_relays(candidates.clone(), &[moi.static_pub]);
+        assert_eq!(domicile.len(), HOME_RELAY_COUNT, "borné à HOME_RELAY_COUNT");
+        assert_eq!(domicile[0].node_id, NodeId([1; 32]), "ordre préservé");
+        assert_eq!(domicile[1].node_id, NodeId([3; 32]));
+        // Déterministe : même entrée ⇒ même sortie.
+        assert_eq!(
+            select_home_relays(candidates.clone(), &[moi.static_pub]),
+            domicile
+        );
+        // Moins de candidats que la borne : tous rendus, sans panique.
+        let peu = vec![node(5, node_flags::RELAY, &["203.0.113.5:5000"])];
+        assert_eq!(select_home_relays(peu, &[]).len(), 1);
+    }
+
+    #[test]
+    fn fusion_candidats_pair_puis_domicile_sans_doublon_et_bornee() {
+        let r = |id: u8| node(id, node_flags::RELAY, &["203.0.113.7:5000"]);
+        // Le relais 2 apparaît des deux côtés : une seule occurrence, côté paire.
+        let pair = vec![r(1), r(2)];
+        let home = vec![r(2), r(3)];
+        let merged = merge_relay_candidates(pair, home);
+        let ids: Vec<u8> = merged.iter().map(|i| i.node_id.0[0]).collect();
+        assert_eq!(
+            ids,
+            vec![1, 2, 3],
+            "paire d'abord, domicile ensuite, sans doublon"
+        );
+
+        // Bornée à RELAY_TRY_MAX même sur des entrées trop longues.
+        let pair: Vec<NodeInfo> = (1..=RELAY_SELECT_K as u8 + 2).map(r).collect();
+        let home: Vec<NodeInfo> = (100..=100 + HOME_RELAY_COUNT as u8 + 2).map(r).collect();
+        let merged = merge_relay_candidates(pair, home);
+        assert!(merged.len() <= RELAY_TRY_MAX, "borne dure des tentatives");
+
+        // Sans candidat de paire (premier contact pur) : le domicile suffit.
+        let merged = merge_relay_candidates(Vec::new(), vec![r(7)]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].node_id, NodeId([7; 32]));
     }
 }

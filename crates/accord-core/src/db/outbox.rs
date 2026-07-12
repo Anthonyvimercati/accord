@@ -112,6 +112,22 @@ impl Db {
             .collect()
     }
 
+    /// Destinataires DISTINCTS ayant au moins un message en file, bornés à
+    /// `limit` (ordre stable par premier message en file, plus ancien d'abord).
+    /// Sert à élargir la résolution de présence aux destinataires non-amis
+    /// (demande d'ami sortante) sans jamais balayer une file arbitrairement
+    /// grande en une passe.
+    pub fn outbox_dests(&self, limit: usize) -> Result<Vec<[u8; 32]>, CoreError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT dest, MIN(created_ms) AS oldest FROM outbox
+             GROUP BY dest ORDER BY oldest ASC LIMIT ?1",
+        )?;
+        let raws = stmt
+            .query_map([limit as i64], |row| row.get::<_, Vec<u8>>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        raws.into_iter().map(blob).collect()
+    }
+
     /// Replanifie après un échec d'envoi : incrémente `attempts` et applique
     /// le backoff exponentiel.
     pub fn outbox_reschedule(&self, id: i64, now_ms: u64) -> Result<(), CoreError> {
@@ -191,6 +207,20 @@ mod tests {
 
         db.outbox_remove(id).unwrap();
         assert!(db.outbox_for(&[7; 32]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn destinations_distinctes_ordonnees_et_bornees() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        assert!(db.outbox_dests(8).unwrap().is_empty(), "file vide");
+        // Deux messages pour [7], un pour [9] plus ancien : distincts, ordre
+        // par plus ancien message d'abord.
+        db.enqueue(&[9; 32], b"a", 500).unwrap();
+        db.enqueue(&[7; 32], b"b", 1000).unwrap();
+        db.enqueue(&[7; 32], b"c", 2000).unwrap();
+        assert_eq!(db.outbox_dests(8).unwrap(), vec![[9; 32], [7; 32]]);
+        // Borne appliquée.
+        assert_eq!(db.outbox_dests(1).unwrap(), vec![[9; 32]]);
     }
 
     #[test]

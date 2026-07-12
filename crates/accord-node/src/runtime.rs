@@ -626,21 +626,42 @@ impl Runtime {
         relay::select_relays(candidates, &[me, *friend])
     }
 
+    /// Relais « domicile » d'un pair (ou de soi-même) : les relais annoncés les
+    /// plus proches (distance XOR) de `node_id_of(owner)` dans la table de
+    /// routage, bornés à [`relay::HOME_RELAY_COUNT`]. Dérivation déterministe,
+    /// calculable par N'IMPORTE QUI (elle ne dépend que de la clé publique du
+    /// propriétaire) : le propriétaire y entretient une session
+    /// ([`crate::maintenance`], passe domicile) et un expéditeur inconnu les
+    /// essaie en repli — rendez-vous du premier contact sans port ouvert.
+    pub(crate) fn home_relays_of(&self, owner: &[u8; 32]) -> Vec<NodeInfo> {
+        let me = self.node.public_key();
+        let candidates = self
+            .dht
+            .closest_local(&node_id_of(owner), relay::RELAY_SELECT_K);
+        relay::select_home_relays(candidates, &[me, *owner])
+    }
+
     /// Bascule sur le relais pour joindre `friend` (SPEC §11.3), best-effort et
     /// idempotent : ne fait rien si une session (directe ou relayée) existe déjà
     /// ou si un circuit vers l'ami est déjà ouvert. Sinon, essaie les relais
-    /// candidats dans l'ordre déterministe : session directe avec le relais
-    /// (établie au besoin), ouverture de circuit, puis handshake A↔B tunnelé
-    /// (liaison d'identité D-037 garantie côté transport). À déclencher détaché
-    /// (`tokio::spawn`) pour ne pas bloquer la boucle appelante ; aucun verrou
-    /// n'est tenu pendant les `await` réseau.
+    /// candidats dans l'ordre déterministe — clé de paire d'abord, puis relais
+    /// domicile du pair (repli premier contact, où le pair entretient une
+    /// session ; borné à [`relay::RELAY_TRY_MAX`] au total) : session directe
+    /// avec le relais (établie au besoin), ouverture de circuit, puis handshake
+    /// A↔B tunnelé (liaison d'identité D-037 garantie côté transport). À
+    /// déclencher détaché (`tokio::spawn`) pour ne pas bloquer la boucle
+    /// appelante ; aucun verrou n'est tenu pendant les `await` réseau.
     pub(crate) async fn ensure_relay_to(&self, friend: [u8; 32]) {
         let friend_node = node_id_of(&friend);
         // Idempotence : déjà joignable ou circuit déjà ouvert ⇒ rien à faire.
         if self.is_peer_live(&friend) || self.endpoint.circuit_for_peer(friend_node).is_some() {
             return;
         }
-        for relay_info in self.select_relay_for(&friend) {
+        let candidats = relay::merge_relay_candidates(
+            self.select_relay_for(&friend),
+            self.home_relays_of(&friend),
+        );
+        for relay_info in candidats {
             let Some(relay_addr) = relay_info.addrs.first().map(|a| a.0) else {
                 continue;
             };

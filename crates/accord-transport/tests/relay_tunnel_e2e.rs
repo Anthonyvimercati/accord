@@ -430,6 +430,60 @@ async fn noeud_servant_est_aussi_extremite_cliente() {
     assert_eq!(recv_app_message(&mut r1).await, m_cr1);
 }
 
+#[tokio::test]
+async fn premier_contact_etranger_via_relais_domicile() {
+    // PREMIER CONTACT sans port ouvert (SPEC §11.3, rendez-vous domicile) :
+    // Alice et Bob sont des ÉTRANGERS (aucun échange préalable, pas d'amitié,
+    // donc aucun relais de clé de paire calculable) et n'ont PAS de route
+    // directe. Le relais n'achemine que vers un pair avec lequel il a DÉJÀ une
+    // session : tant que Bob n'a pas enregistré son relais domicile,
+    // l'ouverture est refusée (REJECT_NO_TARGET) ; dès que Bob y entretient sa
+    // session, une inconnue ouvre un circuit, tunnelle son handshake (PoW
+    // vérifié côté cible) et livre sa demande d'ami.
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(614, NetConditions::default());
+    let a_addr = "10.73.0.1:4000";
+    let r_addr = "10.73.0.2:4000";
+    let b_addr = "10.73.0.3:4000";
+    let mut alice = spawn_blocking(&net, &clock, a_addr, false, &[b_addr]);
+    let relay = spawn_node(&net, &clock, r_addr, true);
+    let mut bob = spawn_blocking(&net, &clock, b_addr, false, &[a_addr]);
+
+    // Alice joint le relais domicile de Bob (dérivé de la seule clé publique
+    // de Bob côté nœud ; ici le mesh n'a qu'un relais).
+    establish(&alice, &relay, 1).await;
+
+    // AVANT l'enregistrement domicile de Bob : le relais n'a aucune session
+    // avec lui, l'ouverture de circuit est refusée (REJECT_NO_TARGET = 0x02).
+    let err = alice
+        .ep
+        .open_relay_circuit(relay.addr, relay.ep.node_id(), bob.static_pub)
+        .await
+        .expect_err("sans session Bob↔relais, l'ouverture doit être refusée");
+    assert!(
+        matches!(err, TransportError::RelayOpenRejected(0x02)),
+        "REJECT_NO_TARGET attendu, obtenu {err:?}"
+    );
+
+    // Enregistrement domicile : Bob entretient une session directe vers SON
+    // relais (ce que fait la passe de maintenance côté nœud).
+    establish(&bob, &relay, 2).await;
+
+    // Une ÉTRANGÈRE ouvre maintenant le circuit et tunnelle son handshake :
+    // les deux extrémités voient un Connected lié à l'identité de l'autre.
+    let circuit = establish_tunnel(&mut alice, &relay, &mut bob).await;
+
+    // La demande d'ami — le tout premier message jamais échangé — est livrée
+    // à travers le tunnel, sans que Bob n'ait ouvert le moindre port.
+    let demande = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::FriendRequest {
+        display_name: "Alice".into(),
+        message: "premier contact".into(),
+        verify_phrase: None,
+    });
+    alice.ep.send_via_relay(circuit, &demande).await.unwrap();
+    assert_eq!(recv_app_message(&mut bob).await, demande);
+}
+
 // ===========================================================================
 // Tests de régression des failles de sécurité du tunnel relais (revue
 // adversariale). Un test par faille : A (identité), B (DoS/panic), C (mémoire),

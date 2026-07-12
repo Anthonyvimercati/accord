@@ -131,6 +131,21 @@ impl Node {
         })
     }
 
+    /// Clés publiques des demandes d'ami SORTANTES en attente : cibles de la
+    /// résolution de présence au même titre que les amis (premier contact —
+    /// le destinataire n'est pas encore ami mais doit pouvoir être joint pour
+    /// que la demande parte, directement ou via ses relais domicile).
+    pub fn pending_out_pubkeys(&self) -> Result<Vec<[u8; 32]>, NodeError> {
+        self.with_db(|db| {
+            Ok(db
+                .contacts()?
+                .into_iter()
+                .filter(|c| c.state == accord_core::db::ContactState::PendingOut)
+                .map(|c| c.pubkey)
+                .collect())
+        })
+    }
+
     /// Écrit la note privée locale attachée à une clé publique (au plus
     /// [`MAX_NOTE_CHARS`] caractères ; une note vide efface l'entrée). Purement
     /// locale : jamais émise vers le pair ni ailleurs.

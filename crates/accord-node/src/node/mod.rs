@@ -997,6 +997,12 @@ impl Node {
         self.with_db(|db| Ok(db.outbox_for(dest)?))
     }
 
+    /// Destinataires distincts ayant des messages en file, bornés (cibles
+    /// supplémentaires de la résolution de présence).
+    pub fn outbox_dests(&self, limit: usize) -> Result<Vec<[u8; 32]>, NodeError> {
+        self.with_db(|db| Ok(db.outbox_dests(limit)?))
+    }
+
     /// Replanifie un élément d'outbox après échec (backoff exponentiel).
     pub fn outbox_reschedule(&self, id: i64, now_ms: u64) -> Result<(), NodeError> {
         self.with_db(|db| Ok(db.outbox_reschedule(id, now_ms)?))
