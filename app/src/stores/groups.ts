@@ -839,7 +839,20 @@ export const useGroups = create<GroupsState>((set, get) => ({
     try {
       await api.groupsInviteAccept(groupId, inviteId);
     } catch (err) {
-      set({ pendingInvites: previous });
+      // Échec : ré-insère UNIQUEMENT l'invitation retirée dans la liste
+      // COURANTE (préserve celles arrivées entre-temps), sans doublon.
+      const removed = previous.find(
+        (i) => i.group_id === groupId && i.invite_id === inviteId,
+      );
+      if (removed !== undefined) {
+        set((s) =>
+          s.pendingInvites.some(
+            (i) => i.group_id === groupId && i.invite_id === inviteId,
+          )
+            ? {}
+            : { pendingInvites: [...s.pendingInvites, removed] },
+        );
+      }
       throw err;
     }
   },
@@ -854,7 +867,20 @@ export const useGroups = create<GroupsState>((set, get) => ({
     try {
       await api.groupsInviteDecline(groupId, inviteId);
     } catch (err) {
-      set({ pendingInvites: previous });
+      // Échec : ré-insère UNIQUEMENT l'invitation retirée dans la liste
+      // COURANTE (préserve celles arrivées entre-temps), sans doublon.
+      const removed = previous.find(
+        (i) => i.group_id === groupId && i.invite_id === inviteId,
+      );
+      if (removed !== undefined) {
+        set((s) =>
+          s.pendingInvites.some(
+            (i) => i.group_id === groupId && i.invite_id === inviteId,
+          )
+            ? {}
+            : { pendingInvites: [...s.pendingInvites, removed] },
+        );
+      }
       throw err;
     }
   },
@@ -1210,14 +1236,23 @@ export const useGroups = create<GroupsState>((set, get) => ({
     );
     await api.groupsReact(groupId, channelId, msgId, emoji, !already);
     set((s) => ({
-      messages: patchMessages(s.messages, key, msgId, (m) => ({
-        ...m,
-        reactions: already
-          ? (m.reactions ?? []).filter(
-              (r) => !(r.emoji === emoji && r.author === selfPubkey),
-            )
-          : [...(m.reactions ?? []), { emoji, author: selfPubkey }],
-      })),
+      messages: patchMessages(s.messages, key, msgId, (m) => {
+        // Idempotent : deux clics rapides lisent tous deux `already=false` puis
+        // ajoutent ; on garde contre le doublon en relisant l'état COURANT.
+        const has = (m.reactions ?? []).some(
+          (r) => r.emoji === emoji && r.author === selfPubkey,
+        );
+        return {
+          ...m,
+          reactions: already
+            ? (m.reactions ?? []).filter(
+                (r) => !(r.emoji === emoji && r.author === selfPubkey),
+              )
+            : has
+              ? (m.reactions ?? [])
+              : [...(m.reactions ?? []), { emoji, author: selfPubkey }],
+        };
+      }),
     }));
   },
 
@@ -1267,7 +1302,27 @@ export const useGroups = create<GroupsState>((set, get) => ({
     try {
       await api.groupsEventsRsvp(groupId, eventId, interested);
     } catch (err) {
-      set((s) => ({ states: { ...s.states, [groupId]: state } }));
+      // Échec : annule UNIQUEMENT ce RSVP sur l'état COURANT (préserve les MAJ
+      // concurrentes arrivées pendant l'appel), au lieu de restaurer tout
+      // l'instantané pré-clic.
+      const prev = (state.events ?? []).find((e) => e.event_id === eventId);
+      if (prev !== undefined) {
+        set((s) => {
+          const cur = s.states[groupId];
+          if (cur === undefined) return {};
+          return {
+            states: {
+              ...s.states,
+              [groupId]: {
+                ...cur,
+                events: (cur.events ?? []).map((e) =>
+                  e.event_id === eventId ? prev : e,
+                ),
+              },
+            },
+          };
+        });
+      }
       throw err;
     }
   },
@@ -1341,7 +1396,21 @@ export const useGroups = create<GroupsState>((set, get) => ({
     try {
       await api.groupsPollVote(groupId, pollId, optionIndex);
     } catch (err) {
-      set((s) => ({ states: { ...s.states, [groupId]: state } }));
+      // Échec : restaure UNIQUEMENT ce sondage sur l'état COURANT (préserve les
+      // MAJ concurrentes arrivées pendant l'appel), au lieu de tout l'instantané.
+      set((s) => {
+        const cur = s.states[groupId];
+        if (cur === undefined) return {};
+        return {
+          states: {
+            ...s.states,
+            [groupId]: {
+              ...cur,
+              polls: (cur.polls ?? []).map((p) => (p.poll_id === pollId ? poll : p)),
+            },
+          },
+        };
+      });
       throw err;
     }
   },

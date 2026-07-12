@@ -236,14 +236,23 @@ export const useDms = create<DmsState>((set, get) => ({
     );
     await api.dmReact(peer, msgId, emoji, already);
     set((s) => ({
-      conversations: patchConversation(s.conversations, peer, msgId, (m) => ({
-        ...m,
-        reactions: already
-          ? (m.reactions ?? []).filter(
-              (r) => !(r.emoji === emoji && r.author === selfPubkey),
-            )
-          : [...(m.reactions ?? []), { emoji, author: selfPubkey }],
-      })),
+      conversations: patchConversation(s.conversations, peer, msgId, (m) => {
+        // Idempotent : deux clics rapides lisent tous deux `already=false` puis
+        // ajoutent ; on garde contre le doublon en relisant l'état COURANT.
+        const has = (m.reactions ?? []).some(
+          (r) => r.emoji === emoji && r.author === selfPubkey,
+        );
+        return {
+          ...m,
+          reactions: already
+            ? (m.reactions ?? []).filter(
+                (r) => !(r.emoji === emoji && r.author === selfPubkey),
+              )
+            : has
+              ? (m.reactions ?? [])
+              : [...(m.reactions ?? []), { emoji, author: selfPubkey }],
+        };
+      }),
     }));
   },
 }));
