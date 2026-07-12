@@ -63,18 +63,22 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
     void useFriends
       .getState()
       .load()
-      .catch(() => {});
+      .catch(() => {
+        // Best effort : les compteurs seront corrigés au prochain passage.
+      });
     void useGroups
       .getState()
       .refreshUnread()
-      .catch(() => {});
+      .catch(() => {
+        // Best effort : les compteurs seront corrigés au prochain passage.
+      });
   };
 
   const openEntry = (entry: MentionEntry): void => {
     void api
       .mentionsMarkRead([entry.msg_id])
       .then(refreshBadges)
-      .catch(() => {});
+      .catch(() => toast('error', t.errors.actionFailed));
     const view = viewOf(entry.conversation);
     // A group mention without a channel can only open the group, not jump.
     if (view.kind === 'group' && view.channelId === null) setView(view);

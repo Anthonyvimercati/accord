@@ -254,6 +254,7 @@ export function DmView({ peer }: { peer: string }) {
     if (!jumpingHere) {
       refresh(peer).catch(() => toast('error', t.errors.loadFailed));
     }
+    // Épinglés en best effort : le volet affichera ce qui est connu.
     loadPins(peer).catch(() => {});
   }, [peer, refresh, loadPins, toast, t]);
 
