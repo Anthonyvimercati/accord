@@ -138,6 +138,7 @@ export const fr = {
     forwardEmpty: 'Aucune destination disponible.',
     forwarded: 'Message transféré !',
     forwardFailed: 'Échec du transfert',
+    empty: 'Aucun message pour l’instant — écrivez le premier !',
   },
   mentions: {
     inboxTitle: 'Mentions',

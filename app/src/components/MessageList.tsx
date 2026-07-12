@@ -422,6 +422,9 @@ export function MessageList({
         role="log"
         aria-live="polite"
       >
+        {visible.length === 0 && (
+          <p className="py-16 text-center text-sm text-muted">{t.dm.empty}</p>
+        )}
         {visible.map((m, i) => {
           const prev = visible[i - 1];
           const newDay = !prev || !sameDay(prev.sent_ms, m.sent_ms);

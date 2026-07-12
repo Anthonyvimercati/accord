@@ -138,6 +138,7 @@ export const en: Dict = {
     forwardEmpty: 'No destination available.',
     forwarded: 'Message forwarded!',
     forwardFailed: 'Forward failed',
+    empty: 'No messages yet — write the first one!',
   },
   mentions: {
     inboxTitle: 'Mentions',
