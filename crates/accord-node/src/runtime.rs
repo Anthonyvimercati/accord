@@ -91,6 +91,19 @@ const FILES_REQUESTERS_MAX_PAR_ROOT: usize = 16;
 /// par fenêtre, les émissions échouées n'empilent pas de nouvelles tâches.
 const FILES_REPLI_MIN_MS: u64 = 10_000;
 
+/// Borne du carnet d'adresses (cache best-effort, ré-résolu via la DHT au
+/// besoin) : au-delà, une entrée est évincée à l'insertion d'un nouveau pair.
+/// Empêche une croissance non bornée sous un flot de handshakes (PoW 16 bits) —
+/// l'adresse d'un ami évincée est ré-apprise à son prochain message.
+const MAX_BOOK: usize = 8192;
+
+/// Délai maximal d'une interrogation du moteur voix DEPUIS la boucle
+/// d'événements. Celle-ci est l'unique consommatrice du trafic de TOUS les
+/// pairs : elle ne doit jamais se bloquer indéfiniment sur une autre tâche
+/// (le moteur voix peut être momentanément occupé, p. ex. ouverture d'un
+/// périphérique). Au-delà du délai, on considère « pas dans le salon ».
+const VOICE_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// Pont [`DhtRpc`] sur l'endpoint transport : envoie un RPC dans une session
 /// chiffrée et attend la réponse corrélée par `rpc_id`.
 pub struct TransportDhtRpc {
@@ -542,11 +555,16 @@ impl Runtime {
     }
 
     fn remember(&self, pubkey: [u8; 32], addr: SocketAddr) {
-        self.book
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .by_pubkey
-            .insert(pubkey, addr);
+        let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
+        // Borne mémoire (anti-croissance non bornée) : au-delà de [`MAX_BOOK`],
+        // l'insertion d'un pair INCONNU évince une entrée. Best-effort — le
+        // carnet est un cache d'adresses, ré-résolu via la DHT si besoin.
+        if book.by_pubkey.len() >= MAX_BOOK && !book.by_pubkey.contains_key(&pubkey) {
+            if let Some(victim) = book.by_pubkey.keys().next().copied() {
+                book.by_pubkey.remove(&victim);
+            }
+        }
+        book.by_pubkey.insert(pubkey, addr);
     }
 
     pub(crate) fn addr_of(&self, pubkey: &[u8; 32]) -> Option<SocketAddr> {
@@ -1146,13 +1164,17 @@ impl Runtime {
             ..
         } = &core_msg
         {
+            // Borné par un timeout : le moteur voix vit sur une AUTRE tâche.
+            // S'il est bloqué (ouverture de périphérique qui pend, dialogue de
+            // permission macOS sans réponse…), la boucle d'événements — seule
+            // à router le trafic de TOUS les pairs — ne doit pas geler avec lui
+            // (sinon plus aucun message/DHT/fichier ne passe jusqu'au
+            // redémarrage). Au pire on n'annonce pas ce son : dégradation bénigne.
             let in_room = match self.voice.get() {
-                Some(voice) => voice
-                    .status()
-                    .await
-                    .ok()
-                    .flatten()
-                    .is_some_and(|s| s.is_room(group_id, channel_id)),
+                Some(voice) => matches!(
+                    tokio::time::timeout(VOICE_QUERY_TIMEOUT, voice.status()).await,
+                    Ok(Ok(Some(s))) if s.is_room(group_id, channel_id)
+                ),
                 None => false,
             };
             if !in_room {
