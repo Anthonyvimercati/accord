@@ -339,6 +339,21 @@ export interface AuditEntry {
   params: Record<string, unknown>;
 }
 
+/**
+ * Fil de discussion d'un salon (`groups.state.threads`) : se comporte comme un
+ * salon dérivé dont `thread_id` sert de `channel_id` aux mêmes RPC d'historique
+ * et d'envoi. `parent_channel` est le salon d'origine, `root_msg` le message
+ * depuis lequel le fil a été ouvert (affiché en tête du fil, badge sur la
+ * racine). Un fil `archived` reste consultable mais est rangé à part.
+ */
+export interface GroupThread {
+  thread_id: string;
+  parent_channel: string;
+  root_msg: string;
+  name: string;
+  archived: boolean;
+}
+
 export interface GroupStateJson {
   group_id: string;
   name: string;
@@ -378,6 +393,8 @@ export interface GroupStateJson {
    * Optionnel par tolérance (nœud plus ancien).
    */
   automod_words?: string[];
+  /** Fils de discussion ouverts dans les salons (peut manquer, nœud plus ancien). */
+  threads?: GroupThread[];
 }
 
 /**
@@ -1099,6 +1116,38 @@ export class Api {
     return this.rpc.call('groups.channel.del', {
       group_id: groupId,
       channel_id: channelId,
+    });
+  }
+
+  /**
+   * Ouvre un fil de discussion sur `rootMsg` dans `parentChannel`. Le fil se
+   * comporte ensuite comme un salon : ses messages voyagent par les mêmes RPC
+   * d'historique et d'envoi, avec `thread_id` en guise de `channel_id`.
+   */
+  groupsThreadCreate(
+    groupId: string,
+    parentChannel: string,
+    rootMsg: string,
+    name: string,
+  ): Promise<{ thread_id: string }> {
+    return this.rpc.call('groups.thread.create', {
+      group_id: groupId,
+      parent_channel: parentChannel,
+      root_msg: rootMsg,
+      name,
+    });
+  }
+
+  /** Archive (`archived: true`) ou désarchive un fil de discussion. */
+  groupsThreadArchive(
+    groupId: string,
+    threadId: string,
+    archived: boolean,
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.thread.archive', {
+      group_id: groupId,
+      thread_id: threadId,
+      archived,
     });
   }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
-import type { Contact, PresenceStatus, SelfProfile } from '../lib/api';
+import type { Contact, GroupThread, PresenceStatus, SelfProfile } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatTimestamp } from '../lib/format';
 import { useCalls } from '../stores/calls';
@@ -14,12 +14,14 @@ import {
   aggregateEmojiMap,
   canModerateVoice,
   channelKey,
+  channelThreads,
   hasPerm,
   memberColor,
   myChannelPermissions,
   nicknameOf,
   serverAvatarOf,
   sortRoles,
+  threadOfRoot,
   PERMISSIONS,
 } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
@@ -45,8 +47,10 @@ import {
 } from './ContextMenu';
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
+import { displayText } from './messageModel';
 import { PresenceDot } from './PresenceDot';
 import { ResizeHandle } from './ResizeHandle';
+import { ThreadPanel } from './ThreadPanel';
 import { TypingIndicator } from './TypingIndicator';
 import { ownDotStatus } from './UserMenu';
 
@@ -115,6 +119,21 @@ function mentionSet(contacts: Contact[], self: SelfProfile | null): Set<string> 
   }
   if (self !== null) noms.add(selfDisplayName(self).toLowerCase());
   return noms;
+}
+
+/** Longueur maximale d'un nom de fil dérivé du texte du message racine. */
+const THREAD_NAME_MAX = 50;
+
+/**
+ * Nom de fil par défaut : début de la première ligne du message racine (tronqué),
+ * ou `fallback` si le message n'a pas de texte exploitable.
+ */
+function deriveThreadName(text: string, fallback: string): string {
+  const firstLine = text.split('\n')[0]?.trim() ?? '';
+  if (firstLine === '') return fallback;
+  return firstLine.length > THREAD_NAME_MAX
+    ? `${firstLine.slice(0, THREAD_NAME_MAX).trimEnd()}…`
+    : firstLine;
 }
 
 /** Bouton d'action de l'en-tête de conversation : conteneur carré fixe (icon spec). */
@@ -753,6 +772,79 @@ function PinnedPanel({
   );
 }
 
+/**
+ * Popover listant les fils du salon courant (actifs puis archivés). Un clic
+ * ouvre le panneau du fil. Calqué visuellement sur `PinnedPanel`.
+ */
+function ThreadsListPanel({
+  threads,
+  onOpen,
+  onClose,
+}: {
+  threads: readonly GroupThread[];
+  onOpen: (threadId: string) => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const active = threads.filter((th) => !th.archived);
+  const archived = threads.filter((th) => th.archived);
+
+  const row = (th: GroupThread) => (
+    <button
+      key={th.thread_id}
+      type="button"
+      onClick={() => onOpen(th.thread_id)}
+      className="mb-1 flex w-full items-center gap-2 rounded-md bg-sidebar px-3 py-2 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+    >
+      <span aria-hidden className="shrink-0 text-sm leading-none">
+        💬
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium text-header">
+        {th.name}
+      </span>
+    </button>
+  );
+
+  return (
+    <div
+      role="menu"
+      aria-label={t.threads.threadsList}
+      className="absolute right-4 top-14 z-20 max-h-96 w-80 max-w-[85vw] overflow-y-auto rounded-lg border border-rail bg-modal p-3 shadow-3"
+    >
+      <div className="flex items-center justify-between pb-2">
+        <span className="text-sm font-semibold text-header">{t.threads.threadsList}</span>
+        <button
+          type="button"
+          aria-label={t.app.close}
+          onClick={onClose}
+          className="rounded-full p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+        >
+          <CloseIcon size={16} />
+        </button>
+      </div>
+      {threads.length === 0 && (
+        <p className="py-3 text-center text-sm text-muted">{t.threads.empty}</p>
+      )}
+      {active.length > 0 && (
+        <>
+          <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-faint">
+            {t.threads.active}
+          </p>
+          {active.map(row)}
+        </>
+      )}
+      {archived.length > 0 && (
+        <>
+          <p className="px-1 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-faint">
+            {t.threads.archived}
+          </p>
+          {archived.map(row)}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function GroupView({
   groupId,
   channelId,
@@ -779,10 +871,15 @@ export function GroupView({
   const deleteMessage = useGroups((s) => s.deleteMessage);
   const toggleReaction = useGroups((s) => s.toggleReaction);
   const togglePin = useGroups((s) => s.togglePin);
+  const createThread = useGroups((s) => s.createThread);
   const markRead = useGroups((s) => s.markRead);
   const requestJump = useUi((s) => s.requestJump);
   /** Volet des messages épinglés (fermé par défaut). */
   const [pinsOpen, setPinsOpen] = useState(false);
+  /** Popover de la liste des fils du salon (fermé par défaut). */
+  const [threadsListOpen, setThreadsListOpen] = useState(false);
+  /** Fil ouvert dans le panneau latéral (`null` : aucun). */
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   /** Message auquel la prochaine saisie répondra (null : envoi simple). */
   const [replyTo, setReplyTo] = useState<DisplayMessage | null>(null);
   /** Lamport du dernier message affiché (`null` : fil vide). */
@@ -804,6 +901,8 @@ export function GroupView({
 
   useEffect(() => {
     setPinsOpen(false);
+    setThreadsListOpen(false);
+    setOpenThreadId(null);
     setReplyTo(null);
     if (channelId !== null) {
       // Un saut vers ce salon charge lui-même la fenêtre du message ciblé :
@@ -897,6 +996,42 @@ export function GroupView({
     messages,
   );
 
+  // Fils du salon courant : liste du popover, pastilles de racine, décision
+  // « Créer » vs « Ouvrir » du menu, et panneau latéral.
+  const channelThreadList = channelThreads(state, channelId);
+  const canManageThreads =
+    state !== undefined &&
+    self !== null &&
+    hasPerm(
+      myChannelPermissions(state, channelId, self.pubkey),
+      PERMISSIONS.MANAGE_CHANNELS,
+    );
+  const openThread =
+    openThreadId === null
+      ? null
+      : ((state?.threads ?? []).find((th) => th.thread_id === openThreadId) ?? null);
+  const openThreadRoot =
+    openThread === null
+      ? undefined
+      : messages.find((m) => m.msg_id === openThread.root_msg);
+
+  /** Ouvre le fil ancré sur ce message, en le créant d'abord si nécessaire. */
+  const onOpenThread = (message: DisplayMessage): void => {
+    const existing = threadOfRoot(state, message.msg_id);
+    if (existing !== undefined) {
+      setThreadsListOpen(false);
+      setOpenThreadId(existing.thread_id);
+      return;
+    }
+    const name = deriveThreadName(displayText(message) ?? '', t.threads.newThreadName);
+    createThread(groupId, channelId, message.msg_id, name)
+      .then((threadId) => {
+        setThreadsListOpen(false);
+        setOpenThreadId(threadId);
+      })
+      .catch(onActionError);
+  };
+
   return (
     <div className="flex h-full">
       <div className="relative flex min-w-0 flex-1 flex-col">
@@ -916,7 +1051,27 @@ export function GroupView({
               </span>
             </>
           )}
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
+            <HeaderIconButton
+              label={t.threads.threadsList}
+              active={threadsListOpen}
+              ariaExpanded={threadsListOpen}
+              onClick={() => setThreadsListOpen((open) => !open)}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
+              </svg>
+            </HeaderIconButton>
             <HeaderIconButton
               label={t.serveur.pinnedTitle}
               active={pinsOpen}
@@ -940,6 +1095,16 @@ export function GroupView({
             </HeaderIconButton>
           </div>
         </header>
+        {threadsListOpen && (
+          <ThreadsListPanel
+            threads={channelThreadList}
+            onOpen={(threadId) => {
+              setThreadsListOpen(false);
+              setOpenThreadId(threadId);
+            }}
+            onClose={() => setThreadsListOpen(false)}
+          />
+        )}
         {pinsOpen && (
           <PinnedPanel
             resolved={resolvedPins}
@@ -1001,6 +1166,8 @@ export function GroupView({
           knownMentions={knownMentions}
           automodWords={automodWords}
           groupId={groupId}
+          threads={channelThreadList}
+          onOpenThread={onOpenThread}
         />
         {replyTo !== null && (
           <ReplyBanner
@@ -1026,6 +1193,21 @@ export function GroupView({
         />
         <TypingIndicator typingKey={groupTypingKey(groupId, channelId)} />
       </div>
+      {openThread !== null && (
+        <ThreadPanel
+          groupId={groupId}
+          thread={openThread}
+          rootMessage={openThreadRoot}
+          canManage={canManageThreads}
+          canModerate={canModerate}
+          colorOf={colorOf}
+          emojiMap={emojiMap}
+          knownMentions={knownMentions}
+          automodWords={automodWords}
+          nameOf={nameOf}
+          onClose={() => setOpenThreadId(null)}
+        />
+      )}
       <ResizeHandle
         value={membersWidth}
         min={MEMBERS_WIDTH_MIN}

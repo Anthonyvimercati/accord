@@ -8,7 +8,7 @@
  */
 
 import { interpolate, type Dict } from '../i18n';
-import type { Contact } from '../lib/api';
+import type { Contact, GroupThread } from '../lib/api';
 import type { ContextMenuItem } from '../stores/contextMenu';
 import { useUi } from '../stores/ui';
 import {
@@ -21,6 +21,7 @@ import {
   PinMenuIcon,
   ProfileMenuIcon,
   ReplyMenuIcon,
+  ThreadMenuIcon,
 } from './ContextMenu';
 import {
   displayText,
@@ -45,6 +46,16 @@ export interface MessageMenuDeps {
   onForward: (message: DisplayMessage) => void;
   /** Passe le message en édition en place. */
   onEditInPlace: (msgId: string) => void;
+  /**
+   * Fils du salon courant (`channelThreads`) : sert à distinguer « Créer un
+   * fil » de « Ouvrir le fil » sur un message. Absent en MP (pas de fils).
+   */
+  threads?: readonly GroupThread[] | undefined;
+  /**
+   * Ouvre (ou crée puis ouvre) le fil ancré sur ce message — câblé par la vue
+   * groupe. Absent = pas d'entrée « fil » (MP, ou fil lui-même).
+   */
+  onOpenThread?: ((message: DisplayMessage) => void) | undefined;
 }
 
 /**
@@ -153,6 +164,17 @@ export function buildMessageItems(
       label: pinned ? t.serveur.unpin : t.serveur.pin,
       icon: <PinMenuIcon />,
       onClick: () => actions.onTogglePin?.(message, pinned),
+    });
+  }
+  // Fil de discussion (salons seulement) : « Ouvrir » si un fil est déjà ancré
+  // sur ce message, sinon « Créer ». La décision création/ouverture réelle vit
+  // dans la vue (`onOpenThread`) ; le libellé n'a besoin que de la présence.
+  if (!message.deleted && deps.onOpenThread !== undefined) {
+    const hasThread = (deps.threads ?? []).some((th) => th.root_msg === message.msg_id);
+    flow.push({
+      label: hasThread ? t.threads.openThread : t.threads.createThread,
+      icon: <ThreadMenuIcon />,
+      onClick: () => deps.onOpenThread?.(message),
     });
   }
   flow.forEach((item, i) =>

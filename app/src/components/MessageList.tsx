@@ -19,7 +19,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
-import type { DeliveryState } from '../lib/api';
+import type { DeliveryState, GroupThread } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatDay, formatTimestamp, formatTimestampCompact } from '../lib/format';
 import { isEditableTarget, useContextMenu } from '../stores/contextMenu';
@@ -100,6 +100,13 @@ export interface MessageListProps {
   groupId?: string | null | undefined;
   /** Message à révéler (défilement + surbrillance) ; `nonce` rejoue le saut. */
   scrollTarget?: { msgId: string; nonce: number } | null;
+  /**
+   * Fils du salon courant : une pastille « fil » s'affiche sous chaque message
+   * racine (`root_msg`). Absent en MP et dans un fil (pas de fils imbriqués).
+   */
+  threads?: readonly GroupThread[] | undefined;
+  /** Ouvre (ou crée puis ouvre) le fil ancré sur ce message (salons seulement). */
+  onOpenThread?: ((message: DisplayMessage) => void) | undefined;
 }
 
 export function MessageList({
@@ -114,6 +121,8 @@ export function MessageList({
   automodWords,
   groupId = null,
   scrollTarget = null,
+  threads,
+  onOpenThread,
 }: MessageListProps) {
   const lang = useUi((s) => s.lang);
   const timeFormat = useUi((s) => s.timeFormat);
@@ -354,6 +363,8 @@ export function MessageList({
     openProfile: ouvrirProfil,
     onForward: setForwarding,
     onEditInPlace: setEditingId,
+    threads,
+    onOpenThread,
   };
 
   return (
@@ -391,6 +402,11 @@ export function MessageList({
           const isOwn = self !== null && m.author === self.pubkey;
           const pinned = pinnedIds?.has(m.msg_id) ?? false;
           const delivery = deliveryOf(m);
+          // Fil ancré sur ce message : pastille cliquable sous le corps.
+          const rootThread =
+            onOpenThread === undefined
+              ? undefined
+              : threads?.find((th) => th.root_msg === m.msg_id);
 
           return (
             <div key={m.msg_id}>
@@ -603,6 +619,21 @@ export function MessageList({
                   )}
                   {hasAttachments && (
                     <AttachmentRow pieces={m.attachments ?? []} hint={m.author} />
+                  )}
+                  {rootThread !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenThread?.(m)}
+                      className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-full bg-chat-hover px-2.5 py-1 text-xs font-medium text-muted transition-colors duration-fast hover:bg-input hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
+                    >
+                      <span aria-hidden>💬</span>
+                      <span className="truncate">{rootThread.name}</span>
+                      {rootThread.archived && (
+                        <span className="shrink-0 text-faint">
+                          {t.threads.archived}
+                        </span>
+                      )}
+                    </button>
                   )}
                   {!m.deleted && (
                     <ReactionRow

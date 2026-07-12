@@ -18,6 +18,7 @@ import type {
   GroupPoll,
   GroupRole,
   GroupStateJson,
+  GroupThread,
   PendingInvite,
   ServerEmoji,
 } from '../lib/api';
@@ -452,6 +453,29 @@ export function pollResults(
   return { counts, total, percentages, myVote };
 }
 
+/**
+ * Fils d'un salon (`state.threads` filtré par `parent_channel`), ordre du nœud
+ * conservé. Rend `[]` tant que l'état n'expose pas de fils (nœud plus ancien ou
+ * état pas encore chargé).
+ */
+export function channelThreads(
+  state: Pick<GroupStateJson, 'threads'> | undefined,
+  channelId: string,
+): GroupThread[] {
+  return (state?.threads ?? []).filter((th) => th.parent_channel === channelId);
+}
+
+/**
+ * Fil dont `root_msg` est `msgId`, ou `undefined` si ce message n'a pas encore
+ * de fil — sert au menu (« Créer » vs « Ouvrir ») et à la pastille de racine.
+ */
+export function threadOfRoot(
+  state: Pick<GroupStateJson, 'threads'> | undefined,
+  msgId: string,
+): GroupThread | undefined {
+  return (state?.threads ?? []).find((th) => th.root_msg === msgId);
+}
+
 /* ------------------------------------------------------------------ */
 /* Store.                                                              */
 /* ------------------------------------------------------------------ */
@@ -560,6 +584,22 @@ interface GroupsState {
    */
   setAutomodWords: (groupId: string, words: string[]) => Promise<void>;
   deleteChannel: (groupId: string, channelId: string) => Promise<void>;
+  /**
+   * Ouvre un fil sur `rootMsg` dans `parentChannel` puis recharge l'état (le
+   * fil apparaît dans `states[groupId].threads`). Rend le `thread_id` créé.
+   */
+  createThread: (
+    groupId: string,
+    parentChannel: string,
+    rootMsg: string,
+    name: string,
+  ) => Promise<string>;
+  /** Archive ou désarchive un fil puis recharge l'état. */
+  archiveThread: (
+    groupId: string,
+    threadId: string,
+    archived: boolean,
+  ) => Promise<void>;
   addCategory: (groupId: string, name: string) => Promise<string>;
   renameCategory: (groupId: string, categoryId: string, name: string) => Promise<void>;
   /** Supprime la catégorie ; ses salons restent, sans catégorie. */
@@ -949,6 +989,22 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   deleteChannel: async (groupId, channelId) => {
     await api.groupsChannelDel(groupId, channelId);
+    await get().loadState(groupId);
+  },
+
+  createThread: async (groupId, parentChannel, rootMsg, name) => {
+    const { thread_id } = await api.groupsThreadCreate(
+      groupId,
+      parentChannel,
+      rootMsg,
+      name,
+    );
+    await get().loadState(groupId);
+    return thread_id;
+  },
+
+  archiveThread: async (groupId, threadId, archived) => {
+    await api.groupsThreadArchive(groupId, threadId, archived);
     await get().loadState(groupId);
   },
 
