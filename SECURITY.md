@@ -5,7 +5,9 @@
 > repository (crates `accord-crypto`, `accord-transport`, `accord-dht`,
 > `accord-core`, `accord-node`) and in the `SPEC.md` / `ARCHITECTURE.md`
 > contracts.
-> Last reviewed: 2026-07-08. **No external audit has been performed.**
+> Last reviewed: 2026-07-12. **No external audit has been performed.**
+> The security trade-offs deliberately accepted for v0 are detailed in
+> [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
 ## 1. Principles
 
@@ -233,7 +235,30 @@ Read before recommending Accord to people whose safety depends on anonymity.
     the **user passphrase** (no random secret in the system keychain): a weak
     phrase weakens the vault.
 
-## 6. Audit checklist
+## 6. Accepted v0 trade-offs
+
+Documented in full in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), with
+risk, rationale and hardening path for each. In summary:
+
+1. **Deterministic home relays** (portless first contact): each node keeps
+   sessions open to the 2 relay-flagged nodes closest to its own identity,
+   a set computable from the public key alone. An attacker willing to grind
+   PoW identities can become a victim's home relay and observe **first-contact
+   metadata** (who tries to reach whom, when) or censor first contact — it
+   can neither read content (E2E) nor impersonate anyone.
+2. **Content-addressed blobs are bearer capabilities**: serving a blob
+   (avatar, banner, attachment) requires only knowledge of its Merkle root —
+   there is no per-peer ACL, only rate limits. **Knowing the root = being
+   able to read.** Roots must only be shared with their intended audience
+   and never forwarded to third parties.
+3. **Server banner/icon is moderator-trusted**: any `MANAGE_CHANNELS`
+   holder can set an arbitrary root via a signed group op (`0x31`).
+   `MANAGE_CHANNELS` is a trust permission; clients should cap the size of
+   auto-downloaded previews (the v0 client does not yet).
+4. **DHT presence/identity lookups expose metadata**: storage nodes learn
+   who you resolve and when — inherent to open DHT discovery.
+
+## 7. Audit checklist
 
 Recommended entry points for an auditor, from most critical to least critical:
 
@@ -272,10 +297,27 @@ Recommended entry points for an auditor, from most critical to least critical:
   crates) and of `unwrap()` outside tests; run `cargo audit` / `cargo deny` on
   the dependency tree.
 
-## 7. Reporting a vulnerability
+## 8. Reporting a vulnerability
 
-The project does not yet have a dedicated disclosure channel. In the meantime:
-open a **private** report to the repository maintainers (no public issue for an
-exploitable flaw), describe the attack scenario and, if possible, a test
-reproducing the problem. Security fixes take priority over any other task
-(project priority rule #1).
+Please do **not** open a public issue for an exploitable flaw.
+
+- **How to report**: use GitHub's *private vulnerability reporting* on this
+  repository (Security → Report a vulnerability) if enabled, or contact the
+  repository maintainers privately.
+- **What to include**: the attack scenario (which attacker from §4, which
+  guarantee from §3 is broken), affected version/commit, and if possible a
+  test or minimal reproduction.
+- **What to expect**: acknowledgement as soon as possible; security fixes
+  take priority over any other task (project priority rule #1). Please allow
+  time for a fix before any public disclosure. There is no bug bounty.
+
+### Supported versions
+
+Accord is pre-1.0: **only the latest 0.x release** receives security fixes.
+Older releases are not patched — upgrade to the current release before
+reporting.
+
+| Version | Supported |
+|---------|-----------|
+| latest 0.x release | ✅ |
+| older releases | ❌ |
