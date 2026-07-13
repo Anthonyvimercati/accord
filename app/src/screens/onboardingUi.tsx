@@ -14,6 +14,9 @@ import { useT } from '../stores/ui';
  * entrée animée (`modal-panel-enter`). `wide` élargit le panneau pour le
  * sélecteur de comptes (plusieurs lignes) plutôt que les formulaires.
  */
+/** Logo de l'app (asset empaqueté par Vite). */
+const LOGO_URL = new URL('../assets/accord-logo.svg', import.meta.url).href;
+
 export function Card({
   children,
   wide = false,
@@ -29,6 +32,14 @@ export function Card({
           wide ? 'max-w-[min(520px,94vw)]' : 'max-w-[min(440px,94vw)]'
         } rounded-xl p-8 shadow-3`}
       >
+        <img
+          src={LOGO_URL}
+          alt=""
+          aria-hidden
+          width={64}
+          height={64}
+          className="mx-auto mb-3 h-16 w-16"
+        />
         <div className="mb-6 text-center text-xs font-bold uppercase tracking-[0.2em] text-blurple">
           {t.app.name}
         </div>
