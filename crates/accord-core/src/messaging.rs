@@ -17,6 +17,12 @@ use crate::search;
 /// Nombre maximal de pièces jointes par message.
 pub const MAX_ATTACHMENTS: usize = 10;
 
+/// Nombre maximal de messages épinglés par conversation directe. Borne le jeu
+/// d'épingles répliqué depuis le pair : appliquée à l'émission comme à la
+/// réception, elle empêche un pair malveillant ou boguée de le faire croître
+/// sans limite.
+pub const MAX_DM_PINS: usize = 200;
+
 /// Borne du nom de fichier et du type MIME d'une pièce jointe (octets UTF-8).
 const MAX_ATTACHMENT_LABEL: usize = 256;
 
@@ -55,6 +61,13 @@ pub enum DmEvent {
     Typing,
     /// Le pair a lu jusqu'à un message donné.
     Read,
+    /// Le pair a épinglé ou désépinglé un message de la conversation.
+    Pin {
+        /// Message épinglé/désépinglé.
+        msg_id: [u8; 16],
+        /// Nouvel état d'épingle.
+        pinned: bool,
+    },
     /// Doublon ou cible inconnue : rien à faire.
     Noop,
     /// Pair non ami ou bloqué : ignoré silencieusement.
@@ -66,7 +79,11 @@ impl DmEvent {
     pub fn should_ack(&self) -> bool {
         matches!(
             self,
-            DmEvent::Stored | DmEvent::Edited | DmEvent::Deleted | DmEvent::Reacted
+            DmEvent::Stored
+                | DmEvent::Edited
+                | DmEvent::Deleted
+                | DmEvent::Reacted
+                | DmEvent::Pin { .. }
         )
     }
 }
@@ -254,6 +271,29 @@ pub fn compose_read_receipt(
     )
 }
 
+/// Compose une (dés)épingle de message direct à répliquer au pair. L'épingle a
+/// déjà été appliquée localement par l'appelant ; ce corps la fait converger
+/// chez le pair par le chemin fiable (survit à un pair hors ligne).
+pub fn compose_pin(
+    db: &Db,
+    identity: &Identity,
+    peer: &[u8; 32],
+    msg_id: &[u8; 16],
+    pinned: bool,
+    now_ms: u64,
+) -> Result<CoreMsg, CoreError> {
+    compose(
+        db,
+        identity,
+        peer,
+        &MsgBody::Pin {
+            msg_id: *msg_id,
+            pinned,
+        },
+        now_ms,
+    )
+}
+
 /// Ingère un `DirectMsg` reçu d'une session authentifiée comme `peer`.
 ///
 /// Rend l'événement produit ; l'appelant émet `MsgAck { msg_id }` si
@@ -334,6 +374,29 @@ pub fn ingest_dm(
         MsgBody::ReadReceipt { up_to } => {
             db.set_read_mark(peer, &up_to)?;
             Ok(DmEvent::Read)
+        }
+        // (Dés)épingle répliquée depuis le pair : n'agit que sur le jeu
+        // d'épingles de CETTE conversation (clé `peer` authentifiée). Le
+        // jeu est borné à l'insertion pour qu'un pair hostile ne puisse le
+        // faire croître sans limite ; l'épingle d'un `msg_id` déjà présent
+        // reste idempotente même à la borne.
+        MsgBody::Pin {
+            msg_id: target,
+            pinned,
+        } => {
+            if pinned {
+                let pins = db.dm_pins(peer)?;
+                if pins.len() >= MAX_DM_PINS && !pins.contains(&target) {
+                    return Ok(DmEvent::Noop);
+                }
+                db.dm_pin(peer, &target)?;
+            } else {
+                db.dm_unpin(peer, &target)?;
+            }
+            Ok(DmEvent::Pin {
+                msg_id: target,
+                pinned,
+            })
         }
     }
 }
@@ -645,6 +708,85 @@ mod tests {
         let ev = ingest_dm(&db, &SK, &peer.public_key(), &[4; 16], 5, 5, 0, &enc).unwrap();
         assert_eq!(ev, DmEvent::Stored);
         assert_eq!(db.msg_attachments(&[4; 16]).unwrap(), atts);
+    }
+
+    #[test]
+    fn pin_control_roundtrips_and_replicates_to_peer_pin_set() {
+        let (db, me, peer) = setup_friends();
+        let msg = compose_text(
+            &db,
+            &me,
+            &SK,
+            &peer.public_key(),
+            "à épingler",
+            None,
+            vec![],
+            1,
+        )
+        .unwrap();
+        let target = msg_id_of(&msg);
+        // Encode via compose_pin, decode+apply via ingest (peer's DM pin set).
+        let pinned = compose_pin(&db, &me, &peer.public_key(), &target, true, 5).unwrap();
+        let (kind, body) = match &pinned {
+            CoreMsg::DirectMsg { kind, body, .. } => (*kind, body.clone()),
+            _ => panic!("compose_pin produit un DirectMsg"),
+        };
+        let ev = ingest_dm(&db, &SK, &peer.public_key(), &[20; 16], 30, 30, kind, &body).unwrap();
+        assert_eq!(
+            ev,
+            DmEvent::Pin {
+                msg_id: target,
+                pinned: true
+            }
+        );
+        assert!(ev.should_ack());
+        assert_eq!(db.dm_pins(&peer.public_key()).unwrap(), vec![target]);
+        // Unpin roundtrips and removes it.
+        let unpinned = compose_pin(&db, &me, &peer.public_key(), &target, false, 6).unwrap();
+        let (kind, body) = match &unpinned {
+            CoreMsg::DirectMsg { kind, body, .. } => (*kind, body.clone()),
+            _ => panic!("compose_pin produit un DirectMsg"),
+        };
+        let ev = ingest_dm(&db, &SK, &peer.public_key(), &[21; 16], 31, 31, kind, &body).unwrap();
+        assert_eq!(
+            ev,
+            DmEvent::Pin {
+                msg_id: target,
+                pinned: false
+            }
+        );
+        assert!(db.dm_pins(&peer.public_key()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn inbound_pins_are_capped_per_peer() {
+        let (db, _, peer) = setup_friends();
+        for i in 0..MAX_DM_PINS {
+            let mut id = [0u8; 16];
+            id[0] = (i & 0xff) as u8;
+            id[1] = (i >> 8) as u8;
+            db.dm_pin(&peer.public_key(), &id).unwrap();
+        }
+        assert_eq!(db.dm_pins(&peer.public_key()).unwrap().len(), MAX_DM_PINS);
+        // A pin of a NEW message beyond the cap is dropped (Noop, no ack).
+        let body = MsgBody::Pin {
+            msg_id: [0xEE; 16],
+            pinned: true,
+        };
+        let ev = ingest_dm(
+            &db,
+            &SK,
+            &peer.public_key(),
+            &[0xAB; 16],
+            50,
+            50,
+            body.kind(),
+            &body.encode_body(),
+        )
+        .unwrap();
+        assert_eq!(ev, DmEvent::Noop);
+        assert!(!ev.should_ack());
+        assert_eq!(db.dm_pins(&peer.public_key()).unwrap().len(), MAX_DM_PINS);
     }
 
     #[test]

@@ -23,6 +23,8 @@ export interface DisplayMessage {
    */
   lamport?: number;
   acked?: boolean;
+  /** Vrai si ce message mentionne l'utilisateur courant (surlignage façon Discord). */
+  mentions_me?: boolean;
   /** État de livraison sortante (MP uniquement) ; absent = considéré envoyé. */
   delivery?: DeliveryState;
   reactions?: Reaction[];

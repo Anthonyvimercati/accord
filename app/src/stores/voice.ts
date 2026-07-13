@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand';
+import type { VoiceParticipant } from '../lib/api';
 import { api } from '../lib/client';
 
 /** Volume de sortie par défaut (100 % = gain neutre). */
@@ -61,6 +62,12 @@ interface VoiceState {
   masterVolume: number;
   /** Participants du salon actif, indexés par clé publique (hex). */
   participants: Map<string, ParticipantState>;
+  /**
+   * Occupants des salons vocaux connus (rejoints ou non), par clé de salon
+   * (`roomPresenceKey`). Alimente l'affichage des présents avant la jointure ;
+   * distinct de `participants` (salon actif) piloté par les événements.
+   */
+  rooms: Map<string, Map<string, ParticipantState>>;
   /** Réglages DSP de capture (suppression de bruit, AGC), persistés au nœud. */
   dsp: VoiceDspState;
   /** Rejoint un salon vocal ; le nœud quitte l'ancien implicitement. */
@@ -82,6 +89,8 @@ interface VoiceState {
   setVolume: (peer: string | null, volume: number) => Promise<void>;
   /** Resynchronise l'état local depuis `voice.status` (reprise de session). */
   sync: () => Promise<void>;
+  /** Recharge la présence passive de tous les salons connus (`voice.rooms`). */
+  syncRooms: () => Promise<void>;
   /** Recharge le volume principal et les réglages DSP persistés (onglet Voix). */
   loadMasterVolume: () => Promise<void>;
   /** Active/désactive la suppression de bruit (voice.set_noise_suppression). */
@@ -134,6 +143,24 @@ function participantsFrom(pubkeys: string[]): Map<string, ParticipantState> {
   return new Map(pubkeys.map((pubkey) => [pubkey, idleParticipant()]));
 }
 
+/** Clé d'indexation d'un salon vocal connu (groupe + salon). */
+export function roomPresenceKey(groupId: string, channelId: string): string {
+  return `${groupId}:${channelId}`;
+}
+
+/** Convertit un participant renvoyé par le nœud en état d'interface. */
+function participantStateFrom(p: VoiceParticipant): ParticipantState {
+  return {
+    speaking: p.speaking,
+    muted: p.muted,
+    deafened: p.deafened,
+    volume: p.volume,
+    serverMuted: p.server_muted ?? false,
+    serverDeafened: p.server_deafened ?? false,
+    prioritySpeaker: p.priority_speaker ?? false,
+  };
+}
+
 /** Vrai si l'événement concerne le salon actuellement rejoint. */
 function matchesActive(
   active: ActiveVoice | null,
@@ -150,6 +177,7 @@ export const useVoice = create<VoiceState>((set, get) => ({
   selfDeafened: false,
   masterVolume: VOLUME_DEFAULT,
   participants: new Map(),
+  rooms: new Map(),
   dsp: DSP_DEFAULT,
 
   join: async (groupId, channelId) => {
@@ -246,20 +274,21 @@ export const useVoice = create<VoiceState>((set, get) => ({
       masterVolume,
       dsp: nextDsp,
       participants: new Map(
-        active.participants.map((p) => [
-          p.pubkey,
-          {
-            speaking: p.speaking,
-            muted: p.muted,
-            deafened: p.deafened,
-            volume: p.volume,
-            serverMuted: p.server_muted ?? false,
-            serverDeafened: p.server_deafened ?? false,
-            prioritySpeaker: p.priority_speaker ?? false,
-          },
-        ]),
+        active.participants.map((p) => [p.pubkey, participantStateFrom(p)]),
       ),
     });
+  },
+
+  syncRooms: async () => {
+    const { rooms } = await api.voiceRooms();
+    const next = new Map<string, Map<string, ParticipantState>>();
+    for (const room of rooms) {
+      next.set(
+        roomPresenceKey(room.group_id, room.channel_id),
+        new Map(room.participants.map((p) => [p.pubkey, participantStateFrom(p)])),
+      );
+    }
+    set({ rooms: next });
   },
 
   loadMasterVolume: async () => {

@@ -41,6 +41,8 @@ export const fr = {
     phraseWarning:
       'Notez ces 12 mots sur papier, dans l’ordre. C’est le SEUL moyen de retrouver votre compte si vous perdez cet appareil ou votre phrase de passe. Elle ne sera jamais ré-affichée.',
     phraseConfirm: 'Je les ai notés en lieu sûr',
+    phraseDownload: 'Télécharger en fichier',
+    phraseDownloaded: 'Phrase de récupération enregistrée',
     unlockTitle: 'Content de vous revoir',
     unlock: 'Déverrouiller',
     unlocking: 'Déverrouillage…',

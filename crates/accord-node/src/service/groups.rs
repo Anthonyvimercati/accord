@@ -390,6 +390,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             // par groupe : `{ group_id: n }` (seuls les groupes en portant).
             let mut unread = serde_json::Map::new();
             let mut mentions = serde_json::Map::new();
+            let mut channel_mentions = serde_json::Map::new();
             for id_hex in &ids {
                 let gid = crate::hex::decode::<16>(id_hex)
                     .ok_or(NodeError::Invalid("identifiant de groupe invalide"))?;
@@ -405,11 +406,22 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 if mention_count > 0 {
                     mentions.insert(id_hex.clone(), json!(mention_count));
                 }
+                // Mentions non lues par salon : `{ group_id: { channel_id: n } }`
+                // (miroir de `unread`, seuls les salons en portant figurent).
+                let per_channel_mentions: serde_json::Map<String, Value> = node
+                    .group_channel_mentions(&gid)?
+                    .into_iter()
+                    .map(|(cid, n)| (crate::hex::encode(&cid), json!(n)))
+                    .collect();
+                if !per_channel_mentions.is_empty() {
+                    channel_mentions.insert(id_hex.clone(), Value::Object(per_channel_mentions));
+                }
             }
             Ok(json!({
                 "groups": ids,
                 "unread": Value::Object(unread),
                 "mentions": Value::Object(mentions),
+                "channel_mentions": Value::Object(channel_mentions),
             }))
         }
         "groups.state" => {

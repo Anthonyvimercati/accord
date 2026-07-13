@@ -158,6 +158,8 @@ impl Node {
     pub fn dm_mark_read(&self, peer_pubkey: &[u8; 32], lamport: u64) -> Result<(), NodeError> {
         let previous = self.with_db(|db| Ok(read_u64(db.meta(&dm_mark_key(peer_pubkey))?)))?;
         self.with_db(|db| Ok(db.set_meta(&dm_mark_key(peer_pubkey), &lamport.to_be_bytes())?))?;
+        // Ouvrir une conversation éteint ses mentions non lues (parité Discord).
+        self.with_db(|db| Ok(db.mark_dm_mentions_read(peer_pubkey)?))?;
         // Throttle: only marks that advance emit a receipt (re-marking the
         // same position, e.g. on window refocus, stays silent).
         if lamport <= previous || !self.read_receipts_enabled()? || !self.is_online(peer_pubkey) {
@@ -318,10 +320,12 @@ impl Node {
         )
     }
 
-    /// Épingle un message direct (vue locale : aucune op filaire). Le message
-    /// doit être connu localement et appartenir à cette conversation.
+    /// Épingle un message direct puis réplique l'état au pair sur le chemin
+    /// fiable de [`Node::dm_send`]. Le message doit être connu localement et
+    /// appartenir à cette conversation ; le jeu d'épingles est borné à
+    /// [`messaging::MAX_DM_PINS`].
     pub fn dm_pin(&self, peer_pubkey: &[u8; 32], msg_id: &[u8; 16]) -> Result<(), NodeError> {
-        self.with_db(|db| {
+        let msg = self.with_db(|db| {
             match db.dm_message(msg_id)? {
                 Some(rec) if rec.peer == *peer_pubkey => {}
                 _ => {
@@ -330,14 +334,46 @@ impl Node {
                     ))
                 }
             }
+            let pins = db.dm_pins(peer_pubkey)?;
+            if pins.len() >= messaging::MAX_DM_PINS && !pins.contains(msg_id) {
+                return Err(NodeError::Invalid("trop de messages épinglés"));
+            }
             db.dm_pin(peer_pubkey, msg_id)?;
-            Ok(())
-        })
+            Ok(messaging::compose_pin(
+                db,
+                &self.identity,
+                peer_pubkey,
+                msg_id,
+                true,
+                now_ms(),
+            )?)
+        })?;
+        self.outbound.send(Outbound::Core {
+            to: *peer_pubkey,
+            msg: Box::new(msg),
+        });
+        Ok(())
     }
 
-    /// Retire l'épingle d'un message direct (sans effet si absente).
+    /// Retire l'épingle d'un message direct (sans effet si absente) puis
+    /// réplique le retrait au pair sur le chemin fiable de [`Node::dm_send`].
     pub fn dm_unpin(&self, peer_pubkey: &[u8; 32], msg_id: &[u8; 16]) -> Result<(), NodeError> {
-        self.with_db(|db| Ok(db.dm_unpin(peer_pubkey, msg_id)?))
+        let msg = self.with_db(|db| {
+            db.dm_unpin(peer_pubkey, msg_id)?;
+            Ok(messaging::compose_pin(
+                db,
+                &self.identity,
+                peer_pubkey,
+                msg_id,
+                false,
+                now_ms(),
+            )?)
+        })?;
+        self.outbound.send(Outbound::Core {
+            to: *peer_pubkey,
+            msg: Box::new(msg),
+        });
+        Ok(())
     }
 
     /// Messages épinglés d'une conversation directe (hex), ordre d'identifiant.

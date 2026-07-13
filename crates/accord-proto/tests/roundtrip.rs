@@ -303,6 +303,10 @@ fn msg_body_roundtrip() {
             question: "Pizza ou sushis ?".into(),
             options: vec!["Pizza".into(), "Sushis".into()],
         },
+        MsgBody::Pin {
+            msg_id: [9; 16],
+            pinned: true,
+        },
     ];
     for body in bodies {
         let enc = body.encode_body();

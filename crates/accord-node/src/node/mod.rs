@@ -504,6 +504,13 @@ impl Node {
                             }),
                         );
                     }
+                } else if matches!(event, messaging::DmEvent::Pin { .. }) {
+                    // Replicated (un)pin: never rendered as a chat message; the
+                    // UI reloads this peer's pin set.
+                    self.emit(
+                        "event.dm_pins",
+                        json!({ "peer": hex::encode(peer_pubkey) }),
+                    );
                 } else if !matches!(
                     event,
                     messaging::DmEvent::Ignored | messaging::DmEvent::Noop
@@ -542,6 +549,13 @@ impl Node {
             }
             CoreMsg::MsgAck { msg_id } => {
                 self.with_db(|db| Ok(messaging::ingest_ack(db, &msg_id)?))?;
+                self.emit(
+                    "event.dm_ack",
+                    json!({
+                        "peer": hex::encode(peer_pubkey),
+                        "msg_id": hex::encode(&msg_id),
+                    }),
+                );
                 Ok(vec![])
             }
             CoreMsg::FriendRequest { display_name, .. } => {

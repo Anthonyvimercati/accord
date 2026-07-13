@@ -496,7 +496,9 @@ export function MessageList({
                     : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
                 } ${highlightId === m.msg_id ? 'msg-flash' : ''} ${
                   appendedId === m.msg_id ? 'msg-append' : ''
-                } ${isSelected ? 'bg-blurple/10' : ''}`}
+                } ${m.mentions_me && !isOwn ? 'msg-mention' : ''} ${
+                  isSelected ? 'bg-blurple/10' : ''
+                }`}
                 onContextMenu={(e) => {
                   // Édition en place (textarea) : laisse le clic droit natif
                   // (copier/coller) plutôt que d'ouvrir le menu du message.

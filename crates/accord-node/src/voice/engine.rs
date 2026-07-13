@@ -27,7 +27,8 @@ use tokio::sync::mpsc;
 use super::calls::{CallAction, CallMachine};
 use super::roster::{Roster, RosterEvent, ACTIVE_TIMEOUT_MS, PASSIVE_TTL_MS};
 use super::{
-    Cmd, FrameSender, VoiceBackend, VoiceDeps, VoiceDevices, VoiceParticipant, VoiceStatus,
+    Cmd, FrameSender, VoiceBackend, VoiceDeps, VoiceDevices, VoiceParticipant, VoiceRoomPresence,
+    VoiceStatus,
 };
 use crate::error::NodeError;
 use crate::hex;
@@ -324,6 +325,9 @@ impl Engine {
             }
             Cmd::Status { resp } => {
                 let _ = resp.send(self.handle_status());
+            }
+            Cmd::Rooms { resp } => {
+                let _ = resp.send(self.handle_rooms());
             }
             Cmd::Devices { resp } => {
                 let _ = resp.send(self.handle_devices());
@@ -700,22 +704,13 @@ impl Engine {
         Ok(())
     }
 
-    fn handle_status(&mut self) -> Option<VoiceStatus> {
-        let active = self.active.as_ref()?;
-        let key = active.key();
-        let (group_id, channel_id, is_call, muted, deafened) = (
-            active.group_id,
-            active.channel_id,
-            active.is_call,
-            active.muted,
-            active.deafened,
-        );
-        let peers = self
-            .rooms
-            .get(&key)
+    /// Occupants d'un salon connu, enrichis des volumes locaux et de la
+    /// modération de groupe (rosters passifs inclus).
+    fn participants_of(&mut self, key: &RoomKey) -> Vec<VoiceParticipant> {
+        self.rooms
+            .get(key)
             .map(Roster::participants)
-            .unwrap_or_default();
-        let participants = peers
+            .unwrap_or_default()
             .into_iter()
             .map(|p| {
                 let volume = self.volume_for(&p.pubkey);
@@ -731,7 +726,19 @@ impl Engine {
                     priority_speaker: flags.priority,
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    fn handle_status(&mut self) -> Option<VoiceStatus> {
+        let active = self.active.as_ref()?;
+        let (group_id, channel_id, is_call, muted, deafened) = (
+            active.group_id,
+            active.channel_id,
+            active.is_call,
+            active.muted,
+            active.deafened,
+        );
+        let participants = self.participants_of(&(group_id, channel_id));
         Some(VoiceStatus {
             group_id,
             channel_id,
@@ -740,6 +747,18 @@ impl Engine {
             deafened,
             participants,
         })
+    }
+
+    /// Snapshot de présence de tous les salons connus (actif et passifs).
+    fn handle_rooms(&mut self) -> Vec<VoiceRoomPresence> {
+        let keys: Vec<RoomKey> = self.rooms.keys().copied().collect();
+        keys.into_iter()
+            .map(|key| VoiceRoomPresence {
+                group_id: key.0,
+                channel_id: key.1,
+                participants: self.participants_of(&key),
+            })
+            .collect()
     }
 
     /// `voice.devices` : périphériques `cpal` disponibles et sélection

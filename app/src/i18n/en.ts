@@ -42,6 +42,8 @@ export const en: Dict = {
     phraseWarning:
       'Write these 12 words down on paper, in order. They are the ONLY way to recover your account if you lose this device or your passphrase. They will never be shown again.',
     phraseConfirm: 'I wrote them down somewhere safe',
+    phraseDownload: 'Download as a file',
+    phraseDownloaded: 'Recovery phrase saved',
     unlockTitle: 'Welcome back',
     unlock: 'Unlock',
     unlocking: 'Unlocking…',

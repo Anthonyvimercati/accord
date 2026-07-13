@@ -188,6 +188,51 @@ impl Db {
         )?)
     }
 
+    /// Mentions **non lues** par salon d'un groupe : `(channel_id, n)` pour
+    /// chaque salon en portant (portée groupe, salon renseigné). Alimente les
+    /// pastilles de mention par salon (`groups.list.channel_mentions`).
+    pub fn count_group_channel_mentions(
+        &self,
+        group_id: &[u8; 16],
+    ) -> Result<Vec<([u8; 16], u64)>, CoreError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT conv_b, COUNT(*) FROM mentions
+             WHERE scope = 1 AND conv_a = ?1 AND conv_b IS NOT NULL AND read = 0
+             GROUP BY conv_b",
+        )?;
+        let rows = stmt
+            .query_map([group_id.as_slice()], |row| {
+                let cid: Vec<u8> = row.get(0)?;
+                let n: u64 = row.get(1)?;
+                Ok((cid, n))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().map(|(cid, n)| Ok((blob(cid)?, n))).collect()
+    }
+
+    /// Marque lues les mentions non lues d'un salon de groupe (à l'ouverture du
+    /// salon, parité Discord) ; rend le nombre affecté.
+    pub fn mark_group_channel_mentions_read(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+    ) -> Result<usize, CoreError> {
+        Ok(self.conn().execute(
+            "UPDATE mentions SET read = 1
+             WHERE scope = 1 AND conv_a = ?1 AND conv_b = ?2 AND read = 0",
+            params![group_id.as_slice(), channel_id.as_slice()],
+        )?)
+    }
+
+    /// Marque lues les mentions non lues d'une conversation directe (à son
+    /// ouverture, parité Discord) ; rend le nombre affecté.
+    pub fn mark_dm_mentions_read(&self, peer: &[u8; 32]) -> Result<usize, CoreError> {
+        Ok(self.conn().execute(
+            "UPDATE mentions SET read = 1 WHERE scope = 0 AND conv_a = ?1 AND read = 0",
+            [peer.as_slice()],
+        )?)
+    }
+
     /// Retire l'entrée de mention d'un message (appelé à sa suppression : un
     /// message effacé ne doit pas laisser d'extrait dans la boîte).
     pub(crate) fn delete_mention(&self, msg_id: &[u8; 16]) -> Result<(), CoreError> {

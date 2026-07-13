@@ -2169,10 +2169,11 @@ impl Node {
         lamport: u64,
     ) -> Result<(), NodeError> {
         self.with_db(|db| {
-            Ok(db.set_meta(
-                &group_mark_key(group_id, channel_id),
-                &lamport.to_be_bytes(),
-            )?)
+            db.set_meta(&group_mark_key(group_id, channel_id), &lamport.to_be_bytes())?;
+            // Ouvrir un salon éteint ses mentions non lues (parité Discord) : le
+            // compteur agrégé du serveur (`count_group_mentions`) retombe d'autant.
+            db.mark_group_channel_mentions_read(group_id, channel_id)?;
+            Ok(())
         })
     }
 

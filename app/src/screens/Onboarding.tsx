@@ -196,7 +196,19 @@ function Starting() {
 export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
   const t = useT();
   const ack = useSession((s) => s.ackRecoveryPhrase);
+  const toast = useUi((s) => s.toast);
   const words = phrase.split(/\s+/).filter(Boolean);
+
+  const download = () => {
+    const body = words.map((w, i) => `${i + 1}. ${w}`).join('\n') + '\n';
+    const url = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'accord-recovery-phrase.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('info', t.onboarding.phraseDownloaded);
+  };
 
   return (
     <Card>
@@ -204,7 +216,7 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
         {t.onboarding.phraseTitle}
       </h1>
       <p className="mb-5 text-sm text-yellow">{t.onboarding.phraseWarning}</p>
-      <ol className="mb-6 grid grid-cols-3 gap-2">
+      <ol className="mb-4 grid grid-cols-3 gap-2">
         {words.map((word, i) => (
           <li
             key={`${word}-${i}`}
@@ -215,6 +227,27 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
           </li>
         ))}
       </ol>
+      <button
+        type="button"
+        onClick={download}
+        className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-input py-2.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
+      >
+        <svg
+          width={16}
+          height={16}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" x2="12" y1="15" y2="3" />
+        </svg>
+        {t.onboarding.phraseDownload}
+      </button>
       <PrimaryButton label={t.onboarding.phraseConfirm} onClick={ack} />
     </Card>
   );

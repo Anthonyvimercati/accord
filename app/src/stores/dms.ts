@@ -273,10 +273,25 @@ export const useDms = create<DmsState>((set, get) => ({
 }));
 
 /**
- * Événement `event.dm_read` : le pair a lu nos messages jusqu'à `lamport`.
- * Exporté pour les tests ; câblé au chargement du module (client singleton).
+ * Événements DM temps réel : `event.dm_read` (le pair a lu nos messages jusqu'à
+ * `lamport`), `event.dm_ack` (un de nos messages sortants vient d'être
+ * acquitté) et `event.dm_pins` (le pair a (dés)épinglé un message, recharge le
+ * jeu d'épingles). Exporté pour les tests ; câblé au chargement du module
+ * (client singleton).
  */
 export function handleDmsNodeEvent(method: string, params: unknown): void {
+  if (method === 'event.dm_ack') {
+    const p = params as { peer?: string };
+    if (typeof p.peer !== 'string') return;
+    void useDms.getState().refresh(p.peer);
+    return;
+  }
+  if (method === 'event.dm_pins') {
+    const p = params as { peer?: string };
+    if (typeof p.peer !== 'string') return;
+    void useDms.getState().loadPins(p.peer);
+    return;
+  }
   if (method !== 'event.dm_read') return;
   const p = params as { peer?: string; lamport?: number };
   if (typeof p.peer !== 'string' || typeof p.lamport !== 'number') return;

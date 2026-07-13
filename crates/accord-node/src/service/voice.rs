@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use crate::error::NodeError;
 use crate::hex;
-use crate::voice::VoiceStatus;
+use crate::voice::{VoiceParticipant, VoiceRoomPresence, VoiceStatus};
 
 use super::helpers::{param_device, param_id16, param_pubkey};
 use super::NodeService;
@@ -126,6 +126,12 @@ impl NodeService {
                     },
                 }))
             }
+            "voice.rooms" => {
+                let rooms = voice.rooms().await?;
+                Ok(json!({
+                    "rooms": rooms.iter().map(voice_room_json).collect::<Vec<_>>(),
+                }))
+            }
             "voice.devices" => {
                 let devices = voice.devices().await?;
                 Ok(json!({
@@ -164,15 +170,30 @@ fn voice_status_json(status: &VoiceStatus) -> Value {
         "is_call": status.is_call,
         "muted": status.muted,
         "deafened": status.deafened,
-        "participants": status.participants.iter().map(|p| json!({
-            "pubkey": hex::encode(&p.pubkey),
-            "speaking": p.speaking,
-            "muted": p.muted,
-            "deafened": p.deafened,
-            "volume": p.volume,
-            "server_muted": p.server_muted,
-            "server_deafened": p.server_deafened,
-            "priority_speaker": p.priority_speaker,
-        })).collect::<Vec<_>>(),
+        "participants": status.participants.iter().map(voice_participant_json).collect::<Vec<_>>(),
+    })
+}
+
+/// Rend un participant (forme partagée par `voice.status`, `voice.rooms`).
+fn voice_participant_json(p: &VoiceParticipant) -> Value {
+    json!({
+        "pubkey": hex::encode(&p.pubkey),
+        "speaking": p.speaking,
+        "muted": p.muted,
+        "deafened": p.deafened,
+        "volume": p.volume,
+        "server_muted": p.server_muted,
+        "server_deafened": p.server_deafened,
+        "priority_speaker": p.priority_speaker,
+    })
+}
+
+/// Rend la présence d'un salon connu pour `voice.rooms` (occupants avec la
+/// même forme de participant que `voice.status`).
+fn voice_room_json(room: &VoiceRoomPresence) -> Value {
+    json!({
+        "group_id": hex::encode(&room.group_id),
+        "channel_id": hex::encode(&room.channel_id),
+        "participants": room.participants.iter().map(voice_participant_json).collect::<Vec<_>>(),
     })
 }

@@ -2,6 +2,31 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.1.0] — 2026-07-14
+
+### Added
+
+- Download your recovery phrase as a file from the setup screen, so you keep a
+  copy if you ever lose your passphrase.
+- See who is already in a voice channel **before** joining — occupants now show
+  without having to connect first.
+- Messages that mention you are highlighted in the feed, Discord-style.
+- Server channels show a per-channel mention badge, not just an unread count.
+
+### Fixed
+
+- DM messages no longer stay stuck on "sending…": the indicator clears as soon
+  as the message is delivered, instead of only after leaving and reopening.
+- Mention "pings" now clear when you open the channel/DM and sit next to the
+  channel name instead of drifting to the far edge.
+- Pinned messages in DMs now sync to the other person (server-channel pins
+  already replicated).
+
+### Changed
+
+- More life throughout the UI: a pulsing "speaking" halo in voice, an
+  active-channel accent, the mention highlight, and button/badge micro-motion.
+
 ## [1.0.2] — 2026-07-13
 
 More correctness fixes from the frontend audit.

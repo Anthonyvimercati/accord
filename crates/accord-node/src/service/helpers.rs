@@ -294,7 +294,9 @@ fn body_json(kind: u8, body: &[u8]) -> Value {
             "question": question,
             "options": options,
         }),
-        Ok(MsgBody::Typing) | Ok(MsgBody::ReadReceipt { .. }) => json!({ "type": "meta" }),
+        Ok(MsgBody::Typing) | Ok(MsgBody::ReadReceipt { .. }) | Ok(MsgBody::Pin { .. }) => {
+            json!({ "type": "meta" })
+        }
         Err(_) => json!({ "type": "unknown" }),
     }
 }

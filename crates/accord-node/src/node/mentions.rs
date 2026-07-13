@@ -164,6 +164,15 @@ impl Node {
     pub fn group_mention_count(&self, group_id: &[u8; 16]) -> Result<u64, NodeError> {
         self.with_db(|db| Ok(db.count_group_mentions(group_id)?))
     }
+
+    /// Mentions non lues par salon d'un groupe (`(channel_id, n)` pour les
+    /// salons en portant) — alimente les pastilles de mention par salon.
+    pub fn group_channel_mentions(
+        &self,
+        group_id: &[u8; 16],
+    ) -> Result<Vec<([u8; 16], u64)>, NodeError> {
+        self.with_db(|db| Ok(db.count_group_channel_mentions(group_id)?))
+    }
 }
 
 #[cfg(test)]

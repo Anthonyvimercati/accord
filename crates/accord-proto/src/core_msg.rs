@@ -221,6 +221,17 @@ pub enum MsgBody {
         /// Options (2-10, chacune 1-100 octets UTF-8, non vide).
         options: Vec<String>,
     },
+    /// Épingle ou désépingle un message d'une conversation directe (vue locale
+    /// répliquée au pair, sans op filaire signée — contrairement aux salons de
+    /// groupe). Livré de manière fiable comme un message texte (survit à un pair
+    /// hors ligne via la boîte aux lettres), mais jamais rendu comme un message
+    /// de chat. Discriminant 8 (prochain libre après `Poll` = 7).
+    Pin {
+        /// `msg_id` du message directement épinglé ou désépinglé.
+        msg_id: [u8; 16],
+        /// 1 = épingle, 0 = retrait de l'épingle.
+        pinned: bool,
+    },
 }
 
 impl MsgBody {
@@ -235,6 +246,7 @@ impl MsgBody {
             MsgBody::Typing => 5,
             MsgBody::ReadReceipt { .. } => 6,
             MsgBody::Poll { .. } => 7,
+            MsgBody::Pin { .. } => 8,
         }
     }
 
@@ -275,6 +287,10 @@ impl MsgBody {
                 w.put_arr(poll_id);
                 w.put_str(question);
                 w.put_list(options, |w, o| w.put_str(o));
+            }
+            MsgBody::Pin { msg_id, pinned } => {
+                w.put_arr(msg_id);
+                w.put_u8(u8::from(*pinned));
             }
         }
         w.into_bytes()
@@ -331,6 +347,10 @@ impl MsgBody {
                     options,
                 }
             }
+            8 => MsgBody::Pin {
+                msg_id: r.arr()?,
+                pinned: decode_bool(&mut r, "msg.pin.pinned")?,
+            },
             _ => return Err(DecodeError::InvalidValue("msg kind")),
         };
         r.finish()?;
@@ -2569,6 +2589,35 @@ mod tests {
     /// Round-trips a `MsgBody` through its wire discriminant + encoding.
     fn roundtrip_msg_body(body: &MsgBody) -> MsgBody {
         MsgBody::decode_body(body.kind(), &body.encode_body()).expect("decode")
+    }
+
+    #[test]
+    fn pin_msg_body_roundtrips_and_rejects_malformed() {
+        for pinned in [true, false] {
+            let body = MsgBody::Pin {
+                msg_id: [9; 16],
+                pinned,
+            };
+            assert_eq!(body.kind(), 8);
+            assert_eq!(roundtrip_msg_body(&body), body);
+
+            let encoded = body.encode_body();
+            // Truncated msg_id (< 16 bytes) or missing/trailing bytes reject.
+            for cut in 0..encoded.len() {
+                assert!(MsgBody::decode_body(8, &encoded[..cut]).is_err(), "cut={cut}");
+            }
+            let mut extra = encoded.clone();
+            extra.push(0);
+            assert!(MsgBody::decode_body(8, &extra).is_err());
+        }
+        // Non-boolean `pinned` byte is rejected (strict wire bool).
+        let mut forged = MsgBody::Pin {
+            msg_id: [1; 16],
+            pinned: true,
+        }
+        .encode_body();
+        *forged.last_mut().unwrap() = 2;
+        assert!(MsgBody::decode_body(8, &forged).is_err());
     }
 
     #[test]

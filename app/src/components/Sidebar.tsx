@@ -207,7 +207,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
                   className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-sidebar"
                 />
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="min-w-0">
                 <span className="block truncate font-medium">
                   {c.display_name || c.friend_code}
                 </span>
@@ -215,7 +215,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
                   <span className="block truncate text-xs text-muted">{statusText}</span>
                 )}
               </span>
-              <span className="ml-auto flex shrink-0 items-center gap-1">
+              <span className="flex shrink-0 items-center gap-1">
                 {missedPeers.has(c.pubkey) && (
                   <span
                     role="img"
@@ -356,6 +356,7 @@ function ChannelRow({
   channel,
   active,
   unread,
+  mentions,
   groupId,
   canManage,
   restricted,
@@ -366,6 +367,8 @@ function ChannelRow({
   active: boolean;
   /** Nombre de messages non lus du salon (absent ou 0 : pas de pastille). */
   unread?: number | undefined;
+  /** Mentions non lues du salon (prime sur le non-lu simple ; absent ou 0 : rien). */
+  mentions?: number | undefined;
   groupId: string;
   /** Renommage/suppression permis (MANAGE_CHANNELS). */
   canManage: boolean;
@@ -499,6 +502,13 @@ function ChannelRow({
         <ChannelIcon kind={channel.kind} />
       </span>
       <span className="min-w-0 truncate">{channel.name}</span>
+      {/* Une mention prime sur le simple non-lu (pastille distincte), posée à
+          côté du nom (le nom tronque, la pastille ne rétrécit pas). */}
+      {(mentions ?? 0) > 0 ? (
+        <MentionBadge count={mentions ?? 0} />
+      ) : (
+        <UnreadBadge count={unread ?? 0} />
+      )}
       {restricted && (
         <span
           role="img"
@@ -519,7 +529,6 @@ function ChannelRow({
           <BellOffMenuIcon />
         </span>
       )}
-      <UnreadBadge count={unread ?? 0} />
     </button>
   );
 }
@@ -756,6 +765,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
   const state = useGroups((s) => s.states[groupId]);
   const unread = useGroups((s) => s.unread[groupId]);
   const mentionCount = useGroups((s) => s.mentions[groupId]) ?? 0;
+  const channelMentions = useGroups((s) => s.channelMentions[groupId]);
   const serverLevels = useMute((s) => s.serverLevels);
   const channelLevels = useMute((s) => s.channelLevels);
   const joinVoice = useVoice((s) => s.join);
@@ -981,6 +991,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
                     channel={ch}
                     active={activeChannel === ch.channel_id}
                     unread={unread?.[ch.channel_id]}
+                    mentions={channelMentions?.[ch.channel_id]}
                     groupId={groupId}
                     canManage={hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)}
                     restricted={isChannelRestricted(state, ch.channel_id)}

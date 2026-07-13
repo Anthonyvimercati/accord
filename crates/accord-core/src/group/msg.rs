@@ -791,6 +791,9 @@ pub fn ingest_group_message(
         MsgBody::Typing => Ok(GroupMsgEvent::Typing),
         // Accusés de lecture : sans objet dans un salon (marque locale).
         MsgBody::ReadReceipt { .. } => Ok(GroupMsgEvent::Ignored),
+        // (Dés)épingle de conversation directe : sans objet dans un salon,
+        // où l'épinglage passe par le journal d'opérations signé.
+        MsgBody::Pin { .. } => Ok(GroupMsgEvent::Ignored),
     }
 }
 

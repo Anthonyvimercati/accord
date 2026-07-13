@@ -92,6 +92,18 @@ impl VoiceStatus {
     }
 }
 
+/// Présence d'un salon vocal connu, rejoint ou non ([`VoiceHandle::rooms`]) :
+/// permet à l'UI d'afficher les occupants d'un salon avant de le rejoindre.
+#[derive(Debug, Clone)]
+pub struct VoiceRoomPresence {
+    /// Groupe du salon.
+    pub group_id: [u8; 16],
+    /// Salon vocal (par convention UI, `channel_id == group_id`).
+    pub channel_id: [u8; 16],
+    /// Occupants connus du salon (présence passive incluse).
+    pub participants: Vec<VoiceParticipant>,
+}
+
 /// Périphériques audio exposés par `voice.devices` (contrat gelé, D-029).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VoiceDevices {
@@ -176,6 +188,11 @@ pub(crate) enum Cmd {
     Status {
         /// Réponse : `None` hors salon.
         resp: oneshot::Sender<Option<VoiceStatus>>,
+    },
+    /// Présence de tous les salons connus (actif et passifs).
+    Rooms {
+        /// Réponse : un descripteur par salon connu.
+        resp: oneshot::Sender<Vec<VoiceRoomPresence>>,
     },
     /// Périphériques audio disponibles et sélection persistée (D-029).
     Devices {
@@ -376,6 +393,16 @@ impl VoiceHandle {
         let (resp, rx) = oneshot::channel();
         self.tx
             .send(Cmd::Status { resp })
+            .map_err(|_| Self::stopped())?;
+        rx.await.map_err(|_| Self::stopped())
+    }
+
+    /// Présence de tous les salons connus (rejoints ou non), pour afficher les
+    /// occupants d'un salon avant de le rejoindre.
+    pub async fn rooms(&self) -> Result<Vec<VoiceRoomPresence>, NodeError> {
+        let (resp, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::Rooms { resp })
             .map_err(|_| Self::stopped())?;
         rx.await.map_err(|_| Self::stopped())
     }

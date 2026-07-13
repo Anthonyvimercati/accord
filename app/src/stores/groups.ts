@@ -511,6 +511,11 @@ interface GroupsState {
   /** Mentions non lues par groupe (`groups.list`) : seuls les > 0 figurent. */
   mentions: Record<string, number>;
   /**
+   * Mentions non lues par groupe puis salon (`groups.list`, miroir de `unread`) :
+   * seuls les salons > 0 figurent. Alimente la pastille de mention par salon.
+   */
+  channelMentions: Record<string, Record<string, number>>;
+  /**
    * Invitations de serveur entrantes en attente (consentement explicite,
    * D-045) : reçues, ni acceptées ni refusées. Chargées au démarrage et
    * complétées par `handleInvitePending` (`event.group_invite_pending`).
@@ -814,11 +819,17 @@ export const useGroups = create<GroupsState>((set, get) => ({
   pins: {},
   unread: {},
   mentions: {},
+  channelMentions: {},
   pendingInvites: [],
 
   loadList: async () => {
-    const { groups, unread, mentions } = await api.groupsList();
-    set({ ids: groups, unread: unread ?? {}, mentions: mentions ?? {} });
+    const { groups, unread, mentions, channel_mentions } = await api.groupsList();
+    set({
+      ids: groups,
+      unread: unread ?? {},
+      mentions: mentions ?? {},
+      channelMentions: channel_mentions ?? {},
+    });
     await Promise.all([
       ...groups.map((id) => get().loadState(id)),
       get().loadPendingInvites(),
@@ -895,8 +906,12 @@ export const useGroups = create<GroupsState>((set, get) => ({
   },
 
   refreshUnread: async () => {
-    const { unread, mentions } = await api.groupsList();
-    set({ unread: unread ?? {}, mentions: mentions ?? {} });
+    const { unread, mentions, channel_mentions } = await api.groupsList();
+    set({
+      unread: unread ?? {},
+      mentions: mentions ?? {},
+      channelMentions: channel_mentions ?? {},
+    });
   },
 
   markRead: async (groupId, channelId, lamport) => {
@@ -1154,6 +1169,9 @@ export const useGroups = create<GroupsState>((set, get) => ({
       ),
       mentions: Object.fromEntries(
         Object.entries(s.mentions).filter(([id]) => id !== groupId),
+      ),
+      channelMentions: Object.fromEntries(
+        Object.entries(s.channelMentions).filter(([id]) => id !== groupId),
       ),
     }));
   },

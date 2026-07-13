@@ -12,8 +12,11 @@ import { rpc } from '../lib/client';
 import { displayNameOf, useFriends } from '../stores/friends';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
-import { useVoice, type ParticipantState } from '../stores/voice';
+import { roomPresenceKey, useVoice, type ParticipantState } from '../stores/voice';
 import { Avatar } from './Avatar';
+
+/** Cadence de rafraîchissement de la présence passive des salons (ms). */
+const ROOMS_POLL_MS = 5000;
 
 /** Icône haut-parleur (entrée du salon vocal). */
 function SpeakerIcon() {
@@ -109,7 +112,9 @@ function ParticipantRow({
     <li className="group rounded-md px-2 py-1 text-muted">
       <div className="flex items-center gap-2">
         <div
-          className={`shrink-0 rounded-full ${state.speaking ? 'ring-2 ring-green' : ''}`}
+          className={`shrink-0 rounded-full ${
+            state.speaking ? 'voice-speaking ring-2 ring-green' : ''
+          }`}
         >
           <Avatar id={pubkey} name={name} size={24} />
         </div>
@@ -189,6 +194,7 @@ export function VoiceSection({ groupId }: { groupId: string }) {
   const toast = useUi((s) => s.toast);
   const active = useVoice((s) => s.active);
   const participants = useVoice((s) => s.participants);
+  const rooms = useVoice((s) => s.rooms);
   const join = useVoice((s) => s.join);
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
@@ -196,7 +202,13 @@ export function VoiceSection({ groupId }: { groupId: string }) {
   // Convention UI : un salon vocal par groupe, channel_id == group_id.
   const isConnectedHere =
     active !== null && active.groupId === groupId && active.channelId === groupId;
-  const connected = isConnectedHere ? [...participants.entries()] : [];
+  // Connecté : liste vivante (événements) ; sinon : présence passive du nœud.
+  const roomOccupants = rooms.get(roomPresenceKey(groupId, groupId));
+  const connected = isConnectedHere
+    ? [...participants.entries()]
+    : roomOccupants
+      ? [...roomOccupants.entries()]
+      : [];
 
   // Les états micro/son des pairs changent sans re-jointure : on applique
   // `event.voice_mute` au store tant que la section est montée…
@@ -229,6 +241,15 @@ export function VoiceSection({ groupId }: { groupId: string }) {
       });
   }, [isConnectedHere]);
 
+  // Présence passive : les occupants d'un salon non rejoint n'arrivent pas par
+  // événement (gate sur le salon actif), on interroge donc `voice.rooms`.
+  useEffect(() => {
+    const refresh = () => useVoice.getState().syncRooms().catch(() => undefined);
+    refresh();
+    const id = window.setInterval(refresh, ROOMS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [groupId]);
+
   const nameOf = (pubkey: string): string =>
     self !== null && pubkey === self.pubkey
       ? selfDisplayName(self)
@@ -259,7 +280,7 @@ export function VoiceSection({ groupId }: { groupId: string }) {
         <span className="truncate">{t.voice.defaultChannel}</span>
       </button>
       {connected.length > 0 && (
-        <ul className="space-y-0.5 pb-1 pl-6 pr-1 pt-0.5">
+        <ul className="voice-roster-enter space-y-0.5 pb-1 pl-6 pr-1 pt-0.5">
           {connected.map(([pubkey, state]) => (
             <ParticipantRow
               key={pubkey}

@@ -489,6 +489,16 @@ export interface VoiceDsp {
 }
 
 /**
+ * Présence d'un salon vocal connu (rejoint ou non) rendue par voice.rooms :
+ * permet d'afficher les occupants d'un salon avant de le rejoindre.
+ */
+export interface VoiceRoomPresence {
+  group_id: string;
+  channel_id: string;
+  participants: VoiceParticipant[];
+}
+
+/**
  * Périphériques audio (voice.devices) : noms cpal, `null` = périphérique par
  * défaut du système. Listes vides et sélections nulles en mode simulé.
  */
@@ -648,6 +658,8 @@ export type AccordEvent =
     }
   | { method: 'event.friend_removed'; params: { peer: string } }
   | { method: 'event.dm_read'; params: { peer: string; lamport: number } }
+  | { method: 'event.dm_ack'; params: { peer: string; msg_id: string } }
+  | { method: 'event.dm_pins'; params: { peer: string } }
   | {
       method: 'event.network';
       params: { connected_peers: number; dht_nodes: number };
@@ -934,14 +946,16 @@ export class Api {
 
   /**
    * Liste des groupes, non-lus par salon (`{ group_id: { channel_id: n } }`,
-   * seuls les salons ayant au moins un non-lu figurent) et mentions non lues
-   * par groupe (`{ group_id: n }`, seuls les groupes en portant) — `unread` et
-   * `mentions` optionnels par tolérance.
+   * seuls les salons ayant au moins un non-lu figurent), mentions non lues par
+   * groupe (`{ group_id: n }`, seuls les groupes en portant) et mentions non
+   * lues par salon (`{ group_id: { channel_id: n } }`, miroir de `unread`) —
+   * `unread`, `mentions` et `channel_mentions` optionnels par tolérance.
    */
   groupsList(): Promise<{
     groups: string[];
     unread?: Record<string, Record<string, number>>;
     mentions?: Record<string, number>;
+    channel_mentions?: Record<string, Record<string, number>>;
   }> {
     return this.rpc.call('groups.list');
   }
@@ -1866,6 +1880,15 @@ export class Api {
     dsp?: VoiceDsp;
   }> {
     return this.rpc.call('voice.status');
+  }
+
+  /**
+   * Présence de tous les salons vocaux connus (rejoints ou non) : occupants
+   * visibles avant de rejoindre. Présence passive alimentée par les
+   * diffusions `VoiceSignal` des pairs (TTL 90 s côté nœud).
+   */
+  voiceRooms(): Promise<{ rooms: VoiceRoomPresence[] }> {
+    return this.rpc.call('voice.rooms');
   }
 
   /** Active/désactive la suppression de bruit (RNNoise) sur la capture locale, à chaud. */

@@ -92,7 +92,7 @@ export function PrimaryButton({
       type="button"
       disabled={disabled ?? false}
       onClick={onClick}
-      className="w-full rounded-lg bg-blurple py-2.5 font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]"
+      className="w-full rounded-lg bg-blurple py-2.5 font-medium text-white shadow-sm transition-all duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:pointer-events-none disabled:opacity-50 active:translate-y-0 active:scale-[0.98]"
     >
       {label}
     </button>

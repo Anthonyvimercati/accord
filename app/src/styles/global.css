@@ -601,6 +601,53 @@ select:focus-visible {
   animation: voice-eq 1.1s ease-in-out infinite;
 }
 
+/* Surbrillance persistante d'un message qui mentionne l'utilisateur (façon Discord). */
+.msg-mention {
+  background-color: rgb(var(--color-yellow) / 0.08);
+  box-shadow: inset 3px 0 0 rgb(var(--color-yellow));
+}
+
+/* Halo pulsé autour de l'avatar de la personne qui parle (salon vocal). */
+@keyframes voice-speaking {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgb(var(--color-green) / 0.9);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(var(--color-green) / 0.3);
+  }
+}
+.voice-speaking {
+  animation: voice-speaking 1.4s ease-in-out infinite;
+}
+
+/* Barre d'accent animée sur l'entrée active d'un volet latéral. */
+@keyframes nav-indicator-in {
+  from {
+    transform: translateY(-50%) scaleY(0);
+  }
+  to {
+    transform: translateY(-50%) scaleY(1);
+  }
+}
+.nav-indicator::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 55%;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background-color: rgb(var(--color-header));
+  transform-origin: center;
+  animation: nav-indicator-in var(--duration-fast) var(--ease-out);
+}
+
+/* Apparition de la liste d'occupants d'un salon vocal (léger fondu/montée). */
+.voice-roster-enter {
+  animation: fade-rise-in var(--duration-fast) var(--ease-out);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
