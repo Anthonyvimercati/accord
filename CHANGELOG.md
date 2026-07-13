@@ -2,6 +2,17 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.0.2] — 2026-07-13
+
+More correctness fixes from the frontend audit.
+
+### Fixed
+- Out-of-order network responses can no longer revert a fresh message
+  edit/delete/reaction or server-state change: refreshes now apply on a
+  latest-wins basis and discard stale responses.
+- Starting an outgoing call no longer clobbers an incoming call that arrived
+  during the request.
+
 ## [1.0.1] — 2026-07-13
 
 Correctness patch from a frontend audit.
