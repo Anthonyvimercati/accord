@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- App-tile icon: the Accord mark, centered, no wordmark (the OS shows the
+       app name as a label). Source for app/src-tauri/icons/* — regenerate with
+       `npm run tauri icon <png>` after rasterizing this at 1024×1024.
+       The full logo with wordmark lives in accord-logo.svg. -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="#5865F2"/>
+  <g transform="translate(256 236) scale(0.88) translate(-256 -256)">
+    <path d="M160 110 h192 a84 84 0 0 1 84 84 v112 a84 84 0 0 1 -84 84 H226 L118 448 l32 -60 a84 84 0 0 1 -74 -82 V194 a84 84 0 0 1 84 -84 Z" fill="#FFFFFF"/>
+    <circle cx="168" cy="298" r="36" fill="#5865F2"/>
+    <circle cx="256" cy="250" r="36" fill="#7B84F7"/>
+    <circle cx="344" cy="202" r="36" fill="#A9AEF9"/>
+  </g>
+</svg>
