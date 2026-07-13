@@ -24,3 +24,6 @@ session.json
 # Demo mode — local only (screenshots), never published
 /app/src/lib/demo.ts
 /app/src/assets/demo/
+
+# Local editor / preview tooling (not part of the public project)
+/.claude/

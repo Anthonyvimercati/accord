@@ -1,6 +1,16 @@
-# Accord
+<p align="center">
+  <img src="accord-logo.svg" alt="" width="104" height="104" />
+</p>
 
-**A Discord-like desktop app — peer-to-peer, end-to-end encrypted, no server.**
+<h1 align="center">Accord</h1>
+
+<p align="center">
+  <b>A Discord-like desktop app — peer-to-peer, end-to-end encrypted, no server.</b>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/server.jpg" alt="Accord — a server with text channels, messages and a member list grouped by role" width="100%" />
+</p>
 
 Friends, DMs, servers with text & voice channels, 1-to-1 voice calls… but your
 messages go **directly** between the apps, encrypted end to end. There is no
@@ -26,6 +36,25 @@ Accord protects the **content** of your exchanges, not your **anonymity**
 [SECURITY.md](SECURITY.md). First stable release (**1.0**); the peer-to-peer
 core has been through repeated internal adversarial security audits, but no
 *external* audit yet.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <img src="docs/screenshots/direct-messages.jpg" alt="A one-to-one direct message conversation" /><br/>
+      <sub><b>Direct messages</b> — one-to-one, end-to-end encrypted</sub>
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/screenshots/profile.jpg" alt="Profile card with status menu and account switcher" /><br/>
+      <sub><b>Profile &amp; status</b> — custom status, multi-account</sub>
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/screenshots/themes.jpg" alt="Appearance settings with eight themes and message density" /><br/>
+      <sub><b>Appearance</b> — eight themes, light &amp; dark</sub>
+    </td>
+  </tr>
+</table>
 
 ## Install
 
