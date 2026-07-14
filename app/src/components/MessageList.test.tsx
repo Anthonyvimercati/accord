@@ -160,6 +160,29 @@ describe('MessageList — transfert et lien', () => {
 });
 
 describe('MessageList — rendu', () => {
+  it("rend la décoration d'avatar annoncée par un contact", () => {
+    useFriends.setState({
+      contacts: [
+        {
+          node_id: 'noeud-pair',
+          pubkey: 'aabbccddee',
+          friend_code: 'accord-pair',
+          display_name: 'Alice',
+          bio: null,
+          avatar: null,
+          banner: null,
+          avatar_decoration: 'neon_ring',
+          state: 'friend',
+          last_seen_ms: 0,
+        },
+      ],
+    });
+
+    render(<MessageList messages={[textMsg('m1', BASE_MS, 'bonjour')]} />);
+
+    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+  });
+
   it('affiche le texte des messages et le nom court de l’auteur inconnu', () => {
     render(<MessageList messages={[textMsg('m1', BASE_MS, 'bonjour à tous')]} />);
 

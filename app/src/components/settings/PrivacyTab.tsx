@@ -111,7 +111,12 @@ export function PrivacyTab() {
               const name = contact.display_name.trim() || contact.friend_code;
               return (
                 <li key={contact.pubkey} className="flex items-center gap-3 px-2 py-2.5">
-                  <Avatar id={contact.pubkey} name={name} size={32} />
+                  <Avatar
+                    id={contact.pubkey}
+                    name={name}
+                    size={32}
+                    decoration={contact.avatar_decoration ?? null}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-header">{name}</div>
                     <div className="truncate text-xs text-faint">

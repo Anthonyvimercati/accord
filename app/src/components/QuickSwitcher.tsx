@@ -74,7 +74,14 @@ function ItemIcon({ item }: { item: QuickSwitchItem }) {
   }
   if (item.kind === 'dm') {
     return (
-      <Avatar id={item.pubkey} name={item.label} size={32} avatarHash={item.avatarHash} hint={item.pubkey} />
+      <Avatar
+        id={item.pubkey}
+        name={item.label}
+        size={32}
+        avatarHash={item.avatarHash}
+        hint={item.pubkey}
+        decoration={item.avatarDecoration}
+      />
     );
   }
   if (item.kind === 'server') {

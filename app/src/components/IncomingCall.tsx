@@ -11,7 +11,12 @@ import { useEffect, useRef } from 'react';
 import { bouclerTab } from '../lib/focus';
 import { startRingtone, stopRingtone } from '../lib/ringtone';
 import { useCalls } from '../stores/calls';
-import { avatarOf, displayNameOf, useFriends } from '../stores/friends';
+import {
+  avatarDecorationOf,
+  avatarOf,
+  displayNameOf,
+  useFriends,
+} from '../stores/friends';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { PhoneIcon, PhoneOffIcon } from './ContextMenu';
@@ -81,7 +86,14 @@ export function IncomingCall() {
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
     >
       <div className="glass-strong flex w-80 max-w-[90vw] flex-col items-center gap-5 rounded-xl p-6 shadow-3">
-        <Avatar id={peer} name={name} size={72} avatarHash={avatarHash} hint={peer} />
+        <Avatar
+          id={peer}
+          name={name}
+          size={72}
+          avatarHash={avatarHash}
+          hint={peer}
+          decoration={avatarDecorationOf(contacts, peer)}
+        />
         <div className="text-center">
           <div className="text-lg font-semibold text-header">{name}</div>
           <div className="mt-0.5 text-sm text-muted">{t.calls.incomingRinging}</div>

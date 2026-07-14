@@ -21,6 +21,7 @@ vi.mock('../lib/client', () => ({
 import { api } from '../lib/client';
 import type { Contact } from '../lib/api';
 import {
+  avatarDecorationOf,
   avatarOf,
   displayNameOf,
   handleFriendsNodeEvent,
@@ -86,7 +87,98 @@ describe('avatarOf', () => {
   });
 });
 
+describe('avatarDecorationOf', () => {
+  it('rend la décoration connue du contact', () => {
+    const alice = {
+      ...contact('aabbccddee', 'Alice'),
+      avatar_decoration: 'neon_ring',
+    };
+
+    expect(avatarDecorationOf([alice], 'aabbccddee')).toBe('neon_ring');
+  });
+
+  it('rend null pour un pair inconnu ou une décoration absente ou nulle', () => {
+    const absent = contact('aabbccddee', 'Alice');
+    const nulle = { ...contact('1122334455', 'Bob'), avatar_decoration: null };
+
+    expect(avatarDecorationOf([], 'inconnu')).toBeNull();
+    expect(avatarDecorationOf([absent], 'aabbccddee')).toBeNull();
+    expect(avatarDecorationOf([nulle], '1122334455')).toBeNull();
+  });
+});
+
 describe('useFriends.applyProfile', () => {
+  it('applique les ids de décoration et d’effet reçus', () => {
+    useFriends.setState({ contacts: [contact('alice-pk', 'Alice')] });
+
+    useFriends.getState().applyProfile({
+      pubkey: 'alice-pk',
+      name: 'Alice',
+      bio: null,
+      avatar: null,
+      banner: null,
+      avatar_decoration: 'neon_ring',
+      profile_effect: 'aurora',
+    });
+
+    expect(useFriends.getState().contacts[0]).toMatchObject({
+      avatar_decoration: 'neon_ring',
+      profile_effect: 'aurora',
+    });
+  });
+
+  it('efface la décoration et l’effet quand l’annonce contient null', () => {
+    useFriends.setState({
+      contacts: [
+        {
+          ...contact('alice-pk', 'Alice'),
+          avatar_decoration: 'neon_ring',
+          profile_effect: 'aurora',
+        },
+      ],
+    });
+
+    useFriends.getState().applyProfile({
+      pubkey: 'alice-pk',
+      name: 'Alice',
+      bio: null,
+      avatar: null,
+      banner: null,
+      avatar_decoration: null,
+      profile_effect: null,
+    });
+
+    expect(useFriends.getState().contacts[0]).toMatchObject({
+      avatar_decoration: null,
+      profile_effect: null,
+    });
+  });
+
+  it('conserve les valeurs connues quand les deux champs sont absents', () => {
+    useFriends.setState({
+      contacts: [
+        {
+          ...contact('alice-pk', 'Alice'),
+          avatar_decoration: 'neon_ring',
+          profile_effect: 'aurora',
+        },
+      ],
+    });
+
+    useFriends.getState().applyProfile({
+      pubkey: 'alice-pk',
+      name: 'Alice',
+      bio: null,
+      avatar: null,
+      banner: null,
+    });
+
+    expect(useFriends.getState().contacts[0]).toMatchObject({
+      avatar_decoration: 'neon_ring',
+      profile_effect: 'aurora',
+    });
+  });
+
   it('met à jour pseudo, bio et avatar du contact visé (event.profile)', () => {
     useFriends.setState({
       contacts: [contact('alice-pk', 'Alice'), contact('bob-pk', 'Bob')],

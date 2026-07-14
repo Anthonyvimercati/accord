@@ -9,7 +9,12 @@
 
 import { interpolate } from '../i18n';
 import type { PendingInvite } from '../lib/api';
-import { avatarOf, displayNameOf, useFriends } from '../stores/friends';
+import {
+  avatarDecorationOf,
+  avatarOf,
+  displayNameOf,
+  useFriends,
+} from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useT, useUi } from '../stores/ui';
 import { Avatar } from './Avatar';
@@ -36,6 +41,7 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
         size={32}
         avatarHash={avatarOf(contacts, invite.inviter)}
         hint={invite.inviter}
+        decoration={avatarDecorationOf(contacts, invite.inviter)}
       />
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium text-header">{invite.group_name}</div>

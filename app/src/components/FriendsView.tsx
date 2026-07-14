@@ -43,6 +43,7 @@ function FriendRow({ contact }: { contact: Contact }) {
           size={32}
           avatarHash={contact.avatar}
           hint={contact.pubkey}
+          decoration={contact.avatar_decoration ?? null}
         />
         {isFriend && (
           <PresenceDot

@@ -3,18 +3,6 @@
  * 5 minutes), horodatages, mentions d'édition/suppression — disposition
  * calquée sur Discord. Le défilement vers le haut charge l'historique plus
  * ancien (pagination `before_lamport`) en préservant la position de lecture.
- *
- * Quand `actions` est fourni (MP et salons), chaque message expose au survol
- * une barre d'actions : réaction, réponse (MP uniquement), épinglage (salons
- * avec MANAGE_MESSAGES), édition (auteur seul) et suppression (auteur, ou
- * modération via `canModerate`). L'édition se fait en place et les réactions
- * s'affichent en pastilles sous le corps. `colorOf` colore le nom des
- * auteurs (couleur du rôle le plus haut en salon).
- *
- * Ce fichier orchestre le fil ; le modèle (`DisplayMessage`,
- * `MessageListActions`, `messageModel`), les sous-composants (`MessageQuote`,
- * `MessageEditor`, `BodyText`) et les items de menus contextuels
- * (`messageMenus`) vivent dans leurs propres modules.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -25,8 +13,19 @@ import { formatDay, formatTimestamp, formatTimestampCompact } from '../lib/forma
 import { extractInviteLink } from '../lib/invite';
 import { isEditableTarget, useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
-import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
-import { hasPerm, PERMISSIONS, pollOf, serverAvatarOf, useGroups } from '../stores/groups';
+import {
+  useFriends,
+  avatarDecorationOf,
+  avatarOf,
+  displayNameOf,
+} from '../stores/friends';
+import {
+  hasPerm,
+  PERMISSIONS,
+  pollOf,
+  serverAvatarOf,
+  useGroups,
+} from '../stores/groups';
 import { useMessageEdit } from '../stores/messageEdit';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
@@ -122,7 +121,11 @@ export interface MessageListProps {
    * masquées. `null`/absent = mode inactif.
    */
   selection?:
-    | { active: boolean; selected: ReadonlySet<string>; onToggle: (msgId: string) => void }
+    | {
+        active: boolean;
+        selected: ReadonlySet<string>;
+        onToggle: (msgId: string) => void;
+      }
     | undefined;
   /**
    * Entrée en mode sélection depuis le menu contextuel d'un message (câblée par
@@ -364,6 +367,12 @@ export function MessageList({
     return serverAvatarOf({ members: groupMembers }, contacts, author) ?? globalAvatar;
   };
 
+  /** Décoration globale de profil (indépendante d'un éventuel avatar serveur). */
+  const decorationOf = (author: string): string | null =>
+    self && author === self.pubkey
+      ? self.avatar_decoration
+      : avatarDecorationOf(contacts, author);
+
   /** Ouvre la carte de profil, ancrée sur l'élément cliqué. */
   const ouvrirProfil = (author: string, target: HTMLElement): void => {
     const r = target.getBoundingClientRect();
@@ -396,11 +405,7 @@ export function MessageList({
   const selectionActive = selection?.active === true;
   // Séparateur « nouveaux messages » : index (dans `visible`) du premier
   // message d'autrui au-delà de la position lue capturée à l'ouverture.
-  const dividerIndex = firstUnreadIndex(
-    visible,
-    dividerLamport,
-    self?.pubkey ?? null,
-  );
+  const dividerIndex = firstUnreadIndex(visible, dividerLamport, self?.pubkey ?? null);
 
   /** Défile jusqu'au séparateur « nouveaux messages » (bouton de saut). */
   const jumpToUnread = (): void => {
@@ -446,8 +451,11 @@ export function MessageList({
             !isEditing &&
             !selectionActive &&
             !m.deleted &&
-            (m.body.type === 'text' || m.body.type === 'sticker' || m.body.type === 'poll');
-          const isSelected = selectionActive && (selection?.selected.has(m.msg_id) ?? false);
+            (m.body.type === 'text' ||
+              m.body.type === 'sticker' ||
+              m.body.type === 'poll');
+          const isSelected =
+            selectionActive && (selection?.selected.has(m.msg_id) ?? false);
           // Message sans texte (pièces jointes seules) : pas de corps vide.
           const hasAttachments = !m.deleted && (m.attachments?.length ?? 0) > 0;
           const corpsVide = !m.deleted && hasAttachments && displayText(m) === '';
@@ -579,6 +587,7 @@ export function MessageList({
                       size={40}
                       avatarHash={avatarHashOf(m.author)}
                       hint={m.author}
+                      decoration={decorationOf(m.author)}
                     />
                   </button>
                 )}
@@ -711,9 +720,7 @@ export function MessageList({
                       <span aria-hidden>💬</span>
                       <span className="truncate">{rootThread.name}</span>
                       {rootThread.archived && (
-                        <span className="shrink-0 text-faint">
-                          {t.threads.archived}
-                        </span>
+                        <span className="shrink-0 text-faint">{t.threads.archived}</span>
                       )}
                     </button>
                   )}
@@ -730,6 +737,7 @@ export function MessageList({
                       hint={m.author}
                       nameOf={nameOf}
                       avatarHashOf={avatarHashOf}
+                      avatarDecorationOf={decorationOf}
                       onOpenAuthor={ouvrirProfil}
                     />
                   )}

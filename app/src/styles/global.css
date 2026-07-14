@@ -199,6 +199,11 @@
   --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.08), 0 12px 28px rgba(0, 0, 0, 0.06);
   --shadow-3: 0 8px 16px rgba(0, 0, 0, 0.12), 0 24px 56px rgba(0, 0, 0, 0.1);
 
+  --glass-bg: rgb(var(--color-modal) / 0.78);
+  --glass-bg-strong: rgb(var(--color-modal) / 0.9);
+  --glass-border: rgba(26, 28, 34, 0.12);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
   color-scheme: light;
 }
 
@@ -705,80 +710,6 @@ select:focus-visible {
 /* Apparition de la liste d'occupants d'un salon vocal (léger fondu/montée). */
 .voice-roster-enter {
   animation: fade-rise-in var(--duration-fast) var(--ease-out);
-}
-
-/*
- * Personnalisation de profil (lib/decorations.tsx) : décorations d'avatar et
- * effets de profil. Animations strictement compositeur (transform/opacity) —
- * couvertes d'office par les blocs `prefers-reduced-motion` / `data-motion`
- * ci-dessous (sélecteur `*`).
- */
-@keyframes deco-ring-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes deco-aurora-drift {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-    opacity: 0.85;
-  }
-  33% {
-    transform: translate(8%, -6%) scale(1.12);
-    opacity: 1;
-  }
-  66% {
-    transform: translate(-6%, 5%) scale(0.95);
-    opacity: 0.75;
-  }
-}
-
-@keyframes deco-twinkle {
-  0%,
-  100% {
-    opacity: 0.15;
-    transform: scale(0.7);
-  }
-  50% {
-    opacity: 0.9;
-    transform: scale(1);
-  }
-}
-
-@keyframes deco-petal-fall {
-  0% {
-    transform: translate3d(0, -20%, 0) rotate(0deg);
-    opacity: 0;
-  }
-  12% {
-    opacity: 0.9;
-  }
-  88% {
-    opacity: 0.9;
-  }
-  100% {
-    transform: translate3d(22px, 320%, 0) rotate(320deg);
-    opacity: 0;
-  }
-}
-
-@keyframes deco-particle-float {
-  0% {
-    transform: translate3d(0, 0, 0) scale(0.6);
-    opacity: 0;
-  }
-  20% {
-    opacity: 0.6;
-  }
-  80% {
-    opacity: 0.5;
-  }
-  100% {
-    transform: translate3d(6px, -340%, 0) scale(1);
-    opacity: 0;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

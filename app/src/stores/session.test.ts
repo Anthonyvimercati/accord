@@ -64,6 +64,7 @@ const accountsListMock = accountsList as unknown as Mock;
 const accountUnlockMock = accountUnlock as unknown as Mock;
 const sessionCloseMock = sessionClose as unknown as Mock;
 const identitySelfMock = api.identitySelf as unknown as Mock;
+const profileSetMock = api.profileSet as unknown as Mock;
 const closeMock = rpc.close as unknown as Mock;
 const connectMock = rpc.connect as unknown as Mock;
 
@@ -103,6 +104,8 @@ const statusCallback = (rpc.onStatus as unknown as Mock).mock.calls[0]?.[0] as (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  identitySelfMock.mockReset();
+  profileSetMock.mockReset();
   lockIdentityMock.mockResolvedValue('locked');
   accountsListMock.mockResolvedValue([]);
   sessionCloseMock.mockResolvedValue('locked');
@@ -113,6 +116,38 @@ beforeEach(() => {
     recoveryPhrase: null,
     askName: false,
     error: null,
+  });
+});
+
+describe('useSession — personnalisation du profil', () => {
+  it('fixe la décoration puis recharge identity.self', async () => {
+    const updated = { ...self, avatar_decoration: 'neon_ring' };
+    profileSetMock.mockResolvedValueOnce({});
+    identitySelfMock.mockResolvedValueOnce(updated);
+
+    await useSession.getState().setAvatarDecoration('neon_ring');
+
+    expect(profileSetMock).toHaveBeenCalledWith({ avatar_decoration: 'neon_ring' });
+    expect(identitySelfMock).toHaveBeenCalledTimes(1);
+    expect(profileSetMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      identitySelfMock.mock.invocationCallOrder[0]!,
+    );
+    expect(useSession.getState().self).toEqual(updated);
+  });
+
+  it('fixe l’effet puis recharge identity.self', async () => {
+    const updated = { ...self, profile_effect: 'aurora' };
+    profileSetMock.mockResolvedValueOnce({});
+    identitySelfMock.mockResolvedValueOnce(updated);
+
+    await useSession.getState().setProfileEffect('aurora');
+
+    expect(profileSetMock).toHaveBeenCalledWith({ profile_effect: 'aurora' });
+    expect(identitySelfMock).toHaveBeenCalledTimes(1);
+    expect(profileSetMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      identitySelfMock.mock.invocationCallOrder[0]!,
+    );
+    expect(useSession.getState().self).toEqual(updated);
   });
 });
 

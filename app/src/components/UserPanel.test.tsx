@@ -72,6 +72,14 @@ beforeEach(() => {
 });
 
 describe('UserPanel — menu utilisateur rapide', () => {
+  it('rend la décoration de son propre avatar', () => {
+    useSession.setState({ self: { ...self, avatar_decoration: 'neon_ring' } });
+
+    render(<UserPanel />);
+
+    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+  });
+
   it('ouvre le menu utilisateur au clic sur l’avatar/pseudo', () => {
     render(<UserPanel />);
 

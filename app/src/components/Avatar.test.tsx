@@ -68,4 +68,38 @@ describe('Avatar', () => {
     await waitFor(() => expect(lireMock).toHaveBeenCalledTimes(2));
     expect(lireMock).toHaveBeenLastCalledWith('cd'.repeat(32), undefined);
   });
+
+  it('rend une décoration connue dans un calque SVG dimensionné par le cadre', () => {
+    const { container } = render(
+      <Avatar id="x" name="Alice" decoration="golden_laurel" />,
+    );
+
+    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+    expect(container.querySelector('svg')).toHaveClass('avatar-decoration__svg');
+  });
+
+  it("ignore entièrement un id de pair inconnu sans l'injecter dans le DOM", () => {
+    const hostile = '"><style>body{display:none}</style>';
+    const { container } = render(<Avatar id="x" name="Alice" decoration={hostile} />);
+
+    expect(screen.queryByTestId('avatar-decoration')).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain(hostile);
+  });
+
+  it("affiche l'aperçu local sans relire le hash persistant", () => {
+    const { container } = render(
+      <Avatar
+        id="x"
+        name="Alice"
+        avatarHash={HASH}
+        imageUrl="data:image/png;base64,AA=="
+      />,
+    );
+
+    expect(container.querySelector('img')).toHaveAttribute(
+      'src',
+      'data:image/png;base64,AA==',
+    );
+    expect(lireMock).not.toHaveBeenCalled();
+  });
 });

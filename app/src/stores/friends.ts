@@ -232,6 +232,18 @@ export function avatarOf(contacts: readonly Contact[], pubkey: string): string |
 }
 
 /**
+ * Décoration d'avatar d'un pair connu, ou `null`. Le champ reste optionnel
+ * pour les profils annoncés par un nœud ancien : absent et explicitement nul
+ * ont donc le même rendu (aucune décoration).
+ */
+export function avatarDecorationOf(
+  contacts: readonly Contact[],
+  pubkey: string,
+): string | null {
+  return contacts.find((c) => c.pubkey === pubkey)?.avatar_decoration ?? null;
+}
+
+/**
  * Statut de présence affichable d'un contact : statut riche annoncé s'il est
  * connu, sinon la simple joignabilité (`online`) mappée sur online/offline.
  */

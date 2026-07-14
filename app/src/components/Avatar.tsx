@@ -15,6 +15,8 @@ interface AvatarProps {
   size?: number;
   /** Racine Merkle de l'image (hex 64) ; absent ou `null` = initiales. */
   avatarHash?: string | null;
+  /** URL locale d'aperçu, prioritaire sur le hash persistant. */
+  imageUrl?: string | null;
   /** Pair source probable du téléchargement (clé publique hex). */
   hint?: string;
   /**
@@ -35,6 +37,7 @@ export function Avatar({
   name,
   size = 40,
   avatarHash = null,
+  imageUrl = null,
   hint,
   online,
   decoration = null,
@@ -44,7 +47,7 @@ export function Avatar({
   useEffect(() => {
     let alive = true;
     setUrl(null);
-    if (avatarHash === null) return undefined;
+    if (avatarHash === null || imageUrl !== null) return undefined;
     lireFichier(avatarHash, hint)
       .then((blobUrl) => {
         if (alive) setUrl(blobUrl);
@@ -55,18 +58,20 @@ export function Avatar({
     return () => {
       alive = false;
     };
-  }, [avatarHash, hint]);
+  }, [avatarHash, hint, imageUrl]);
+
+  const resolvedUrl = imageUrl ?? url;
 
   const cercle = (
     <div
       aria-hidden
-      className="flex h-full w-full items-center justify-center overflow-hidden rounded-full font-semibold text-white"
+      className="avatar-core flex h-full w-full items-center justify-center overflow-hidden rounded-full font-semibold text-white"
       style={{ fontSize: size * 0.4, backgroundColor: avatarColor(id) }}
     >
-      {url === null ? (
+      {resolvedUrl === null ? (
         initials(name)
       ) : (
-        <img src={url} alt="" className="h-full w-full object-cover" />
+        <img src={resolvedUrl} alt="" className="h-full w-full object-cover" />
       )}
     </div>
   );
@@ -77,7 +82,10 @@ export function Avatar({
   // Sans présence connue : cercle nu + éventuelle décoration.
   if (online === undefined) {
     return (
-      <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <div
+        className="avatar-root relative shrink-0"
+        style={{ width: size, height: size }}
+      >
         {cercle}
         {cadre}
       </div>
@@ -87,12 +95,12 @@ export function Avatar({
   // Avec présence : pastille verte/grise en bas à droite.
   const pastille = Math.max(8, Math.round(size * 0.3));
   return (
-    <div className="relative shrink-0" style={{ width: size, height: size }}>
+    <div className="avatar-root relative shrink-0" style={{ width: size, height: size }}>
       {cercle}
       {cadre}
       <span
         aria-label={online ? 'en ligne' : 'hors ligne'}
-        className={`absolute bottom-0 right-0 rounded-full border-2 border-rail ${
+        className={`avatar-presence absolute bottom-0 right-0 rounded-full border-2 border-rail ${
           online ? 'bg-green' : 'bg-faint'
         }`}
         style={{ width: pastille, height: pastille }}
