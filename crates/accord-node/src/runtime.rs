@@ -26,7 +26,7 @@ use accord_proto::limits::MAX_NODE_ADDRS;
 use accord_proto::plaintext::ChannelMsg;
 use accord_proto::plaintext::ControlMsg;
 use accord_proto::types::WireAddr;
-use accord_proto::types::{NodeId, NodeInfo};
+use accord_proto::types::{node_flags, NodeId, NodeInfo};
 use accord_transport::nat::{Candidate, ObservedAddrs};
 use accord_transport::tcp::{self, TcpLinks};
 use accord_transport::{Endpoint, TransportError, TransportEvent};
@@ -211,6 +211,14 @@ pub struct Runtime {
     /// purgé sur `Disconnected`. Sert à l'idempotence du repli relais (ne pas
     /// ouvrir de circuit vers un ami déjà joignable) et à l'observabilité.
     live: Mutex<HashSet<[u8; 32]>>,
+    /// Relais dont la joignabilité a été ACTIVEMENT vérifiée (M1a) : identités
+    /// ayant annoncé le drapeau RELAY dans une session DIRECTE établie (handshake
+    /// mutuellement authentifié = preuve de joignabilité, contrairement au
+    /// drapeau seul, auto-déclaré et gratuit). Purgé sur `Disconnected`. Sert à
+    /// prioriser ces relais dans la sélection ([`relay::prioritize_reachable`]),
+    /// pour qu'un flot de faux relais injoignables ne les évince pas de la
+    /// fenêtre bornée d'essais.
+    verified_relays: Mutex<HashSet<[u8; 32]>>,
     /// Signal d'arrêt des boucles de maintenance.
     stop_tx: watch::Sender<bool>,
     /// Curseurs de rotation des passes de maintenance (anti-famine).
@@ -290,6 +298,7 @@ impl Runtime {
             observed: Mutex::new(None),
             observed_addrs: Mutex::new(ObservedAddrs::new()),
             live: Mutex::new(HashSet::new()),
+            verified_relays: Mutex::new(HashSet::new()),
             stop_tx,
             presence_cursor: AtomicUsize::new(0),
             mailbox_cursor: AtomicUsize::new(0),
@@ -629,9 +638,35 @@ impl Runtime {
                 .collect()
         };
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
-        for k in keys {
-            live.remove(&k);
+        let mut verified = self
+            .verified_relays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        for k in &keys {
+            live.remove(k);
+            // La joignabilité vérifiée expire avec la session (M1a) : on ne
+            // priorise plus un relais dont on n'a plus de session directe.
+            verified.remove(k);
         }
+    }
+
+    /// Note un relais comme ACTIVEMENT vérifié joignable (M1a) : appelé quand un
+    /// pair annonce le drapeau RELAY sur une session DIRECTE établie (le
+    /// handshake mutuellement authentifié atteste la joignabilité).
+    fn mark_relay_verified(&self, pubkey: [u8; 32]) {
+        self.verified_relays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(pubkey);
+    }
+
+    /// Instantané des relais vérifiés joignables (M1a), pour la priorisation de
+    /// sélection.
+    fn verified_relays_snapshot(&self) -> HashSet<[u8; 32]> {
+        self.verified_relays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Vrai si une session (directe ou relayée) est active avec ce pair.
@@ -642,15 +677,18 @@ impl Runtime {
             .contains(pubkey)
     }
 
-    /// Enregistre une observation d'adresse publique (SPEC §11.1) et met à jour
-    /// l'adresse retenue : le consensus s'il existe, sinon la dernière reçue.
-    fn observe_addr(&self, observed: SocketAddr) {
+    /// Enregistre une observation d'adresse publique rapportée par le pair
+    /// `observer` (SPEC §11.1) et met à jour l'adresse retenue : le consensus
+    /// s'il existe, sinon la dernière reçue. La déduplication par identité
+    /// d'observateur ([`ObservedAddrs::observe`]) empêche un pair unique de
+    /// fabriquer un consensus en votant plusieurs fois (M1b).
+    fn observe_addr(&self, observer: [u8; 32], observed: SocketAddr) {
         let consensus = {
             let mut agg = self
                 .observed_addrs
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            agg.observe(observed);
+            agg.observe(observer, observed);
             agg.consensus()
         };
         *self.observed.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -752,6 +790,7 @@ impl Runtime {
         let candidats = relay::merge_relay_candidates(
             self.select_relay_for(&friend),
             self.home_relays_of(&friend),
+            &self.verified_relays_snapshot(),
         );
         for relay_info in candidats {
             let Some(relay_addr) = relay_info.addrs.first().map(|a| a.0) else {
@@ -1031,8 +1070,8 @@ impl Runtime {
                     self.mark_live(static_pub);
                     self.route(addr, static_pub, *msg).await;
                 }
-                TransportEvent::ObservedAddr { observed } => {
-                    self.observe_addr(observed);
+                TransportEvent::ObservedAddr { observer, observed } => {
+                    self.observe_addr(observer, observed);
                 }
                 TransportEvent::NodeAnnounced {
                     static_pub,
@@ -1046,6 +1085,14 @@ impl Runtime {
                     // vers un tiers) ; la preuve de travail est re-vérifiée par
                     // `KademliaNode::observe` (via `valid_node`).
                     self.remember_announce(static_pub, pow_nonce, flags);
+                    // M1a : le drapeau RELAY reçu SUR CETTE SESSION DIRECTE est
+                    // une preuve de joignabilité (l'événement n'est émis que sur
+                    // un lien direct authentifié) — on le note vérifié pour la
+                    // priorisation de sélection. Le drapeau seul, dans un
+                    // `NodeInfo` glané par gossip, ne le serait pas.
+                    if flags & node_flags::RELAY != 0 {
+                        self.mark_relay_verified(static_pub);
+                    }
                     let info = NodeInfo {
                         node_id: node_id_of(&static_pub),
                         static_pub,

@@ -148,8 +148,10 @@ Approches évaluées :
   **jamais** sur une session tunnelée (sinon l'adresse du relais empoisonnerait
   la table). L'adresse insérée est l'adresse source observée : un pair ne peut
   pas faire pointer une entrée vers une victime tierce. Coût borné : une
-  insertion de table (LRS + diversité /24 déjà en place) par annonce, réponse
-  au plus une par session — profil identique à PING/PONG.
+  insertion de table (LRS + diversité /24 déjà en place) par annonce ACCEPTÉE,
+  réponse au plus une par session, ET traitement plafonné par le seau de
+  contrôle de session (H1, voir §3bis) — un pair authentifié ne peut plus
+  inonder.
 - Le relais reste aveugle (blobs DATA d'une session bout-en-bout, liaison
   d'identité D-037 aux deux extrémités) et borné (64 circuits, 1 Mo/s,
   session avec la cible exigée à l'ouverture). Rien de nouveau côté relais.
@@ -175,6 +177,38 @@ Approches évaluées :
   aller-retour — sans aucune ouverture de port. Ce test échoue sur l'arbre
   antérieur au correctif (vérifié : timeout, la demande n'atteint jamais B) et
   passe après.
+
+## 3bis. Durcissement post-revue de sécurité (H1, M1)
+
+Une revue adverse a validé le cœur (auth, décodage, PoW, rejet-tunnel,
+confidentialité relais, no-drop) et relevé trois points corrigés avant release :
+
+- **H1 (débit `NODE_ANNOUNCE`)** : traité dans la couche transport, il
+  contournait les token-buckets DHT — un pair authentifié pouvait inonder des
+  annonces à plein débit UDP (contention de verrous, croissance du canal
+  d'événements non borné). Correctif : un **seau à jetons par session**
+  (`Session::ctrl_bucket`, rafale 8, recharge 1/s) borne le traitement des
+  messages de contrôle changeant l'état (`NODE_ANNOUNCE`, `OBSERVE_ADDR_RESP`)
+  AVANT toute remontée d'événement. Test : `handshake_e2e::
+  node_announce_flood_borne_par_session` (200 annonces émises, ≤ 8 acceptées).
+- **M1a (drapeau RELAY falsifiable)** : le flag est auto-déclaré et gratuit. Le
+  récepteur ne s'y fie plus seul : un relais n'est prioritaire dans la sélection
+  qu'après une **preuve de joignabilité active** — flag RELAY annoncé DANS une
+  session directe établie, suivi dans `verified_relays` et remonté en tête par
+  `relay::prioritize_reachable` avant le bornage `RELAY_TRY_MAX`. Un flot de
+  faux relais injoignables n'évince donc plus le relais réel. Résiduel assumé
+  (relais joignable mais malveillant) : cf. `docs/THREAT-MODEL.md` §2. Tests :
+  `relay::priorisation_relais_verifies_survit_au_flot_de_faux`.
+- **M1b (consensus d'observation forgeable)** : `ObservedAddrs` comptait les
+  votes PAR MESSAGE ; un pair unique fabriquait un « consensus » (2 votes) et
+  faisait basculer `relay_eligible` d'une victime NATée. Correctif : votes
+  **dédupliqués par identité d'observateur** (dernier vote par pair), consensus
+  exigeant ≥ 2 pairs DISTINCTS, et `OBSERVE_ADDR_RESP` throttlé par le seau de
+  contrôle de session + restreint aux liens directs. Tests : `nat::
+  un_seul_pair_ne_fabrique_pas_de_consensus`, `relay::
+  un_pair_seul_ne_rend_pas_une_victime_natee_eligible`.
+- **M2 (footgun)** : `run_with_socket` (injection d'un socket non durci) est
+  `#[doc(hidden)]` et documenté réservé aux tests ; `run_node` reste privé.
 
 ## 4. Limites connues (documentées, non masquées)
 
