@@ -42,6 +42,7 @@ export interface DmSwitchItem extends QuickSwitchItemBase {
   kind: 'dm';
   pubkey: string;
   avatarHash: string | null;
+  avatarDecoration: string | null;
 }
 
 /** Salon (texte, annonces ou vocal) d'un serveur rejoint et visible localement. */
@@ -98,6 +99,7 @@ export function buildQuickSwitchItems(params: {
       label: contact.display_name.trim() !== '' ? contact.display_name : contact.friend_code,
       pubkey: contact.pubkey,
       avatarHash: contact.avatar,
+      avatarDecoration: contact.avatar_decoration ?? null,
       view: { kind: 'dm', peer: contact.pubkey },
     });
   }

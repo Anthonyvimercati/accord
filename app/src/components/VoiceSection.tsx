@@ -9,7 +9,13 @@
 import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
 import { rpc } from '../lib/client';
-import { displayNameOf, useFriends } from '../stores/friends';
+import {
+  avatarDecorationOf,
+  avatarOf,
+  displayNameOf,
+  useFriends,
+} from '../stores/friends';
+import { serverAvatarOf, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { roomPresenceKey, useVoice, type ParticipantState } from '../stores/voice';
@@ -93,11 +99,15 @@ function ParticipantRow({
   state,
   name,
   isSelf,
+  avatarHash,
+  avatarDecoration,
 }: {
   pubkey: string;
   state: ParticipantState;
   name: string;
   isSelf: boolean;
+  avatarHash: string | null;
+  avatarDecoration: string | null;
 }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
@@ -116,7 +126,14 @@ function ParticipantRow({
             state.speaking ? 'voice-speaking ring-2 ring-green' : ''
           }`}
         >
-          <Avatar id={pubkey} name={name} size={24} />
+          <Avatar
+            id={pubkey}
+            name={name}
+            size={24}
+            avatarHash={avatarHash}
+            hint={pubkey}
+            decoration={avatarDecoration}
+          />
         </div>
         {state.speaking && <span className="sr-only">{t.voice.speaking}</span>}
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
@@ -198,6 +215,7 @@ export function VoiceSection({ groupId }: { groupId: string }) {
   const join = useVoice((s) => s.join);
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
+  const groupState = useGroups((s) => s.states[groupId]);
 
   // Convention UI : un salon vocal par groupe, channel_id == group_id.
   const isConnectedHere =
@@ -281,15 +299,26 @@ export function VoiceSection({ groupId }: { groupId: string }) {
       </button>
       {connected.length > 0 && (
         <ul className="voice-roster-enter space-y-0.5 pb-1 pl-6 pr-1 pt-0.5">
-          {connected.map(([pubkey, state]) => (
-            <ParticipantRow
-              key={pubkey}
-              pubkey={pubkey}
-              state={state}
-              name={nameOf(pubkey)}
-              isSelf={self !== null && pubkey === self.pubkey}
-            />
-          ))}
+          {connected.map(([pubkey, state]) => {
+            const isSelf = self !== null && pubkey === self.pubkey;
+            const globalAvatar = isSelf ? self.avatar : avatarOf(contacts, pubkey);
+            const avatarHash =
+              serverAvatarOf(groupState, contacts, pubkey) ?? globalAvatar;
+            const avatarDecoration = isSelf
+              ? self.avatar_decoration
+              : avatarDecorationOf(contacts, pubkey);
+            return (
+              <ParticipantRow
+                key={pubkey}
+                pubkey={pubkey}
+                state={state}
+                name={nameOf(pubkey)}
+                isSelf={isSelf}
+                avatarHash={avatarHash}
+                avatarDecoration={avatarDecoration}
+              />
+            );
+          })}
         </ul>
       )}
     </section>

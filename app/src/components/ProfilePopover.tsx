@@ -362,285 +362,290 @@ export function ProfilePopover() {
           width: CARD_WIDTH,
           visibility: pos === null ? 'hidden' : 'visible',
         }}
-        className="glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl focus:outline-none"
+        className="profile-card-canvas glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl focus:outline-none"
       >
-        <ProfileBanner hash={bannerHash} hint={pubkey} color={bannerColor} />
-        <div className="-mt-8 px-4 pb-4">
-          <div className="mb-2 flex items-end justify-between">
-            <div className="relative z-10 rounded-full ring-4 ring-modal">
-              <Avatar
-                id={pubkey}
-                name={name}
-                size={72}
-                avatarHash={avatarHash}
-                hint={pubkey}
-                decoration={avatarDecoration}
-              />
-            </div>
-            {status !== null && (
-              <span className="mb-1 flex items-center gap-1.5 text-xs text-muted">
-                <PresenceDot status={status} />
-                {t.profil[status]}
-              </span>
-            )}
-          </div>
-
-          <div
-            className="relative overflow-hidden rounded-lg bg-sidebar/90 p-3"
-            style={cardGradient !== null ? { backgroundImage: cardGradient } : undefined}
-          >
-            {/* Effet de profil : fond animé, derrière le contenu (posé avant
-                lui dans le DOM ; le contenu, positionné, peint par-dessus). */}
-            {effect !== undefined && effect.render()}
-            <div className="relative">
-              {accentHex !== null && (
-                <div
-                  aria-hidden
-                  className="mb-2 h-1 w-10 rounded-full"
-                  style={{ backgroundColor: accentHex }}
+        {effect?.render()}
+        {cardGradient !== null && (
+          <span
+            aria-hidden
+            className="profile-card-tint"
+            style={{ backgroundImage: cardGradient }}
+          />
+        )}
+        <div className="profile-card-content">
+          <ProfileBanner hash={bannerHash} hint={pubkey} color={bannerColor} />
+          <div className="-mt-10 px-4 pb-4">
+            <div className="mb-2 flex items-end justify-between">
+              <div className="relative z-10 rounded-full bg-modal p-1 shadow-2">
+                <Avatar
+                  id={pubkey}
+                  name={name}
+                  size={80}
+                  avatarHash={avatarHash}
+                  hint={pubkey}
+                  decoration={avatarDecoration}
                 />
-              )}
-              <div className="flex items-center gap-2">
-                <span
-                  className="truncate text-lg font-semibold text-header"
-                  style={accentHex !== null ? { color: accentHex } : undefined}
-                >
-                  {name}
-                </span>
-                {isFounder && (
-                  <span className="shrink-0 text-[10px] uppercase text-yellow">
-                    {t.groups.founder}
-                  </span>
-                )}
               </div>
-              {pronouns !== null && pronouns !== '' && (
-                <p className="mt-0.5 truncate text-xs text-muted">{pronouns}</p>
+              {status !== null && (
+                <span className="mb-1 flex items-center gap-1.5 rounded-full border border-[color:var(--glass-border)] bg-modal/75 px-2.5 py-1 text-xs font-medium text-muted shadow-1">
+                  <PresenceDot status={status} />
+                  {t.profil[status]}
+                </span>
               )}
-              {statusText !== null && statusText !== '' && (
-                <p className="mt-0.5 truncate text-sm text-muted">{statusText}</p>
-              )}
-              {friendCode !== null && friendCode !== '' && (
-                <div className="mt-1 flex items-center gap-1.5">
-                  <span className="selectable truncate font-mono text-xs text-faint">
-                    {friendCode}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={t.profil.copyFriendCode}
-                    title={t.profil.copyFriendCode}
-                    onClick={() =>
-                      copyToClipboard(
-                        friendCode,
-                        () => toast('info', t.app.copied),
-                        () => toast('error', t.errors.actionFailed),
-                      )
-                    }
-                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
-                  >
-                    <CopyMenuIcon />
-                  </button>
-                </div>
-              )}
+            </div>
 
-              {bio !== null && bio !== '' && (
-                <>
-                  <div className="mt-3 h-px bg-input/60" role="separator" />
-                  <div className="mt-2 whitespace-pre-wrap break-words text-sm text-norm">
-                    <MarkdownText text={bio} />
-                  </div>
-                </>
-              )}
-
-              {roles.length > 0 && (
-                <>
-                  <div className="mt-3 h-px bg-input/60" role="separator" />
-                  <div className="mt-2 text-xs font-medium uppercase tracking-wide text-faint">
-                    {t.profil.rolesLabel}
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {roles.map((role) => {
-                      const couleur = role.color === 0 ? null : roleColorCss(role.color);
-                      return (
-                        <span
-                          key={role.role_id}
-                          className="flex items-center gap-1 rounded-xs bg-rail px-2 py-0.5 text-xs text-norm"
-                        >
-                          <span
-                            aria-hidden
-                            className="h-2 w-2 rounded-full"
-                            style={{
-                              backgroundColor: couleur ?? 'rgb(var(--color-faint))',
-                            }}
-                          />
-                          {role.name}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              {isSelf && state !== undefined && (
-                <>
-                  <div className="mt-3 h-px bg-input/60" role="separator" />
-                  <label
-                    htmlFor="profil-nickname"
-                    className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
-                  >
-                    {t.profil.nicknameLabel}
-                  </label>
-                  <input
-                    id="profil-nickname"
-                    value={nick}
-                    onChange={(e) => setNick(e.target.value)}
-                    onBlur={enregistrerNick}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        e.currentTarget.blur();
-                      }
-                    }}
-                    maxLength={32}
-                    placeholder={t.profil.nicknamePlaceholder}
-                    className="mt-1 w-full rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+            <div className="profile-card-surface relative overflow-hidden rounded-lg p-3">
+              <div className="relative">
+                {accentHex !== null && (
+                  <div
+                    aria-hidden
+                    className="mb-2 h-1 w-10 rounded-full"
+                    style={{ backgroundColor: accentHex }}
                   />
-
-                  <label className="mt-3 block text-xs font-medium uppercase tracking-wide text-faint">
-                    {t.profil.serverAvatarLabel}
-                  </label>
-                  <div className="mt-1 flex items-center gap-2">
-                    <input
-                      ref={avatarFileRef}
-                      type="file"
-                      accept="image/*"
-                      aria-label={t.profil.serverAvatarChoose}
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = '';
-                        if (file !== undefined) setAvatarCropFile(file);
-                      }}
-                    />
+                )}
+                <div className="flex items-center gap-2">
+                  <span
+                    className="truncate text-lg font-semibold text-header"
+                    style={accentHex !== null ? { color: accentHex } : undefined}
+                  >
+                    {name}
+                  </span>
+                  {isFounder && (
+                    <span className="shrink-0 text-[10px] uppercase text-yellow">
+                      {t.groups.founder}
+                    </span>
+                  )}
+                </div>
+                {pronouns !== null && pronouns !== '' && (
+                  <p className="mt-0.5 truncate text-xs text-muted">{pronouns}</p>
+                )}
+                {statusText !== null && statusText !== '' && (
+                  <p className="mt-0.5 truncate text-sm text-muted">{statusText}</p>
+                )}
+                {friendCode !== null && friendCode !== '' && (
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span className="selectable truncate font-mono text-xs text-faint">
+                      {friendCode}
+                    </span>
                     <button
                       type="button"
-                      disabled={avatarBusy}
-                      onClick={() => avatarFileRef.current?.click()}
-                      className="rounded-md bg-rail px-2.5 py-1.5 text-xs font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+                      aria-label={t.profil.copyFriendCode}
+                      title={t.profil.copyFriendCode}
+                      onClick={() =>
+                        copyToClipboard(
+                          friendCode,
+                          () => toast('info', t.app.copied),
+                          () => toast('error', t.errors.actionFailed),
+                        )
+                      }
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
                     >
-                      {t.profil.serverAvatarChoose}
+                      <CopyMenuIcon />
                     </button>
-                    {(member?.avatar ?? null) !== null && (
+                  </div>
+                )}
+
+                {bio !== null && bio !== '' && (
+                  <>
+                    <div className="mt-3 h-px bg-input/60" role="separator" />
+                    <div className="mt-2 whitespace-pre-wrap break-words text-sm text-norm">
+                      <MarkdownText text={bio} />
+                    </div>
+                  </>
+                )}
+
+                {roles.length > 0 && (
+                  <>
+                    <div className="mt-3 h-px bg-input/60" role="separator" />
+                    <div className="mt-2 text-xs font-medium uppercase tracking-wide text-faint">
+                      {t.profil.rolesLabel}
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {roles.map((role) => {
+                        const couleur =
+                          role.color === 0 ? null : roleColorCss(role.color);
+                        return (
+                          <span
+                            key={role.role_id}
+                            className="flex items-center gap-1 rounded-xs bg-rail px-2 py-0.5 text-xs text-norm"
+                          >
+                            <span
+                              aria-hidden
+                              className="h-2 w-2 rounded-full"
+                              style={{
+                                backgroundColor: couleur ?? 'rgb(var(--color-faint))',
+                              }}
+                            />
+                            {role.name}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                {isSelf && state !== undefined && (
+                  <>
+                    <div className="mt-3 h-px bg-input/60" role="separator" />
+                    <label
+                      htmlFor="profil-nickname"
+                      className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
+                    >
+                      {t.profil.nicknameLabel}
+                    </label>
+                    <input
+                      id="profil-nickname"
+                      value={nick}
+                      onChange={(e) => setNick(e.target.value)}
+                      onBlur={enregistrerNick}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      maxLength={32}
+                      placeholder={t.profil.nicknamePlaceholder}
+                      className="mt-1 w-full rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+                    />
+
+                    <label className="mt-3 block text-xs font-medium uppercase tracking-wide text-faint">
+                      {t.profil.serverAvatarLabel}
+                    </label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        ref={avatarFileRef}
+                        type="file"
+                        accept="image/*"
+                        aria-label={t.profil.serverAvatarChoose}
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (file !== undefined) setAvatarCropFile(file);
+                        }}
+                      />
                       <button
                         type="button"
                         disabled={avatarBusy}
-                        onClick={effacerAvatarServeur}
-                        className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+                        onClick={() => avatarFileRef.current?.click()}
+                        className="rounded-md bg-rail px-2.5 py-1.5 text-xs font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
                       >
-                        {t.profil.serverAvatarClear}
+                        {t.profil.serverAvatarChoose}
+                      </button>
+                      {(member?.avatar ?? null) !== null && (
+                        <button
+                          type="button"
+                          disabled={avatarBusy}
+                          onClick={effacerAvatarServeur}
+                          className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+                        >
+                          {t.profil.serverAvatarClear}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {canNote && (
+                  <>
+                    <div className="mt-3 h-px bg-input/60" role="separator" />
+                    <label
+                      htmlFor="profil-note"
+                      className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
+                    >
+                      {t.profil.noteLabel}
+                    </label>
+                    <textarea
+                      id="profil-note"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      onBlur={enregistrerNote}
+                      maxLength={4096}
+                      rows={2}
+                      placeholder={t.profil.notePlaceholder}
+                      className="mt-1 w-full resize-none rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+                    />
+                  </>
+                )}
+
+                {isSelf && (
+                  <button
+                    type="button"
+                    onClick={modifierProfil}
+                    className="mt-3 w-full rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98]"
+                  >
+                    {t.profil.editProfile}
+                  </button>
+                )}
+
+                {(canMessage || canRemove || canBlock) && !confirmRemove && (
+                  <div className="mt-3 flex items-center gap-1.5">
+                    {canMessage && (
+                      <button
+                        type="button"
+                        onClick={envoyerMessage}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.97]"
+                      >
+                        <span
+                          aria-hidden
+                          className="flex h-4 w-4 shrink-0 items-center justify-center"
+                        >
+                          <EnvelopeMenuIcon size={16} />
+                        </span>
+                        {t.friends.sendDm}
+                      </button>
+                    )}
+                    {canRemove && (
+                      <button
+                        type="button"
+                        title={t.friends.remove}
+                        aria-label={t.friends.remove}
+                        onClick={() => setConfirmRemove(true)}
+                        className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+                      >
+                        <RemoveFriendIcon />
+                      </button>
+                    )}
+                    {canBlock && (
+                      <button
+                        type="button"
+                        title={t.friends.block}
+                        aria-label={t.friends.block}
+                        onClick={bloquer}
+                        className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+                      >
+                        <BlockUserIcon />
                       </button>
                     )}
                   </div>
-                </>
-              )}
+                )}
 
-              {canNote && (
-                <>
-                  <div className="mt-3 h-px bg-input/60" role="separator" />
-                  <label
-                    htmlFor="profil-note"
-                    className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
-                  >
-                    {t.profil.noteLabel}
-                  </label>
-                  <textarea
-                    id="profil-note"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    onBlur={enregistrerNote}
-                    maxLength={4096}
-                    rows={2}
-                    placeholder={t.profil.notePlaceholder}
-                    className="mt-1 w-full resize-none rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
-                  />
-                </>
-              )}
-
-              {isSelf && (
-                <button
-                  type="button"
-                  onClick={modifierProfil}
-                  className="mt-3 w-full rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98]"
-                >
-                  {t.profil.editProfile}
-                </button>
-              )}
-
-              {(canMessage || canRemove || canBlock) && !confirmRemove && (
-                <div className="mt-3 flex items-center gap-1.5">
-                  {canMessage && (
-                    <button
-                      type="button"
-                      onClick={envoyerMessage}
-                      className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.97]"
-                    >
-                      <span
-                        aria-hidden
-                        className="flex h-4 w-4 shrink-0 items-center justify-center"
+                {confirmRemove && (
+                  <div className="mt-3 rounded-lg border border-rail bg-rail/40 p-2.5">
+                    <p className="text-sm text-norm">{t.friends.removeQuestion}</p>
+                    <p className="mt-0.5 text-xs text-faint">
+                      {t.friends.removeKeepHistory}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={retirer}
+                        className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                       >
-                        <EnvelopeMenuIcon size={16} />
-                      </span>
-                      {t.friends.sendDm}
-                    </button>
-                  )}
-                  {canRemove && (
-                    <button
-                      type="button"
-                      title={t.friends.remove}
-                      aria-label={t.friends.remove}
-                      onClick={() => setConfirmRemove(true)}
-                      className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
-                    >
-                      <RemoveFriendIcon />
-                    </button>
-                  )}
-                  {canBlock && (
-                    <button
-                      type="button"
-                      title={t.friends.block}
-                      aria-label={t.friends.block}
-                      onClick={bloquer}
-                      className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
-                    >
-                      <BlockUserIcon />
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {confirmRemove && (
-                <div className="mt-3 rounded-lg border border-rail bg-rail/40 p-2.5">
-                  <p className="text-sm text-norm">{t.friends.removeQuestion}</p>
-                  <p className="mt-0.5 text-xs text-faint">
-                    {t.friends.removeKeepHistory}
-                  </p>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={retirer}
-                      className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
-                    >
-                      {t.friends.remove}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmRemove(false)}
-                      className="rounded-full bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
-                    >
-                      {t.app.cancel}
-                    </button>
+                        {t.friends.remove}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemove(false)}
+                        className="rounded-full bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                      >
+                        {t.app.cancel}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>

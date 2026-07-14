@@ -9,7 +9,13 @@ import { formatTimestamp } from '../lib/format';
 import { useCalls } from '../stores/calls';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
-import { useFriends, avatarOf, displayNameOf, presenceOf } from '../stores/friends';
+import {
+  useFriends,
+  avatarDecorationOf,
+  avatarOf,
+  displayNameOf,
+  presenceOf,
+} from '../stores/friends';
 import {
   useGroups,
   aggregateEmojiMap,
@@ -336,6 +342,7 @@ export function DmView({ peer }: { peer: string }) {
             size={26}
             avatarHash={avatarOf(contacts, peer)}
             hint={peer}
+            decoration={avatarDecorationOf(contacts, peer)}
             online={
               contacts.some((c) => c.pubkey === peer && c.state === 'friend')
                 ? (contacts.find((c) => c.pubkey === peer)?.online ?? false)
@@ -636,6 +643,10 @@ function MemberList({ groupId }: { groupId: string }) {
                 : avatarOf(contacts, member.pubkey);
             const avatarHash =
               serverAvatarOf(state, contacts, member.pubkey) ?? globalAvatarHash;
+            const avatarDecoration =
+              self && member.pubkey === self.pubkey
+                ? self.avatar_decoration
+                : avatarDecorationOf(contacts, member.pubkey);
             const status = statusOf(member.pubkey);
             const statusText = statusTextOf(member.pubkey);
             return (
@@ -681,6 +692,7 @@ function MemberList({ groupId }: { groupId: string }) {
                     size={32}
                     avatarHash={avatarHash}
                     hint={member.pubkey}
+                    decoration={avatarDecoration}
                   />
                   <PresenceDot
                     status={status}

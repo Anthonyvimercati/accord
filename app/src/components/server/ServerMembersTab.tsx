@@ -9,7 +9,12 @@ import { useState } from 'react';
 import type { Dict } from '../../i18n';
 import { interpolate } from '../../i18n';
 import { formatTimestamp } from '../../lib/format';
-import { avatarOf, displayNameOf, useFriends } from '../../stores/friends';
+import {
+  avatarDecorationOf,
+  avatarOf,
+  displayNameOf,
+  useFriends,
+} from '../../stores/friends';
 import {
   useGroups,
   hasPerm,
@@ -159,6 +164,10 @@ export function ServerMembersTab({ groupId }: { groupId: string }) {
             ? self.avatar
             : avatarOf(contacts, member.pubkey);
         const avatarHash = serverAvatarOf(state, contacts, member.pubkey) ?? globalAvatar;
+        const avatarDecoration =
+          self !== null && member.pubkey === self.pubkey
+            ? self.avatar_decoration
+            : avatarDecorationOf(contacts, member.pubkey);
         return (
           <div
             key={member.pubkey}
@@ -170,6 +179,7 @@ export function ServerMembersTab({ groupId }: { groupId: string }) {
               size={32}
               avatarHash={avatarHash}
               hint={member.pubkey}
+              decoration={avatarDecoration}
             />
             <div className="min-w-0 flex-1">
               <div

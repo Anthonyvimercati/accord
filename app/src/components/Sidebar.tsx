@@ -200,6 +200,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
                   size={32}
                   avatarHash={c.avatar}
                   hint={c.pubkey}
+                  decoration={c.avatar_decoration ?? null}
                 />
                 <PresenceDot
                   status={status}

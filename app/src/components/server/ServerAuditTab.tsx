@@ -10,7 +10,11 @@ import type { Dict } from '../../i18n';
 import { api } from '../../lib/client';
 import type { AuditEntry, GroupStateJson } from '../../lib/api';
 import { formatTimestamp, shortId } from '../../lib/format';
-import { displayNameOf, useFriends } from '../../stores/friends';
+import {
+  avatarDecorationOf,
+  displayNameOf,
+  useFriends,
+} from '../../stores/friends';
 import { useGroups } from '../../stores/groups';
 import { selfDisplayName, useSession } from '../../stores/session';
 import { useUi, useT } from '../../stores/ui';
@@ -153,7 +157,16 @@ export function ServerAuditTab({ groupId }: { groupId: string }) {
               key={entry.op_id}
               className="mb-1 flex items-center gap-3 rounded-lg bg-sidebar px-3 py-2"
             >
-              <Avatar id={entry.author} name={actor} size={32} />
+              <Avatar
+                id={entry.author}
+                name={actor}
+                size={32}
+                decoration={
+                  self !== null && entry.author === self.pubkey
+                    ? self.avatar_decoration
+                    : avatarDecorationOf(contacts, entry.author)
+                }
+              />
               <div className="min-w-0 flex-1">
                 <span className="text-sm text-norm">
                   <span className="font-medium text-header">{actor}</span>{' '}

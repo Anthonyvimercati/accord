@@ -15,6 +15,44 @@ function makeApi() {
   return { api, call };
 }
 
+describe('profileSet — champs de personnalisation tri-état', () => {
+  it('transmet les ids définis', async () => {
+    const { api, call } = makeApi();
+
+    await api.profileSet({
+      avatar_decoration: 'neon_ring',
+      profile_effect: 'aurora',
+    });
+
+    expect(call).toHaveBeenCalledWith('profile.set', {
+      avatar_decoration: 'neon_ring',
+      profile_effect: 'aurora',
+    });
+  });
+
+  it('transmet explicitement null pour effacer les deux champs', async () => {
+    const { api, call } = makeApi();
+
+    await api.profileSet({ avatar_decoration: null, profile_effect: null });
+
+    expect(call).toHaveBeenCalledWith('profile.set', {
+      avatar_decoration: null,
+      profile_effect: null,
+    });
+  });
+
+  it('omet les deux clés quand elles ne figurent pas dans les changements', async () => {
+    const { api, call } = makeApi();
+
+    await api.profileSet({ bio: 'mise à jour' });
+
+    expect(call).toHaveBeenCalledWith('profile.set', { bio: 'mise à jour' });
+    const params = call.mock.calls[0]![1] as Record<string, unknown>;
+    expect('avatar_decoration' in params).toBe(false);
+    expect('profile_effect' in params).toBe(false);
+  });
+});
+
 describe('groups moderation wrappers', () => {
   it('groupsTimeout forwards group_id, pubkey and until_ms', async () => {
     const { api, call } = makeApi();

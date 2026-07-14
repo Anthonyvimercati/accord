@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { armAudioUnlock } from './lib/audio';
 import './styles/global.css';
+import './styles/profile-personalization.css';
+import './styles/profile-surfaces.css';
 
 // Déverrouillage audio armé avant tout : le premier geste (clic, frappe —
 // onboarding compris) met le contexte Web Audio partagé en route, pour que

@@ -288,6 +288,39 @@ describe('GroupView — statut personnalisé dans la liste des membres', () => {
     });
   });
 
+  it("rend la décoration d'avatar globale d'un membre ami", async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({
+          channels: [
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+          ],
+          members: [{ pubkey: PEER, roles: [], avatar: 'server-avatar' }],
+        }),
+      },
+    });
+    useFriends.setState({
+      contacts: [
+        {
+          ...contact(PEER, 'Alice'),
+          avatar_decoration: 'neon_ring',
+        },
+      ],
+    });
+
+    render(<GroupView groupId="g1" channelId="c1" />);
+
+    expect(await screen.findByTestId('avatar-decoration')).toBeInTheDocument();
+  });
+
   it('affiche le texte de statut sous le nom d’un membre ami', async () => {
     useGroups.setState({
       ids: ['g1'],

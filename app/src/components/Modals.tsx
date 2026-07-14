@@ -719,6 +719,7 @@ function InviteModal({ groupId }: { groupId: string }) {
               size={32}
               avatarHash={c.avatar}
               hint={c.pubkey}
+              decoration={c.avatar_decoration ?? null}
             />
             <span className="min-w-0 flex-1 truncate text-norm">
               {displayNameOf(contacts, c.pubkey)}

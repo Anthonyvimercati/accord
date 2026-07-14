@@ -1,0 +1,186 @@
+import { useState } from 'react';
+import {
+  AVATAR_DECORATIONS,
+  DECORATION_UI_TEXT,
+  PROFILE_EFFECTS,
+  decorationById,
+  effectById,
+} from '../../lib/decorations';
+import { useSession } from '../../stores/session';
+import { useT, useUi } from '../../stores/ui';
+import { Avatar } from '../Avatar';
+import { SettingsSection } from './controls';
+
+type BusyKind = 'decoration' | 'effect' | null;
+
+function SelectedMark() {
+  return (
+    <span className="personalization-choice__check" aria-hidden>
+      ✓
+    </span>
+  );
+}
+
+export function ProfilePersonalization() {
+  const t = useT();
+  const lang = useUi((state) => state.lang);
+  const toast = useUi((state) => state.toast);
+  const self = useSession((state) => state.self);
+  const setAvatarDecoration = useSession((state) => state.setAvatarDecoration);
+  const setProfileEffect = useSession((state) => state.setProfileEffect);
+  const [busy, setBusy] = useState<BusyKind>(null);
+
+  if (self === null) return null;
+
+  const avatarName = self.name ?? self.friend_code;
+  const selectedDecoration = decorationById(self.avatar_decoration);
+  const selectedEffect = effectById(self.profile_effect);
+  const previewMeta = [
+    selectedDecoration?.label[lang] ?? DECORATION_UI_TEXT.none[lang],
+    selectedEffect?.label[lang] ?? DECORATION_UI_TEXT.none[lang],
+  ].join(' · ');
+
+  const apply = async (kind: Exclude<BusyKind, null>, action: () => Promise<void>) => {
+    if (busy !== null) return;
+    setBusy(kind);
+    try {
+      await action();
+      toast('info', DECORATION_UI_TEXT.saved[lang]);
+    } catch {
+      toast('error', t.errors.actionFailed);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pickDecoration = (id: string | null): void => {
+    if (id === self.avatar_decoration) return;
+    void apply('decoration', () => setAvatarDecoration(id));
+  };
+
+  const pickEffect = (id: string | null): void => {
+    if (id === self.profile_effect) return;
+    void apply('effect', () => setProfileEffect(id));
+  };
+
+  return (
+    <>
+      <SettingsSection
+        title={DECORATION_UI_TEXT.decorationTitle[lang]}
+        hint={DECORATION_UI_TEXT.decorationHint[lang]}
+      >
+        <div className="mb-4 personalization-preview">
+          {selectedEffect?.render()}
+          <span className="personalization-preview__scrim" aria-hidden />
+          <div className="personalization-preview__content">
+            <Avatar
+              id={self.pubkey}
+              name={avatarName}
+              size={76}
+              avatarHash={self.avatar}
+              hint={self.pubkey}
+              decoration={self.avatar_decoration}
+            />
+            <div className="min-w-0">
+              <p className="personalization-preview__eyebrow">
+                {DECORATION_UI_TEXT.preview[lang]}
+              </p>
+              <p className="personalization-preview__name truncate">{avatarName}</p>
+              <p className="personalization-preview__meta truncate">{previewMeta}</p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          role="group"
+          aria-label={DECORATION_UI_TEXT.decorationTitle[lang]}
+          aria-busy={busy === 'decoration'}
+          className="personalization-grid"
+        >
+          <button
+            type="button"
+            disabled={busy !== null}
+            aria-pressed={self.avatar_decoration === null}
+            onClick={() => pickDecoration(null)}
+            className="personalization-choice"
+          >
+            <Avatar
+              id={self.pubkey}
+              name={avatarName}
+              size={54}
+              avatarHash={self.avatar}
+              hint={self.pubkey}
+            />
+            <span className="personalization-choice__label">
+              {DECORATION_UI_TEXT.none[lang]}
+            </span>
+            <SelectedMark />
+          </button>
+          {AVATAR_DECORATIONS.map((decoration) => (
+            <button
+              key={decoration.id}
+              type="button"
+              disabled={busy !== null}
+              aria-pressed={self.avatar_decoration === decoration.id}
+              onClick={() => pickDecoration(decoration.id)}
+              className="personalization-choice"
+            >
+              <Avatar
+                id={self.pubkey}
+                name={avatarName}
+                size={54}
+                avatarHash={self.avatar}
+                hint={self.pubkey}
+                decoration={decoration.id}
+              />
+              <span className="personalization-choice__label">
+                {decoration.label[lang]}
+              </span>
+              <SelectedMark />
+            </button>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title={DECORATION_UI_TEXT.effectTitle[lang]}
+        hint={DECORATION_UI_TEXT.effectHint[lang]}
+      >
+        <div
+          role="group"
+          aria-label={DECORATION_UI_TEXT.effectTitle[lang]}
+          aria-busy={busy === 'effect'}
+          className="personalization-grid"
+        >
+          <button
+            type="button"
+            disabled={busy !== null}
+            aria-pressed={self.profile_effect === null}
+            onClick={() => pickEffect(null)}
+            className="personalization-choice"
+          >
+            <span className="personalization-choice__effect bg-rail" aria-hidden />
+            <span className="personalization-choice__label">
+              {DECORATION_UI_TEXT.none[lang]}
+            </span>
+            <SelectedMark />
+          </button>
+          {PROFILE_EFFECTS.map((effect) => (
+            <button
+              key={effect.id}
+              type="button"
+              disabled={busy !== null}
+              aria-pressed={self.profile_effect === effect.id}
+              onClick={() => pickEffect(effect.id)}
+              className="personalization-choice"
+            >
+              <span className="personalization-choice__effect">{effect.render()}</span>
+              <span className="personalization-choice__label">{effect.label[lang]}</span>
+              <SelectedMark />
+            </button>
+          ))}
+        </div>
+      </SettingsSection>
+    </>
+  );
+}

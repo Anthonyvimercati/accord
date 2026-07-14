@@ -112,6 +112,27 @@ describe('rankQuickSwitchItems', () => {
 });
 
 describe('buildQuickSwitchItems', () => {
+  it('conserve l’avatar et sa décoration dans une destination MP', () => {
+    const alice = {
+      ...contact('alice', 'Alice'),
+      avatar: 'avatar-hash',
+      avatar_decoration: 'neon_ring',
+    };
+
+    const item = buildQuickSwitchItems({
+      friendsLabel: 'Amis',
+      contacts: [alice],
+      groupIds: [],
+      groupStates: {},
+      selfPubkey: 'moi',
+    }).find((candidate) => candidate.kind === 'dm');
+
+    expect(item).toMatchObject({
+      avatarHash: 'avatar-hash',
+      avatarDecoration: 'neon_ring',
+    });
+  });
+
   it('inclut chaque serveur rejoint comme destination', () => {
     const items = buildQuickSwitchItems({
       friendsLabel: 'Amis',

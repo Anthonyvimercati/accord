@@ -1,6 +1,10 @@
 /** Onglet Bannis : liste des clés bannies et réhabilitation (BAN). */
 
-import { displayNameOf, useFriends } from '../../stores/friends';
+import {
+  avatarDecorationOf,
+  displayNameOf,
+  useFriends,
+} from '../../stores/friends';
 import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useUi, useT } from '../../stores/ui';
 import { Avatar } from '../Avatar';
@@ -30,7 +34,12 @@ export function ServerBansTab({ groupId }: { groupId: string }) {
             key={pubkey}
             className="mb-1 flex items-center gap-3 rounded-lg bg-sidebar px-3 py-2"
           >
-            <Avatar id={pubkey} name={name} size={32} />
+            <Avatar
+              id={pubkey}
+              name={name}
+              size={32}
+              decoration={avatarDecorationOf(contacts, pubkey)}
+            />
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-header">
               {name}
             </span>

@@ -12,7 +12,12 @@ import { useEffect, useState } from 'react';
 import type { PresenceStatus } from '../lib/api';
 import { formatDuration } from '../lib/format';
 import { useCalls } from '../stores/calls';
-import { avatarOf, displayNameOf, useFriends } from '../stores/friends';
+import {
+  avatarDecorationOf,
+  avatarOf,
+  displayNameOf,
+  useFriends,
+} from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
@@ -185,6 +190,7 @@ function CallBanner() {
           size={28}
           avatarHash={avatarOf(contacts, peer)}
           hint={peer}
+          decoration={avatarDecorationOf(contacts, peer)}
         />
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-green">{name}</div>
@@ -285,6 +291,7 @@ export function UserPanel() {
               size={32}
               avatarHash={self.avatar}
               hint={self.pubkey}
+              decoration={self.avatar_decoration}
             />
             <PresenceDot
               status={dotStatus}

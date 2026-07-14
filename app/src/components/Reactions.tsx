@@ -78,6 +78,7 @@ interface ReactorsPopoverProps {
   anchor: DOMRect;
   nameOf: (pubkey: string) => string;
   avatarHashOf: (pubkey: string) => string | null;
+  avatarDecorationOf: (pubkey: string) => string | null;
   /** Ouvre la carte de profil d'un auteur (optionnel). */
   onOpenAuthor?: ((pubkey: string, target: HTMLElement) => void) | undefined;
   onClose: () => void;
@@ -90,6 +91,7 @@ function ReactorsPopover({
   anchor,
   nameOf,
   avatarHashOf,
+  avatarDecorationOf,
   onOpenAuthor,
   onClose,
 }: ReactorsPopoverProps) {
@@ -161,6 +163,7 @@ function ReactorsPopover({
                 size={24}
                 avatarHash={avatarHashOf(pubkey)}
                 hint={pubkey}
+                decoration={avatarDecorationOf(pubkey)}
               />
               <span className="truncate text-sm text-norm">{name}</span>
             </>
@@ -199,6 +202,8 @@ interface ReactionRowProps {
   nameOf?: ((pubkey: string) => string) | undefined;
   /** Résout le hash d'avatar d'un auteur (popover « qui a réagi »). */
   avatarHashOf?: ((pubkey: string) => string | null) | undefined;
+  /** Résout la décoration d'avatar d'un auteur (popover « qui a réagi »). */
+  avatarDecorationOf?: ((pubkey: string) => string | null) | undefined;
   /** Ouvre la carte de profil d'un auteur depuis le popover (optionnel). */
   onOpenAuthor?: ((pubkey: string, target: HTMLElement) => void) | undefined;
 }
@@ -212,6 +217,7 @@ export function ReactionRow({
   hint,
   nameOf,
   avatarHashOf,
+  avatarDecorationOf,
   onOpenAuthor,
 }: ReactionRowProps) {
   const t = useT();
@@ -222,6 +228,7 @@ export function ReactionRow({
 
   const resolveName = nameOf ?? ((pubkey: string) => pubkey.slice(0, 6));
   const resolveAvatar = avatarHashOf ?? (() => null);
+  const resolveDecoration = avatarDecorationOf ?? (() => null);
 
   return (
     <>
@@ -279,6 +286,7 @@ export function ReactionRow({
           anchor={popover.anchor}
           nameOf={resolveName}
           avatarHashOf={resolveAvatar}
+          avatarDecorationOf={resolveDecoration}
           onOpenAuthor={
             onOpenAuthor === undefined
               ? undefined
