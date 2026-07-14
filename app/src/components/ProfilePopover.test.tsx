@@ -312,16 +312,15 @@ describe('ProfilePopover — carte thématisée', () => {
     openFor('ami-pk');
     render(<ProfilePopover />);
 
-    const card = screen.getByText('Alice').closest('div.rounded-lg') as HTMLElement;
-    expect(card.style.backgroundImage).toContain('rgba(88, 101, 242');
+    const tint = document.querySelector('.profile-card-tint') as HTMLElement;
+    expect(tint.style.backgroundImage).toContain('rgba(88, 101, 242');
   });
 
   it('garde le fond neutre sans couleur de profil', () => {
     openFor('ami-pk');
     render(<ProfilePopover />);
 
-    const card = screen.getByText('Alice').closest('div.rounded-lg') as HTMLElement;
-    expect(card.style.backgroundImage).toBe('');
+    expect(document.querySelector('.profile-card-tint')).toBeNull();
   });
 });
 
@@ -347,5 +346,53 @@ describe('ProfilePopover — bio et liens', () => {
     render(<ProfilePopover />);
 
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+});
+
+describe('ProfilePopover — personnalisation', () => {
+  it("rend la décoration et l'effet du profil local sur toute la carte", () => {
+    useSession.setState({
+      self: {
+        ...MOI,
+        avatar_decoration: 'aurora_ring',
+        profile_effect: 'starfield',
+      },
+    });
+    openFor('moi');
+    render(<ProfilePopover />);
+
+    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+    const effect = screen.getByTestId('profile-effect');
+    expect(effect.parentElement).toBe(screen.getByRole('dialog'));
+  });
+
+  it("rend la décoration et l'effet annoncés par un ami", () => {
+    useFriends.setState({
+      contacts: [
+        {
+          ...AMI,
+          avatar_decoration: 'sakura_arc',
+          profile_effect: 'falling_petals',
+        },
+      ],
+    });
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+    expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
+  });
+
+  it("ignore les ids inconnus d'un pair sans les refléter dans le DOM", () => {
+    const hostile = '"><style>body{display:none}</style>';
+    useFriends.setState({
+      contacts: [{ ...AMI, avatar_decoration: hostile, profile_effect: hostile }],
+    });
+    openFor('ami-pk');
+    const { container } = render(<ProfilePopover />);
+
+    expect(screen.queryByTestId('avatar-decoration')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('profile-effect')).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain(hostile);
   });
 });

@@ -6,6 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { SelfProfile } from '../../lib/api';
 import { useSession } from '../../stores/session';
 import { useUi } from '../../stores/ui';
@@ -49,6 +50,8 @@ beforeEach(() => {
     setPronouns: vi.fn(async () => {}),
     setAccentColor: vi.fn(async () => {}),
     setBannerColor: vi.fn(async () => {}),
+    setAvatarDecoration: vi.fn(async () => {}),
+    setProfileEffect: vi.fn(async () => {}),
   });
 });
 
@@ -324,5 +327,43 @@ describe('AccountTab — couleurs de profil', () => {
 
     const group = screen.getByRole('group', { name: 'Couleur de bannière' });
     expect(within(group).getByRole('button', { name: 'Aucune couleur' })).toBeDisabled();
+  });
+});
+
+describe('AccountTab — personnalisation', () => {
+  it('enregistre une décoration choisie et expose son état sélectionné', async () => {
+    const user = userEvent.setup();
+    const setAvatarDecoration = vi.fn(async () => {});
+    useSession.setState({ setAvatarDecoration });
+    render(<AccountTab />);
+
+    const group = screen.getByRole('group', { name: "Décoration d'avatar" });
+    await user.click(within(group).getByRole('button', { name: 'Éclipse' }));
+
+    expect(setAvatarDecoration).toHaveBeenCalledWith('neon_ring');
+  });
+
+  it('enregistre un effet et réaffiche les choix persistés dans l’aperçu', async () => {
+    const user = userEvent.setup();
+    const setProfileEffect = vi.fn(async () => {});
+    useSession.setState({
+      self: {
+        ...self,
+        avatar_decoration: 'aurora_ring',
+        profile_effect: 'starfield',
+      },
+      setProfileEffect,
+    });
+    render(<AccountTab />);
+
+    expect(screen.getByText('Orbite · Constellation')).toBeInTheDocument();
+    const group = screen.getByRole('group', { name: 'Effet de profil' });
+    expect(within(group).getByRole('button', { name: 'Constellation' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(within(group).getByRole('button', { name: 'Braises' }));
+
+    expect(setProfileEffect).toHaveBeenCalledWith('floating_particles');
   });
 });

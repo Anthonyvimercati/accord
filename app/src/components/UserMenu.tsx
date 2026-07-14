@@ -28,6 +28,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { OwnPresenceStatus, PresenceStatus } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { profileCardGradient, profileColorCss } from '../lib/color';
+import { effectById } from '../lib/decorations';
 import { useFriends } from '../stores/friends';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
@@ -105,6 +106,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
   const accentHex = profileColorCss(self.accent_color);
   // Même fond thématisé que ProfilePopover (teinte bannière, repli accent).
   const cardGradient = profileCardGradient(self.banner_color ?? self.accent_color);
+  const effect = effectById(self.profile_effect);
   // Snippet compact façon ProfilePopover : statut personnalisé en priorité,
   // repli sur la bio tant qu'aucun statut personnalisé n'est défini.
   const snippet = (ownStatusText ?? '') !== '' ? ownStatusText : self.bio;
@@ -188,51 +190,60 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
       onKeyDown={onKeyDown}
       className="glass-strong context-menu-enter absolute bottom-[calc(100%+8px)] left-2 z-50 w-[300px] overflow-hidden rounded-lg focus:outline-none"
     >
-      {/* Mini carte de profil — voir la note de chevauchement en tête de fichier. */}
-      <ProfileBanner
-        hash={self.banner}
-        hint={self.pubkey}
-        color={self.banner_color}
-        heightClassName="h-14"
-      />
-      <div
-        className="-mt-7 px-3 pb-3"
-        style={cardGradient !== null ? { backgroundImage: cardGradient } : undefined}
-      >
-        <div className="relative z-10 mb-1.5 inline-flex rounded-full ring-4 ring-modal">
-          <Avatar
-            id={self.pubkey}
-            name={displayName}
-            size={56}
-            avatarHash={self.avatar}
-            hint={self.pubkey}
+      <div className="profile-card-canvas overflow-hidden">
+        {effect?.render()}
+        {cardGradient !== null && (
+          <span
+            aria-hidden
+            className="profile-card-tint"
+            style={{ backgroundImage: cardGradient }}
           />
-        </div>
-        <div
-          className="truncate text-base font-semibold text-header"
-          style={accentHex !== null ? { color: accentHex } : undefined}
-        >
-          {displayName}
-        </div>
-        {self.pronouns !== null && self.pronouns !== '' && (
-          <p className="truncate text-xs text-muted">{self.pronouns}</p>
         )}
-        {snippet !== null && snippet !== '' && (
-          <p className="mt-0.5 truncate text-xs text-muted">{snippet}</p>
-        )}
-        <div className="mt-1 flex items-center gap-1.5">
-          <span className="selectable truncate font-mono text-xs text-faint">
-            {self.friend_code}
-          </span>
-          <button
-            type="button"
-            aria-label={t.profil.copyFriendCode}
-            title={t.profil.copyFriendCode}
-            onClick={copyFriendCode}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-modal active:scale-95"
-          >
-            <CopyMenuIcon />
-          </button>
+        <div className="profile-card-content">
+          <ProfileBanner
+            hash={self.banner}
+            hint={self.pubkey}
+            color={self.banner_color}
+            heightClassName="h-14"
+          />
+          <div className="-mt-7 px-3 pb-3">
+            <div className="relative z-10 mb-1.5 inline-flex rounded-full bg-modal p-1 shadow-2">
+              <Avatar
+                id={self.pubkey}
+                name={displayName}
+                size={56}
+                avatarHash={self.avatar}
+                hint={self.pubkey}
+                decoration={self.avatar_decoration}
+              />
+            </div>
+            <div
+              className="truncate text-base font-semibold text-header"
+              style={accentHex !== null ? { color: accentHex } : undefined}
+            >
+              {displayName}
+            </div>
+            {self.pronouns !== null && self.pronouns !== '' && (
+              <p className="truncate text-xs text-muted">{self.pronouns}</p>
+            )}
+            {snippet !== null && snippet !== '' && (
+              <p className="mt-0.5 truncate text-xs text-muted">{snippet}</p>
+            )}
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="selectable truncate font-mono text-xs text-faint">
+                {self.friend_code}
+              </span>
+              <button
+                type="button"
+                aria-label={t.profil.copyFriendCode}
+                title={t.profil.copyFriendCode}
+                onClick={copyFriendCode}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-modal active:scale-95"
+              >
+                <CopyMenuIcon />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
