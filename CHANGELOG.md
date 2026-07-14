@@ -2,6 +2,15 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.5] — 2026-07-14
+
+### Changed
+
+- Redesigned **profile / account panel** (the user card from the bottom-left
+  user menu): Discord-style banner, avatar decoration, presence and custom
+  status with quick status management, bio, copyable identifier and actions.
+  Responsive, verified in light and dark themes.
+
 ## [1.2.4] — 2026-07-14
 
 ### Added
