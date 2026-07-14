@@ -221,8 +221,7 @@ export const fr = {
     eventInterestedAction: 'Ça m’intéresse',
     eventStartedToast: 'L’événement {title} commence.',
     // Sondages.
-    pollMenuFile: 'Fichier',
-    pollMenuPoll: 'Sondage',
+    pollNew: 'Créer un sondage',
     pollCreateTitle: 'Nouveau sondage',
     pollQuestionLabel: 'Question',
     pollQuestionPlaceholder: 'Poser une question…',
@@ -295,6 +294,13 @@ export const fr = {
     invalid: 'Ce lien d’invitation est invalide (accord://invite/…).',
     failed: 'Impossible de rejoindre ce serveur. Le lien est peut-être expiré ou épuisé.',
     joined: 'Vous avez rejoint {name} !',
+  },
+  inviteEmbed: {
+    label: 'Invitation à un serveur',
+    join: 'Rejoindre',
+    open: 'Ouvrir',
+    joined: 'Vous avez rejoint {name} !',
+    failed: 'Impossible de rejoindre ce serveur. Le lien est peut-être expiré ou épuisé.',
   },
   serveur: {
     settingsTitle: 'Paramètres du serveur',
@@ -409,6 +415,8 @@ export const fr = {
     pin: 'Épingler',
     unpin: 'Désépingler',
     noPins: 'Aucun message épinglé dans ce salon.',
+    pinSticker: 'Autocollant épinglé',
+    pinPoll: 'Sondage épinglé',
     pinsNotLoaded: '{count} épinglé(s) hors de l’historique chargé',
     // Émojis.
     emojiTitle: 'Ajouter un émoji',
@@ -845,6 +853,14 @@ export const fr = {
       'La fenêtre se cache au lieu de quitter Accord ; utilisez « Quitter » dans le menu de l’icône pour fermer réellement.',
     systemCloseToTrayDisabledHint:
       'Activez d’abord « Garder Accord dans la barre des menus/systray ».',
+    // Autorisations système (notifications, micro).
+    systemPermsTitle: 'Autorisations',
+    systemPermsHint:
+      'Re-sollicite les autorisations système utilisées par Accord (notifications, micro) si vous en avez refusé une par erreur.',
+    systemPermsButton: 'Redemander les autorisations',
+    systemPermsRequested: 'Demandes d’autorisation envoyées.',
+    systemPermsHintDenied:
+      'Si une autorisation a déjà été refusée, activez-la pour Accord dans les réglages système.',
     // Zone de danger (déconnexion).
     dangerZoneTitle: 'Zone de danger',
     logout: 'Se déconnecter',
@@ -883,10 +899,10 @@ export const fr = {
     retirerPiece: 'Retirer {name}',
     publication: 'Publication des pièces jointes…',
     tropDeFichiers: '10 pièces jointes au maximum par message',
-    tropVolumineux: '« {name} » dépasse la limite de 8 Mio',
+    tropVolumineux:
+      '« {name} » est trop lourd pour le glisser-déposer — utilisez le bouton de pièce jointe (trombone) pour les gros fichiers',
     apercuTropVolumineux: 'Trop volumineux pour l’aperçu',
     telecharger: 'Télécharger {name}',
-    telechargementImpossible: 'Téléchargement impossible : au-delà de la limite de 8 Mio',
     telechargementEchoue: 'Téléchargement du fichier impossible',
     enTelechargement: 'Téléchargement… {pct} %',
     imageIndisponible: 'Image indisponible',

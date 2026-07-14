@@ -14,3 +14,9 @@ export const INVITE_LINK_PREFIX = 'accord://invite/';
 export function isInviteLink(code: string): boolean {
   return code.startsWith(INVITE_LINK_PREFIX) && code.length > INVITE_LINK_PREFIX.length;
 }
+
+/** Repère le premier lien d'invitation dans un texte libre (ou `null`). */
+export function extractInviteLink(text: string): string | null {
+  const found = text.match(/accord:\/\/invite\/[A-Za-z0-9_-]+/);
+  return found !== null ? found[0] : null;
+}

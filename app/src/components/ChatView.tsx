@@ -35,6 +35,7 @@ import {
   MEMBERS_WIDTH_MIN,
   MEMBERS_WIDTH_MAX,
 } from '../stores/ui';
+import { AttachmentRow } from './Attachments';
 import { Avatar } from './Avatar';
 import {
   CloseIcon,
@@ -797,10 +798,23 @@ function PinnedPanel({
                 {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
               </span>
             </div>
-            <div className="break-words text-sm text-norm">
-              {m.edited ?? (m.body.type === 'text' ? m.body.text : t.dm.unsupported)}
-            </div>
+            {(m.edited ?? (m.body.type === 'text' ? m.body.text : '')) !== '' && (
+              <div className="break-words text-sm text-norm">
+                {m.edited ?? (m.body.type === 'text' ? m.body.text : '')}
+              </div>
+            )}
+            {m.body.type === 'sticker' && (
+              <div className="text-sm italic text-muted">{t.serveur.pinSticker}</div>
+            )}
+            {m.body.type === 'poll' && (
+              <div className="text-sm italic text-muted">{t.serveur.pinPoll}</div>
+            )}
           </button>
+          {(m.attachments?.length ?? 0) > 0 && (
+            <div className="mt-1">
+              <AttachmentRow pieces={m.attachments ?? []} hint={m.author} />
+            </div>
+          )}
           {canUnpin && (
             <button
               type="button"

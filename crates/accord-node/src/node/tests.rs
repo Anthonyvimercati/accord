@@ -763,7 +763,16 @@ fn stale_pending_redeem_membership_is_purged_after_ttl() {
     // Lien bien formé pointant vers un groupe que Bob ne rejoindra jamais
     // (inviteur mort/hors ligne) : le rachat pose une appartenance `Accepted`
     // fantôme, sans op-log qui la matérialiserait.
-    let code = encode_invite_link(&gid, &[0x11; 16], &[0x22; 32], &inviter, "Fantome");
+    let code = encode_invite_link(
+        &gid,
+        &[0x11; 16],
+        &[0x22; 32],
+        &inviter,
+        "Fantome",
+        None,
+        None,
+        None,
+    );
     bob.group_invite_link_redeem(&code).unwrap();
     assert_eq!(
         bob.with_db(|db| Ok(db.group_membership(&gid)?)).unwrap(),
@@ -1128,8 +1137,11 @@ fn group_mention_records_inbox_entry_and_purges_on_delete() {
     assert_eq!(inbox[0].msg_id, mid);
     assert_eq!(inbox[0].author, bob_pub);
 
-    // L'émetteur ne se mentionne pas lui-même (message composé localement).
-    assert!(!bob.msg_mentions_me(&mid).unwrap());
+    // L'émetteur se mentionne désormais lui-même : `@everyone` le vise aussi
+    // et le chemin d'envoi local enregistre la mention (corrige `mentions_me`
+    // qui restait faux pour nos propres messages de salon).
+    assert!(bob.msg_mentions_me(&mid).unwrap());
+    assert_eq!(bob.group_mention_count(&gid).unwrap(), 1);
 
     // Un message ordinaire n'ajoute pas d'entrée.
     let plain =
@@ -1142,6 +1154,34 @@ fn group_mention_records_inbox_entry_and_purges_on_delete() {
     alice.group_delete_msg(&gid, &chan, &mid).unwrap();
     assert!(!alice.msg_mentions_me(&mid).unwrap());
     assert_eq!(alice.group_mention_count(&gid).unwrap(), 0);
+}
+
+/// Régression Task 2 : mentionner SON PROPRE pseudo dans un salon signale
+/// `mentions_me` sur le message composé localement (le chemin d'envoi
+/// enregistre la mention au même titre que le chemin entrant).
+#[test]
+fn self_name_mention_in_group_flags_mentions_me_on_local_send() {
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+    bob.profile_set_name("Bob").unwrap();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
+
+    // Bob se mentionne lui-même : le message local porte `mentions_me = true`.
+    let mid = hex::decode::<16>(&bob.group_send(&gid, &chan, "note pour @Bob").unwrap()).unwrap();
+    assert!(bob.msg_mentions_me(&mid).unwrap());
+    assert_eq!(bob.group_mention_count(&gid).unwrap(), 1);
+
+    // Un message sans son pseudo n'ajoute rien.
+    let plain = hex::decode::<16>(&bob.group_send(&gid, &chan, "sans arobase").unwrap()).unwrap();
+    assert!(!bob.msg_mentions_me(&plain).unwrap());
+    assert_eq!(bob.group_mention_count(&gid).unwrap(), 1);
 }
 
 // ---- Consentement d'invitation (D-045) : régression du force-join ----

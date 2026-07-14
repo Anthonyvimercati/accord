@@ -178,7 +178,20 @@ export function ProfilePopover() {
       if (e.key === 'Escape') closeProfile();
     };
     const onDown = (e: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) closeProfile();
+      if (ref.current !== null && ref.current.contains(e.target as Node)) return;
+      // Re-clic sur le déclencheur : ignoré ici pour que son onClick bascule
+      // (referme) la carte au lieu que ce mousedown la referme puis que le
+      // clic la rouvre (scintillement).
+      const a = profile.ancre;
+      if (
+        e.clientX >= a.left &&
+        e.clientX <= a.right &&
+        e.clientY >= a.top &&
+        e.clientY <= a.bottom
+      ) {
+        return;
+      }
+      closeProfile();
     };
     window.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onDown);

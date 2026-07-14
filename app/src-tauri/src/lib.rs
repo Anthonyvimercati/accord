@@ -44,6 +44,11 @@ pub fn executer() -> ExitCode {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        // Sélecteur de fichiers natif : ouverture pour joindre un fichier par
+        // chemin (`files.share`, jusqu'à 2 Gio) et sauvegarde pour copier un
+        // blob complet au téléchargement (`files.save`). Pilotage côté webview
+        // via @tauri-apps/plugin-dialog.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Répertoire de données par plateforme (ex. ~/Library/Application
             // Support/fr.accord.desktop) : racine du registre multi-comptes

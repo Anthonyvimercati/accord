@@ -207,7 +207,9 @@ impl Db {
                 Ok((cid, n))
             })?
             .collect::<Result<Vec<_>, _>>()?;
-        rows.into_iter().map(|(cid, n)| Ok((blob(cid)?, n))).collect()
+        rows.into_iter()
+            .map(|(cid, n)| Ok((blob(cid)?, n)))
+            .collect()
     }
 
     /// Marque lues les mentions non lues d'un salon de groupe (à l'ouverture du

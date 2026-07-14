@@ -18,6 +18,7 @@ export function JoinServerForm() {
   const t = useT();
   const toast = useUi((s) => s.toast);
   const closeModal = useUi((s) => s.closeModal);
+  const setView = useUi((s) => s.setView);
   const loadList = useGroups((s) => s.loadList);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,6 +39,7 @@ export function JoinServerForm() {
         return;
       }
       await loadList();
+      setView({ kind: 'group', groupId: res.group_id, channelId: null });
       toast('info', interpolate(t.joinServer.joined, { name: res.group_name }));
       closeModal();
     } catch {

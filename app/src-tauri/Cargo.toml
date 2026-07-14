@@ -24,6 +24,10 @@ tauri-plugin-notification = "2"
 # flag `localStorage` seul — l'état vient de l'OS (Registre/LaunchAgent/
 # fichier .desktop selon la plateforme).
 tauri-plugin-autostart = "2"
+# Sélecteur de fichiers natif (ouverture pour joindre par chemin, sauvegarde
+# pour télécharger un blob complet) : le chemin d'envoi/téléchargement non
+# plafonné passe par `files.share`/`files.save`, qui exigent un chemin disque.
+tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 serde_json.workspace = true

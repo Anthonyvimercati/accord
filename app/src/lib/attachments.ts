@@ -3,20 +3,19 @@
  * message, 8 Mio décodés au plus par pièce — borne `files.share_bytes` et
  * `files.read`), validation pure des ajouts et encodage base64 des octets.
  *
- * La borne des 8 Mio est le VRAI plafond du chemin d'envoi disponible :
- * l'UI ne dispose que d'octets (objets `File`), publiés via `files.share_bytes`
- * (8 Mio décodés). Le chemin `files.share` monte à 2 Gio mais exige un chemin
- * disque, donc un sélecteur natif Tauri (plugin dialog) et une enveloppe
- * `api.filesShare` — non câblés (aucune dépendance ajoutée dans cette vague).
- * Tant qu'ils manquent, dépasser 8 Mio produirait un envoi voué à l'échec ;
- * la borne reste donc appliquée et le message d'erreur la mentionne clairement.
- * Suivi : câbler le sélecteur de fichier natif + `files.share` (voir SPEC.md).
+ * La borne des 8 Mio ne gouverne plus QUE les entrées en mémoire (objets
+ * `File` du glisser-déposer et du collage), publiées via `files.share_bytes`
+ * (8 Mio décodés). Le bouton de pièce jointe passe désormais par le sélecteur
+ * natif Tauri (plugin dialog) et `api.filesShare` (chemin disque, jusqu'à
+ * 2 Gio) : ce chemin n'est PAS plafonné. `validerAjout` et `MAX_TAILLE_PIECE`
+ * ne s'appliquent donc qu'aux `File` en mémoire (aperçu/inline), et le message
+ * d'erreur redirige les gros fichiers vers le bouton de pièce jointe.
  */
 
 /** Nombre maximal de pièces jointes par message (contrat dm/groups.send). */
 export const MAX_PIECES = 10;
 
-/** Taille maximale d'une pièce (8 Mio, borne files.share_bytes/files.read). */
+/** Taille maximale d'une pièce en mémoire (8 Mio, borne files.share_bytes/files.read). */
 export const MAX_TAILLE_PIECE = 8 * 1024 * 1024;
 
 /** Vrai si le type MIME désigne une image (vignette possible). */

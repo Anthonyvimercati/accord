@@ -1449,6 +1449,28 @@ export class Api {
     return this.rpc.call('files.share_bytes', { name, mime, data_b64: dataB64 });
   }
 
+  /**
+   * Publie un fichier du disque par son chemin (`files.share`, jusqu'à 2 Gio) et
+   * rend sa référence de pièce jointe — chemin obtenu via le sélecteur natif
+   * Tauri (plugin dialog). Chemin d'envoi non plafonné, contrairement à
+   * `files.share_bytes` (8 Mio décodés).
+   */
+  async filesShare(path: string): Promise<FileAttachment> {
+    const { file } = await this.rpc.call<{ file: FileAttachment }>('files.share', {
+      path,
+    });
+    return file;
+  }
+
+  /**
+   * Copie le blob complet d'un fichier vers `path` (`files.save`, sans
+   * plafond de taille). Le nœud rend une erreur `NotFound` si le contenu
+   * n'est pas encore complet en local (déclencher d'abord son téléchargement).
+   */
+  async filesSave(merkleRoot: string, path: string): Promise<void> {
+    await this.rpc.call('files.save', { merkle_root: merkleRoot, path });
+  }
+
   /** État local d'un fichier (manifeste connu, progression en blocs). */
   filesStatus(merkleRoot: string, hint?: string): Promise<FilesStatusResult> {
     return this.rpc.call('files.status', {
@@ -1604,6 +1626,23 @@ export class Api {
     code: string,
   ): Promise<{ ok: boolean; group_id: string; group_name: string }> {
     return this.rpc.call('groups.invite_link_redeem', { code });
+  }
+
+  /**
+   * Décode un lien d'invitation SANS le consommer ni rien télécharger : rend
+   * les métadonnées du serveur (nom, icône, bannière, couleur) pour l'aperçu
+   * riche affiché sous un message. Le nœud reste l'autorité de décodage.
+   */
+  groupsInviteLinkInfo(link: string): Promise<{
+    group_id: string;
+    invite_id: string;
+    inviter: string;
+    group_name: string;
+    icon: string | null;
+    banner: string | null;
+    banner_color: number | null;
+  }> {
+    return this.rpc.call('groups.invite_link_info', { link });
   }
 
   /** Invitations entrantes en attente (reçues, ni acceptées ni refusées). */

@@ -3,19 +3,72 @@
  * `audio/*`, toujours rendu ainsi — indépendant du réglage aperçu, voir
  * `VoiceMessagePlayer`), vignette inline pour les images (progression du
  * téléchargement via event.file_progress/files.status, clic = plein écran),
- * carte de fichier téléchargeable sinon. Au-delà de 8 Mio (borne
- * `files.read`), ni aperçu/lecture ni téléchargement — carte avec explication.
+ * carte de fichier téléchargeable sinon. Au-delà de 8 Mio (borne `files.read`),
+ * l'aperçu/lecture inline se rabat sur la carte de fichier, mais le
+ * téléchargement reste possible : le blob complet est copié via `files.save`
+ * (sélecteur natif Tauri, sans plafond), avec indicateur de progression.
  */
 
 import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { FileAttachment } from '../lib/api';
 import { estAudio, estImage, MAX_TAILLE_PIECE } from '../lib/attachments';
-import { lireFichier, observerProgression, statutFichier } from '../lib/files';
+import { isTauri } from '../lib/bridge';
+import { api } from '../lib/client';
+import {
+  FILE_WAIT_TIMEOUT_MS,
+  lireFichier,
+  observerProgression,
+  statutFichier,
+} from '../lib/files';
 import { tailleLisible } from '../lib/format';
 import { useUi, useT } from '../stores/ui';
 import { CloseIcon } from './ContextMenu';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
+
+/**
+ * Déclenche puis attend le téléchargement COMPLET d'un blob (sans plafond :
+ * `media` non posé, contrairement à `lireFichier`) avant une copie par
+ * `files.save`. Résout à l'événement `complete: true`, ou tout de suite si le
+ * nœud rend déjà les octets (blob complet en local). Un délai d'inactivité
+ * glissant borne l'attente pour ne pas figer le bouton si le flux stagne.
+ */
+function attendreTelechargementComplet(merkleRoot: string, hint?: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let off: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    const finish = (err: Error | null): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      if (off !== null) off();
+      if (err === null) resolve();
+      else reject(err);
+    };
+    const arm = (): void => {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(
+        () => finish(new Error('téléchargement du fichier interrompu')),
+        FILE_WAIT_TIMEOUT_MS,
+      );
+    };
+    off = observerProgression(merkleRoot, (_done, _total, complete) => {
+      if (complete) finish(null);
+      else arm();
+    });
+    // `media` non posé : télécharge le blob COMPLET (aucun plafond 8 Mio).
+    api
+      .filesRead(merkleRoot, hint)
+      .then((r) => {
+        if (r.pending !== true) finish(null);
+      })
+      .catch((e: unknown) =>
+        finish(e instanceof Error ? e : new Error('lecture du fichier impossible')),
+      );
+    arm();
+  });
+}
 
 /** Plein écran très simple : clic n'importe où ou Échap pour fermer. */
 function Lightbox({
@@ -41,13 +94,13 @@ function Lightbox({
     <div
       role="dialog"
       aria-label={name}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-8"
+      className="lightbox-enter fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-8"
       onClick={onClose}
     >
       <img
         src={url}
         alt={name}
-        className="max-h-full max-w-full rounded-lg object-contain"
+        className="lightbox-image-enter max-h-full max-w-full rounded-lg object-contain"
       />
       <button
         type="button"
@@ -164,8 +217,13 @@ function VignetteImage({
 }
 
 /**
- * Carte de fichier : icône, nom, taille lisible et bouton de téléchargement
- * (`lireFichier` → lien `download`) — désactivé au-delà de 8 Mio.
+ * Carte de fichier : icône, nom, taille lisible et bouton de téléchargement.
+ * Petits fichiers (≤ 8 Mio) : lecture en ligne (`lireFichier`) puis lien
+ * `download` (fonctionne partout, build navigateur inclus). Gros fichiers
+ * (> 8 Mio) : sélecteur natif Tauri (`save`) puis copie du blob complet via
+ * `files.save` (sans plafond) ; si le contenu n'est pas encore complet en
+ * local, le téléchargement est d'abord déclenché et attendu. Un indicateur de
+ * progression remplace l'icône pendant l'opération (`aria-busy`, `role=status`).
  */
 function CarteFichier({
   piece,
@@ -180,23 +238,72 @@ function CarteFichier({
   const lang = useUi((s) => s.lang);
   const toast = useUi((s) => s.toast);
   const [occupe, setOccupe] = useState(false);
-  const tropGros = piece.size > MAX_TAILLE_PIECE;
+  const [progression, setProgression] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+
+  // Progression affichée tant que le téléchargement est en cours : même source
+  // que la vignette d'image (`observerProgression` + amorce `statutFichier`).
+  useEffect(() => {
+    if (!occupe) {
+      setProgression(null);
+      return;
+    }
+    const off = observerProgression(piece.merkle_root, (done, total) => {
+      setProgression({ done, total });
+    });
+    statutFichier(piece.merkle_root, hint)
+      .then((statut) => {
+        if (!statut.complete && statut.total > 0) {
+          setProgression((p) => p ?? { done: statut.done, total: statut.total });
+        }
+      })
+      .catch(() => {
+        // Sans statut, la barre démarre à zéro (spinner).
+      });
+    return () => off();
+  }, [occupe, piece.merkle_root, hint]);
 
   const telecharger = async (): Promise<void> => {
-    if (occupe || tropGros) return;
+    if (occupe) return;
     setOccupe(true);
     try {
-      const url = await lireFichier(piece.merkle_root, hint);
-      const lien = document.createElement('a');
-      lien.href = url;
-      lien.download = piece.name;
-      lien.click();
+      if (piece.size <= MAX_TAILLE_PIECE) {
+        // Petit fichier : lecture en ligne + lien `download` (partout).
+        const url = await lireFichier(piece.merkle_root, hint);
+        const lien = document.createElement('a');
+        lien.href = url;
+        lien.download = piece.name;
+        lien.click();
+        return;
+      }
+      // Gros fichier : chemin natif obligatoire (copie du blob complet).
+      if (!isTauri()) {
+        toast('error', t.fichiers.telechargementEchoue);
+        return;
+      }
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const dest = await save({ defaultPath: piece.name });
+      if (dest === null) return; // Sélecteur annulé : rien à signaler.
+      try {
+        await api.filesSave(piece.merkle_root, dest);
+      } catch {
+        // Blob pas encore complet en local (`files.save` → NotFound) : on
+        // déclenche puis attend le téléchargement, et on réessaie une fois.
+        await attendreTelechargementComplet(piece.merkle_root, hint);
+        await api.filesSave(piece.merkle_root, dest);
+      }
     } catch {
       toast('error', t.fichiers.telechargementEchoue);
     } finally {
       setOccupe(false);
     }
   };
+
+  const pct =
+    progression !== null && progression.total > 0
+      ? Math.min(100, Math.round((progression.done / progression.total) * 100))
+      : 0;
 
   return (
     <div className="flex w-full max-w-md items-center gap-3 rounded-lg border border-rail bg-sidebar px-3 py-2">
@@ -223,37 +330,67 @@ function CarteFichier({
           {tailleLisible(piece.size, lang)}
           {mention !== undefined && ` — ${mention}`}
         </div>
-        {tropGros && (
-          <div className="text-xs text-faint">{t.fichiers.telechargementImpossible}</div>
-        )}
       </div>
       <button
         type="button"
         aria-label={interpolate(t.fichiers.telecharger, { name: piece.name })}
-        title={
-          tropGros
-            ? t.fichiers.telechargementImpossible
-            : interpolate(t.fichiers.telecharger, { name: piece.name })
-        }
-        disabled={tropGros || occupe}
+        title={interpolate(t.fichiers.telecharger, { name: piece.name })}
+        aria-busy={occupe}
+        disabled={occupe}
         onClick={() => void telecharger()}
-        className="rounded-md p-1.5 text-muted transition-colors enabled:hover:bg-chat-hover enabled:hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+        className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-muted transition-colors enabled:hover:bg-chat-hover enabled:hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-70"
       >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" x2="12" y1="15" y2="3" />
-        </svg>
+        {occupe ? (
+          <span
+            role="status"
+            aria-label={interpolate(t.fichiers.enTelechargement, { pct: String(pct) })}
+            className="flex items-center justify-center text-[10px] font-semibold tabular-nums text-muted"
+          >
+            {pct > 0 ? (
+              `${pct}%`
+            ) : (
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden
+                className="animate-spin"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                  className="opacity-25"
+                />
+                <path
+                  d="M22 12a10 10 0 0 1-10 10"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+          </span>
+        ) : (
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" x2="12" y1="15" y2="3" />
+          </svg>
+        )}
       </button>
     </div>
   );

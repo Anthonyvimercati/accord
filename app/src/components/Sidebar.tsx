@@ -862,6 +862,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
             type="button"
             aria-haspopup="menu"
             aria-expanded={serverMenuOpen}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setServerMenuOpen((open) => !open)}
             className={`flex min-w-0 flex-1 items-center gap-1 rounded-md py-0.5 pr-1 text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
               hasBanner ? 'hover:bg-white/10' : 'hover:bg-chat-hover'

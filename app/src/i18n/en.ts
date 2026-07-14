@@ -221,8 +221,7 @@ export const en: Dict = {
     eventInterestedAction: 'I’m interested',
     eventStartedToast: 'The event {title} is starting.',
     // Polls.
-    pollMenuFile: 'File',
-    pollMenuPoll: 'Poll',
+    pollNew: 'Create a poll',
     pollCreateTitle: 'New poll',
     pollQuestionLabel: 'Question',
     pollQuestionPlaceholder: 'Ask a question…',
@@ -295,6 +294,13 @@ export const en: Dict = {
     invalid: 'This invite link is invalid (accord://invite/…).',
     failed: 'Could not join this server. The link may be expired or used up.',
     joined: 'You joined {name}!',
+  },
+  inviteEmbed: {
+    label: 'Server invitation',
+    join: 'Join',
+    open: 'Open',
+    joined: 'You joined {name}!',
+    failed: 'Could not join this server. The link may be expired or used up.',
   },
   serveur: {
     settingsTitle: 'Server settings',
@@ -409,6 +415,8 @@ export const en: Dict = {
     unpin: 'Unpin',
     noPins: 'No pinned message in this channel.',
     pinsNotLoaded: '{count} pinned message(s) outside the loaded history',
+    pinSticker: 'Pinned sticker',
+    pinPoll: 'Pinned poll',
     // Emojis.
     emojiTitle: 'Add an emoji',
     emojiHint:
@@ -834,6 +842,14 @@ export const en: Dict = {
     systemCloseToTrayHint:
       'The window hides instead of quitting Accord; use "Quit" in the icon menu to actually close it.',
     systemCloseToTrayDisabledHint: 'First enable "Keep Accord in the menu bar/systray".',
+    // System permissions (notifications, microphone).
+    systemPermsTitle: 'Permissions',
+    systemPermsHint:
+      'Re-request the system permissions Accord uses (notifications, microphone) if you denied one by mistake.',
+    systemPermsButton: 'Re-request permissions',
+    systemPermsRequested: 'Permission requests sent.',
+    systemPermsHintDenied:
+      'If a permission was already denied, enable it for Accord in your system settings.',
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logout: 'Log out',
@@ -871,10 +887,10 @@ export const en: Dict = {
     retirerPiece: 'Remove {name}',
     publication: 'Publishing attachments…',
     tropDeFichiers: 'At most 10 attachments per message',
-    tropVolumineux: '“{name}” exceeds the 8 MiB limit',
+    tropVolumineux:
+      '“{name}” is too large to drop here — use the attach button (paperclip) to send large files',
     apercuTropVolumineux: 'Too large to preview',
     telecharger: 'Download {name}',
-    telechargementImpossible: 'Download unavailable: beyond the 8 MiB limit',
     telechargementEchoue: 'Failed to download the file',
     enTelechargement: 'Downloading… {pct}%',
     imageIndisponible: 'Image unavailable',

@@ -1567,15 +1567,37 @@ impl Node {
                 now_ms(),
             )?)
         })?;
-        let msg_id = match &msg {
-            CoreMsg::GroupMsg { msg_id, .. } => hex::encode(msg_id),
+        let (msg_id, lamport, sent_ms) = match &msg {
+            CoreMsg::GroupMsg {
+                msg_id,
+                lamport,
+                sent_ms,
+                ..
+            } => (*msg_id, *lamport, *sent_ms),
             _ => unreachable!("compose_group_message produit un GroupMsg"),
         };
+        // Mention de soi-même : le chemin d'envoi local doit enregistrer la
+        // mention exactement comme le chemin entrant (`CoreMsg::GroupMsg`,
+        // node/mod.rs), sinon `mentions_me` resterait faux pour nos propres
+        // messages. `detect` est indépendant de l'auteur, `insert_mention` est
+        // idempotent par `msg_id` (aucun double-comptage si le message nous
+        // revient par écho). Enregistré AVANT toute diffusion pour qu'une
+        // lecture `groups.history` reflète déjà `mentions_me = true`.
+        let _ = self
+            .record_group_mention(
+                group_id,
+                channel_id,
+                &msg_id,
+                &self.public_key(),
+                sent_ms,
+                lamport,
+            )
+            .unwrap_or(false);
         self.outbound.send(Outbound::GroupCast {
             group_id: *group_id,
             msg: Box::new(msg),
         });
-        Ok(msg_id)
+        Ok(hex::encode(&msg_id))
     }
 
     /// Édite un de nos messages de groupe (auteur seul) puis diffuse
@@ -1830,10 +1852,10 @@ impl Node {
         max_uses: u32,
         expires_h: Option<u64>,
     ) -> Result<String, NodeError> {
-        let group_name = self.group_state(group_id)?.name;
+        let state = self.group_state(group_id)?;
         // Même défense en profondeur que `group_invite_create` (MEDIUM-1) :
         // jamais de code portant un nom de groupe usurpateur.
-        if !accord_core::group::state::is_valid_display_label(&group_name, MAX_LABEL_CHARS) {
+        if !accord_core::group::state::is_valid_display_label(&state.name, MAX_LABEL_CHARS) {
             return Err(NodeError::Invalid(
                 "nom de groupe invalide pour un lien d'invitation",
             ));
@@ -1857,12 +1879,17 @@ impl Node {
             op: Box::new(authored.op),
         });
         self.emit_group_state(group_id);
+        // v2 : le lien embarque l'icône, la bannière et la couleur courantes du
+        // serveur pour un aperçu riche AVANT adhésion (absentes → None/zéro).
         Ok(group_invite::encode_invite_link(
             group_id,
             &authored.invite_id,
             &authored.secret,
             &self.identity.public_key(),
-            &group_name,
+            &state.name,
+            state.icon,
+            state.banner,
+            state.banner_color,
         ))
     }
 
@@ -1903,6 +1930,19 @@ impl Node {
             }),
         });
         Ok((link.group_id, link.group_name))
+    }
+
+    /// Décode et valide un lien d'invitation SANS aucun effet de bord (ni
+    /// contact de l'inviteur, ni ouverture de porte locale, ni récupération de
+    /// média) : sert uniquement à prévisualiser le serveur (nom, icône,
+    /// bannière, couleur pour un lien v2) avant toute décision d'adhésion.
+    /// Rejette tout code malformé comme [`group_invite::decode_invite_link`].
+    pub fn group_invite_link_info(
+        &self,
+        code: &str,
+    ) -> Result<group_invite::InviteLink, NodeError> {
+        group_invite::decode_invite_link(code)
+            .map_err(|_| NodeError::Invalid("lien d'invitation invalide"))
     }
 
     /// Purge les appartenances locales `Accepted` fantômes issues d'un rachat
@@ -2169,7 +2209,10 @@ impl Node {
         lamport: u64,
     ) -> Result<(), NodeError> {
         self.with_db(|db| {
-            db.set_meta(&group_mark_key(group_id, channel_id), &lamport.to_be_bytes())?;
+            db.set_meta(
+                &group_mark_key(group_id, channel_id),
+                &lamport.to_be_bytes(),
+            )?;
             // Ouvrir un salon éteint ses mentions non lues (parité Discord) : le
             // compteur agrégé du serveur (`count_group_mentions`) retombe d'autant.
             db.mark_group_channel_mentions_read(group_id, channel_id)?;

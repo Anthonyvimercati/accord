@@ -22,6 +22,7 @@ import { interpolate } from '../i18n';
 import type { DeliveryState, GroupThread } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatDay, formatTimestamp, formatTimestampCompact } from '../lib/format';
+import { extractInviteLink } from '../lib/invite';
 import { isEditableTarget, useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
@@ -33,6 +34,7 @@ import { AttachmentRow } from './Attachments';
 import { Avatar } from './Avatar';
 import { BodyText } from './BodyText';
 import { ForwardPicker } from './ForwardPicker';
+import { InviteEmbed } from './InviteEmbed';
 import { MessageActions } from './MessageActions';
 import { MessageEditor } from './MessageEditor';
 import { buildMessageItems, buildUserItems, type MessageMenuDeps } from './messageMenus';
@@ -450,6 +452,10 @@ export function MessageList({
           const hasAttachments = !m.deleted && (m.attachments?.length ?? 0) > 0;
           const corpsVide = !m.deleted && hasAttachments && displayText(m) === '';
           const pollBody = !m.deleted && m.body.type === 'poll' ? m.body : null;
+          const inviteLink =
+            !m.deleted && m.body.type === 'text'
+              ? extractInviteLink(m.edited ?? m.body.text)
+              : null;
           const isOwn = self !== null && m.author === self.pubkey;
           const pinned = pinnedIds?.has(m.msg_id) ?? false;
           const delivery = deliveryOf(m);
@@ -496,7 +502,7 @@ export function MessageList({
                     : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
                 } ${highlightId === m.msg_id ? 'msg-flash' : ''} ${
                   appendedId === m.msg_id ? 'msg-append' : ''
-                } ${m.mentions_me && !isOwn ? 'msg-mention' : ''} ${
+                } ${m.mentions_me ? 'msg-mention' : ''} ${
                   isSelected ? 'bg-blurple/10' : ''
                 }`}
                 onContextMenu={(e) => {
@@ -695,6 +701,7 @@ export function MessageList({
                   {hasAttachments && (
                     <AttachmentRow pieces={m.attachments ?? []} hint={m.author} />
                   )}
+                  {inviteLink !== null && <InviteEmbed link={inviteLink} />}
                   {rootThread !== undefined && (
                     <button
                       type="button"

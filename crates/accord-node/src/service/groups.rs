@@ -828,6 +828,20 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 "group_name": group_name,
             }))
         }
+        // Décode-seul (aucun effet de bord) : prévisualisation riche d'un lien
+        // avant adhésion. Les racines/couleur absentes rendent `null`.
+        "groups.invite_link_info" => {
+            let link = node.group_invite_link_info(param_str(params, "link")?)?;
+            Ok(json!({
+                "group_id": hex::encode(&link.group_id),
+                "invite_id": hex::encode(&link.invite_id),
+                "inviter": hex::encode(&link.inviter),
+                "group_name": link.group_name,
+                "icon": link.icon_root.map(|h| hex::encode(&h)),
+                "banner": link.banner_root.map(|h| hex::encode(&h)),
+                "banner_color": link.banner_color,
+            }))
+        }
         "groups.invites_list" => Ok(json!({
             "invites": node
                 .group_invites_list()?

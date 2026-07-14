@@ -1,7 +1,8 @@
 /**
  * Tests des pièces jointes dans le fil de messages : vignette d'image
- * (progression puis aperçu, plein écran), carte de fichier téléchargeable,
- * refus net au-delà de 8 Mio et message sans texte (pièces seules).
+ * (progression puis aperçu, plein écran), carte de fichier téléchargeable
+ * (petit fichier via `lireFichier`, gros fichier via le sélecteur natif +
+ * `files.save`, tous deux téléchargeables) et message sans texte (pièces seules).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +15,7 @@ import { useUi } from '../stores/ui';
 import { MessageList, type DisplayMessage } from './MessageList';
 
 vi.mock('../lib/files', () => ({
+  FILE_WAIT_TIMEOUT_MS: 30_000,
   lireFichier: vi.fn(),
   statutFichier: vi.fn(async () => ({
     known: false,
@@ -24,11 +26,22 @@ vi.mock('../lib/files', () => ({
   observerProgression: vi.fn(() => () => {}),
 }));
 
+// Sélecteur natif Tauri : `open`/`save` interceptés (import statique et
+// dynamique résolvent le même mock). Le chemin gros fichier n'est emprunté
+// qu'avec `__TAURI_INTERNALS__` présent (voir le test dédié).
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: vi.fn(),
+  save: vi.fn(),
+}));
+
 import { lireFichier, observerProgression, statutFichier } from '../lib/files';
+import { save } from '@tauri-apps/plugin-dialog';
+import { api } from '../lib/client';
 
 const lireMock = lireFichier as unknown as Mock;
 const statutMock = statutFichier as unknown as Mock;
 const observerMock = observerProgression as unknown as Mock;
+const saveMock = save as unknown as Mock;
 
 const BASE_MS = new Date('2026-07-08T10:00:00').getTime();
 
@@ -141,7 +154,7 @@ describe('Pièces jointes — carte de fichier', () => {
     clickSpy.mockRestore();
   });
 
-  it('désactive le téléchargement au-delà de 8 Mio avec explication', () => {
+  it('garde le téléchargement actif au-delà de 8 Mio (plus d’avertissement 8 Mio)', () => {
     render(
       <MessageList
         messages={[
@@ -156,18 +169,48 @@ describe('Pièces jointes — carte de fichier', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Télécharger enorme.zip' })).toBeDisabled();
-    expect(
-      screen.getByText('Téléchargement impossible : au-delà de la limite de 8 Mio'),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Télécharger enorme.zip' })).toBeEnabled();
+    expect(screen.queryByText(/8 Mio/)).not.toBeInTheDocument();
   });
 
-  it('replie une image trop volumineuse en carte « trop volumineux »', () => {
+  it('télécharge un gros fichier via le sélecteur natif puis files.save (Tauri)', async () => {
+    (window as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    saveMock.mockResolvedValueOnce('/tmp/enorme.zip');
+    const saveSpy = vi.spyOn(api, 'filesSave').mockResolvedValue();
+    try {
+      render(
+        <MessageList
+          messages={[
+            message([
+              piece({
+                name: 'enorme.zip',
+                mime: 'application/zip',
+                size: MAX_TAILLE_PIECE + 1,
+              }),
+            ]),
+          ]}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Télécharger enorme.zip' }));
+
+      await waitFor(() =>
+        expect(saveSpy).toHaveBeenCalledWith('ab'.repeat(32), '/tmp/enorme.zip'),
+      );
+      expect(saveMock).toHaveBeenCalledWith({ defaultPath: 'enorme.zip' });
+    } finally {
+      saveSpy.mockRestore();
+      saveMock.mockReset();
+      delete (window as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
+    }
+  });
+
+  it('replie une image trop volumineuse en carte, téléchargement toujours actif', () => {
     render(<MessageList messages={[message([piece({ size: MAX_TAILLE_PIECE + 1 })])]} />);
 
     expect(screen.queryByAltText('photo.png')).not.toBeInTheDocument();
     expect(screen.getByText(/Trop volumineux pour l’aperçu/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Télécharger photo.png' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Télécharger photo.png' })).toBeEnabled();
   });
 });
 

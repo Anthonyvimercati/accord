@@ -9,11 +9,14 @@
 
 import { useEffect, useState } from 'react';
 import { autostartIsEnabled, autostartSetEnabled } from '../../lib/bridge';
+import { api } from '../../lib/client';
+import { requestNotificationPermission } from '../../lib/notifications';
 import { useUi, useT } from '../../stores/ui';
 import { SettingsSection, ToggleRow } from './controls';
 
 export function SystemTab() {
   const t = useT();
+  const toast = useUi((s) => s.toast);
   const keepInTray = useUi((s) => s.keepInTray);
   const setKeepInTray = useUi((s) => s.setKeepInTray);
   const closeToTray = useUi((s) => s.closeToTray);
@@ -21,6 +24,7 @@ export function SystemTab() {
 
   const [autostart, setAutostart] = useState(false);
   const [autostartBusy, setAutostartBusy] = useState(false);
+  const [permsBusy, setPermsBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +42,28 @@ export function SystemTab() {
       .then(() => autostartIsEnabled())
       .then(setAutostart)
       .finally(() => setAutostartBusy(false));
+  };
+
+  // Re-sollicite les autorisations système (notifications + micro). L'OS ne
+  // ré-affiche l'invite que si l'état est « indéterminé » ; après un refus
+  // explicite, l'utilisateur doit passer par les Réglages système — d'où le
+  // message d'indication.
+  const reRequestPermissions = (): void => {
+    setPermsBusy(true);
+    void requestNotificationPermission()
+      .then((notif) => {
+        void api.voiceMicTest(true).catch(() => undefined);
+        window.setTimeout(() => {
+          void api.voiceMicTest(false).catch(() => undefined);
+        }, 1500);
+        toast(
+          'info',
+          notif === 'granted'
+            ? t.settings.systemPermsRequested
+            : t.settings.systemPermsHintDenied,
+        );
+      })
+      .finally(() => setPermsBusy(false));
   };
 
   return (
@@ -73,6 +99,20 @@ export function SystemTab() {
           disabled={!keepInTray}
           onChange={setCloseToTray}
         />
+      </SettingsSection>
+
+      <SettingsSection
+        title={t.settings.systemPermsTitle}
+        hint={t.settings.systemPermsHint}
+      >
+        <button
+          type="button"
+          disabled={permsBusy}
+          onClick={reRequestPermissions}
+          className="rounded-md bg-blurple px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-60"
+        >
+          {t.settings.systemPermsButton}
+        </button>
       </SettingsSection>
     </div>
   );

@@ -27,6 +27,10 @@ vi.mock('../lib/client', () => ({
   rpc: { onEvent: vi.fn(() => () => {}), onStatus: vi.fn(() => () => {}) },
   api: {
     filesShareBytes: vi.fn(),
+    // Publication par chemin natif (bouton de pièce jointe sous Tauri) : non
+    // exercée ici (jsdom n'est pas Tauri → repli sur `<input type=file>`), mais
+    // présente pour que le chemin `choisirFichiers` ne casse pas au montage.
+    filesShare: vi.fn(),
     // Émis en best effort par `useTypingEmitter` dès qu'un texte non vide
     // est saisi avec un `typingTarget` — non exercé par les tests existants
     // (aucun ne tapait dans un composeur avec cible), mais nécessaire dès
@@ -146,13 +150,13 @@ describe('MessageInput — aperçus', () => {
 });
 
 describe('MessageInput — bornes', () => {
-  it('refuse un fichier au-delà de 8 Mio avec un message clair', () => {
+  it('refuse un gros fichier déposé/collé et renvoie vers le bouton de pièce jointe', () => {
     renderInput();
     const gros = new File([new ArrayBuffer(MAX_TAILLE_PIECE + 1)], 'gros.bin');
     addFiles([gros]);
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      '« gros.bin » dépasse la limite de 8 Mio',
+      '« gros.bin » est trop lourd pour le glisser-déposer — utilisez le bouton de pièce jointe (trombone) pour les gros fichiers',
     );
     expect(screen.queryByText('gros.bin')).not.toBeInTheDocument();
   });
@@ -579,8 +583,8 @@ describe('MessageInput — message vocal', () => {
   });
 });
 
-describe('MessageInput — menu du trombone (Fichier / Sondage)', () => {
-  it('en message privé, ouvre directement le sélecteur de fichiers (aucun menu, aucun sondage)', () => {
+describe('MessageInput — bouton de pièce jointe et bouton de sondage', () => {
+  it('en message privé, le trombone ouvre le sélecteur de fichiers (aucun menu)', () => {
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
     renderInput();
 
@@ -591,24 +595,13 @@ describe('MessageInput — menu du trombone (Fichier / Sondage)', () => {
     clickSpy.mockRestore();
   });
 
-  it('en salon de groupe, révèle un menu « Fichier » / « Sondage »', () => {
-    seedComposer({}, 'text');
-    render(
-      <MessageInput
-        placeholder="Écrire dans #salon"
-        onSend={vi.fn()}
-        groupId="g1"
-        typingTarget={GROUP_TARGET}
-      />,
-    );
+  it('aucun bouton de sondage en message privé (D-048)', () => {
+    renderInput();
 
-    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
-
-    const items = useContextMenu.getState().menu?.items ?? [];
-    expect(items.map((item) => item.label)).toEqual(['Fichier', 'Sondage']);
+    expect(screen.queryByLabelText('Créer un sondage')).not.toBeInTheDocument();
   });
 
-  it('« Fichier » du menu ouvre le sélecteur de fichiers', () => {
+  it('en salon de groupe, le trombone ouvre le sélecteur (aucun menu contextuel)', () => {
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
     seedComposer({}, 'text');
     render(
@@ -619,16 +612,15 @@ describe('MessageInput — menu du trombone (Fichier / Sondage)', () => {
         typingTarget={GROUP_TARGET}
       />,
     );
+
     fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
 
-    const fileItem = useContextMenu.getState().menu?.items.find((i) => i.label === 'Fichier');
-    fileItem?.onClick();
-
     expect(clickSpy).toHaveBeenCalled();
+    expect(useContextMenu.getState().menu).toBeNull();
     clickSpy.mockRestore();
   });
 
-  it('« Sondage » du menu ouvre la modale de création réservée au salon courant', () => {
+  it('un bouton de sondage dédié ouvre la modale de création du salon courant', () => {
     seedComposer({}, 'text');
     render(
       <MessageInput
@@ -638,10 +630,8 @@ describe('MessageInput — menu du trombone (Fichier / Sondage)', () => {
         typingTarget={GROUP_TARGET}
       />,
     );
-    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
 
-    const pollItem = useContextMenu.getState().menu?.items.find((i) => i.label === 'Sondage');
-    pollItem?.onClick();
+    fireEvent.click(screen.getByLabelText('Créer un sondage'));
 
     expect(useUi.getState().modal).toEqual({
       kind: 'createPoll',

@@ -2,6 +2,36 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.0] — 2026-07-14
+
+### Added
+
+- Share files of any size: the attach button now uses a native file picker and
+  peer-to-peer transfer, lifting the old 8 MiB upload ceiling.
+- Downloads show live progress, and large files are saved through a native
+  "Save as…" dialog.
+- Settings → System has a button to re-request system permissions
+  (notifications, microphone) if one was denied by mistake.
+- Rich invite embeds: an `accord://invite/…` link posted in a message renders a
+  Discord-style card with the server's name, icon and banner and a one-click
+  Join button.
+
+### Fixed
+
+- Pinned images, files and voice messages are now visible in the pinned panel
+  (previously blank).
+- Clicking your own profile or a server's menu a second time now just closes it,
+  instead of flickering closed-then-open.
+- Self-mentions (`@you`) in a server channel are now highlighted like any other
+  mention.
+- Joining a server from an invite link is discoverable and reliable.
+
+### Changed
+
+- Smoother motion throughout, including a fade-and-zoom when opening an image
+  full-screen.
+- Poll creation moved out of the attachment menu into its own composer action.
+
 ## [1.1.0] — 2026-07-14
 
 ### Added

@@ -268,12 +268,25 @@ pub const INVITE_LINK_PREFIX: &str = "accord://invite/";
 /// l'encodage sur une frontière de caractère).
 pub const MAX_LINK_NAME_BYTES: usize = 48;
 
-/// Version courante du format binaire d'un lien d'invitation.
-const INVITE_LINK_VERSION: u8 = 1;
+/// Versions du format binaire d'un lien d'invitation. v1 = tête ‖ nom ‖
+/// somme de contrôle ; v2 = v1 augmentée d'un bloc icône/bannière/couleur
+/// inséré entre le nom et la somme de contrôle. Rétrocompatible : le décodage
+/// discrimine le découpage du payload d'après l'octet de version.
+const INVITE_LINK_VERSION_V1: u8 = 1;
+const INVITE_LINK_VERSION_V2: u8 = 2;
 
-/// Taille des champs fixes du payload : version ‖ group_id ‖ invite_id ‖
-/// secret ‖ inviter.
+/// Version émise à l'encodage (toujours la plus récente).
+const INVITE_LINK_VERSION: u8 = INVITE_LINK_VERSION_V2;
+
+/// Taille des champs fixes de tête du payload : version ‖ group_id ‖
+/// invite_id ‖ secret ‖ inviter. Commune aux deux versions ; le nom de groupe
+/// (variable) suit immédiatement.
 const INVITE_LINK_FIXED_LEN: usize = 1 + 16 + 16 + 32 + 32;
+
+/// Taille du bloc additif v2, placé APRÈS le nom variable et AVANT la somme de
+/// contrôle : icon_root(32) ‖ banner_root(32) ‖ banner_color(4, u32
+/// big-endian). Une racine toute à zéro (ou une couleur nulle) = « absente ».
+const INVITE_LINK_V2_TAIL_LEN: usize = 32 + 32 + 4;
 
 /// Taille de la somme de contrôle (préfixe SHA-256 du payload) : détecte un
 /// code corrompu ou tronqué avant tout aller-retour réseau. Ce n'est PAS une
@@ -284,8 +297,8 @@ const INVITE_LINK_CHECKSUM_LEN: usize = 4;
 /// Plafond de taille du texte encodé (base64url) accepté en entrée : une
 /// chaîne démesurée est rejetée AVANT tout décodage base64 (défense en
 /// profondeur, borne le coût CPU de l'allocation/décodage sur une entrée
-/// attaquant-contrôlée). Large devant le maximum réel (~200 octets pour le
-/// plus long nom embarqué) sans être exploitable.
+/// attaquant-contrôlée). Large devant le maximum réel (~217 octets pour un
+/// lien v2 au nom le plus long) sans être exploitable.
 const MAX_INVITE_LINK_ENCODED_LEN: usize = 512;
 
 /// Contenu décodé d'un lien d'invitation partageable.
@@ -302,6 +315,12 @@ pub struct InviteLink {
     /// Nom du groupe au moment de la création du lien (affichage avant
     /// adhésion uniquement — jamais une source d'autorité).
     pub group_name: String,
+    /// Racine Merkle de l'icône du serveur (v2), `None` si absente ou lien v1.
+    pub icon_root: Option<[u8; 32]>,
+    /// Racine Merkle de la bannière du serveur (v2), `None` si absente ou v1.
+    pub banner_root: Option<[u8; 32]>,
+    /// Couleur de bannière `0xRRGGBB` (v2), `None` si nulle ou lien v1.
+    pub banner_color: Option<u32>,
 }
 
 /// Alphabet base64 URL-safe (RFC 4648 §5), sans padding.
@@ -382,24 +401,36 @@ fn truncate_link_name(name: &str) -> &str {
     &name[..end]
 }
 
-/// Encode un lien d'invitation partageable : `accord://invite/<base64url>`
-/// où le payload est `version ‖ group_id ‖ invite_id ‖ secret ‖ inviter ‖
-/// nom (≤ 48 octets)` suivi d'une somme de contrôle de 4 octets.
+/// Encode un lien d'invitation partageable v2 :
+/// `accord://invite/<base64url>` où le payload est `version(=2) ‖ group_id ‖
+/// invite_id ‖ secret ‖ inviter ‖ nom (≤ 48 octets) ‖ icon_root(32) ‖
+/// banner_root(32) ‖ banner_color(4, u32 big-endian)` suivi d'une somme de
+/// contrôle de 4 octets. Une racine `None` est émise toute à zéro et une
+/// couleur `None` comme zéro (relues comme « absentes » au décodage).
+#[allow(clippy::too_many_arguments)]
 pub fn encode_invite_link(
     group_id: &[u8; 16],
     invite_id: &[u8; 16],
     secret: &[u8; 32],
     inviter: &[u8; 32],
     group_name: &str,
+    icon_root: Option<[u8; 32]>,
+    banner_root: Option<[u8; 32]>,
+    banner_color: Option<u32>,
 ) -> String {
     let name = truncate_link_name(group_name);
-    let mut payload = Vec::with_capacity(INVITE_LINK_FIXED_LEN + name.len());
+    let mut payload = Vec::with_capacity(
+        INVITE_LINK_FIXED_LEN + name.len() + INVITE_LINK_V2_TAIL_LEN + INVITE_LINK_CHECKSUM_LEN,
+    );
     payload.push(INVITE_LINK_VERSION);
     payload.extend_from_slice(group_id);
     payload.extend_from_slice(invite_id);
     payload.extend_from_slice(secret);
     payload.extend_from_slice(inviter);
     payload.extend_from_slice(name.as_bytes());
+    payload.extend_from_slice(&icon_root.unwrap_or([0u8; 32]));
+    payload.extend_from_slice(&banner_root.unwrap_or([0u8; 32]));
+    payload.extend_from_slice(&banner_color.unwrap_or(0).to_be_bytes());
     let checksum: [u8; 32] = Sha256::digest(&payload).into();
     payload.extend_from_slice(&checksum[..INVITE_LINK_CHECKSUM_LEN]);
     format!("{INVITE_LINK_PREFIX}{}", b64url_encode(&payload))
@@ -418,7 +449,20 @@ pub fn decode_invite_link(code: &str) -> Result<InviteLink, CoreError> {
         return Err(CoreError::Invalid("lien d'invitation trop long"));
     }
     let bytes = b64url_decode(encoded).ok_or(CoreError::Invalid("lien d'invitation illisible"))?;
-    let min = INVITE_LINK_FIXED_LEN + INVITE_LINK_CHECKSUM_LEN;
+    // Au moins l'octet de version et la somme de contrôle doivent tenir avant
+    // toute lecture — l'octet de version pilote le découpage du reste.
+    if bytes.len() <= INVITE_LINK_CHECKSUM_LEN {
+        return Err(CoreError::Invalid("lien d'invitation tronqué ou trop long"));
+    }
+    // Taille du bloc fixe placé après le nom variable, selon la version.
+    let tail_len = match bytes[0] {
+        INVITE_LINK_VERSION_V1 => 0,
+        INVITE_LINK_VERSION_V2 => INVITE_LINK_V2_TAIL_LEN,
+        _ => return Err(CoreError::Invalid("version de lien d'invitation inconnue")),
+    };
+    // Bornes de longueur totale (nom variable ≤ 48 octets) : rejette tout
+    // octet en trop comme v1, jamais de tranche négative pour le nom v2.
+    let min = INVITE_LINK_FIXED_LEN + tail_len + INVITE_LINK_CHECKSUM_LEN;
     if bytes.len() < min || bytes.len() > min + MAX_LINK_NAME_BYTES {
         return Err(CoreError::Invalid("lien d'invitation tronqué ou trop long"));
     }
@@ -427,25 +471,45 @@ pub fn decode_invite_link(code: &str) -> Result<InviteLink, CoreError> {
     if checksum != &expected[..INVITE_LINK_CHECKSUM_LEN] {
         return Err(CoreError::Invalid("lien d'invitation corrompu"));
     }
-    if payload[0] != INVITE_LINK_VERSION {
-        return Err(CoreError::Invalid("version de lien d'invitation inconnue"));
-    }
     fn arr<const N: usize>(payload: &[u8], from: usize) -> [u8; N] {
         payload[from..from + N]
             .try_into()
             .expect("bornes fixes vérifiées ci-dessus")
     }
-    let group_name = core::str::from_utf8(&payload[INVITE_LINK_FIXED_LEN..])
+    // Une racine toute à zéro (ou couleur nulle) signifie « absente ».
+    fn opt_root(root: [u8; 32]) -> Option<[u8; 32]> {
+        if root == [0u8; 32] {
+            None
+        } else {
+            Some(root)
+        }
+    }
+    // Le nom occupe l'espace entre la tête fixe et le bloc v2 (nul en v1).
+    let name_end = payload.len() - tail_len;
+    let group_name = core::str::from_utf8(&payload[INVITE_LINK_FIXED_LEN..name_end])
         .map_err(|_| CoreError::Invalid("nom de groupe du lien illisible"))?;
     if !super::state::is_valid_display_label(group_name, MAX_LINK_NAME_BYTES) {
         return Err(CoreError::Invalid("nom de groupe du lien invalide"));
     }
+    let (icon_root, banner_root, banner_color) = if tail_len == 0 {
+        (None, None, None)
+    } else {
+        let color = u32::from_be_bytes(arr(payload, name_end + 64));
+        (
+            opt_root(arr(payload, name_end)),
+            opt_root(arr(payload, name_end + 32)),
+            (color != 0).then_some(color),
+        )
+    };
     Ok(InviteLink {
         group_id: arr(payload, 1),
         invite_id: arr(payload, 17),
         secret: arr(payload, 33),
         inviter: arr(payload, 65),
         group_name: group_name.to_string(),
+        icon_root,
+        banner_root,
+        banner_color,
     })
 }
 
@@ -591,7 +655,9 @@ mod tests {
 
     #[test]
     fn invite_link_roundtrips_with_and_without_prefix() {
-        let code = encode_invite_link(&[1; 16], &[2; 16], &[3; 32], &[4; 32], "Guilde");
+        let code = encode_invite_link(
+            &[1; 16], &[2; 16], &[3; 32], &[4; 32], "Guilde", None, None, None,
+        );
         assert!(code.starts_with(INVITE_LINK_PREFIX));
         let link = decode_invite_link(&code).unwrap();
         assert_eq!(
@@ -602,6 +668,9 @@ mod tests {
                 secret: [3; 32],
                 inviter: [4; 32],
                 group_name: "Guilde".into(),
+                icon_root: None,
+                banner_root: None,
+                banner_color: None,
             }
         );
         // Sans préfixe et avec espaces parasites : toujours décodable.
@@ -610,11 +679,108 @@ mod tests {
     }
 
     #[test]
+    fn invite_link_v2_roundtrips_icon_banner_color() {
+        let icon = [0xA1u8; 32];
+        let banner = [0xB2u8; 32];
+        let code = encode_invite_link(
+            &[1; 16],
+            &[2; 16],
+            &[3; 32],
+            &[4; 32],
+            "Guilde",
+            Some(icon),
+            Some(banner),
+            Some(0x5865F2),
+        );
+        let link = decode_invite_link(&code).unwrap();
+        assert_eq!(
+            link,
+            InviteLink {
+                group_id: [1; 16],
+                invite_id: [2; 16],
+                secret: [3; 32],
+                inviter: [4; 32],
+                group_name: "Guilde".into(),
+                icon_root: Some(icon),
+                banner_root: Some(banner),
+                banner_color: Some(0x5865F2),
+            }
+        );
+    }
+
+    #[test]
+    fn invite_link_v2_zero_icon_banner_color_decode_to_none() {
+        // Racines toutes à zéro et couleur nulle passées explicitement : le
+        // décodage les rend « absentes » (None), pas des zéros signifiants.
+        let code = encode_invite_link(
+            &[1; 16],
+            &[2; 16],
+            &[3; 32],
+            &[4; 32],
+            "Guilde",
+            Some([0u8; 32]),
+            Some([0u8; 32]),
+            Some(0),
+        );
+        let link = decode_invite_link(&code).unwrap();
+        assert_eq!(link.icon_root, None);
+        assert_eq!(link.banner_root, None);
+        assert_eq!(link.banner_color, None);
+        // Une seule facette renseignée : les autres restent None.
+        let code2 = encode_invite_link(
+            &[1; 16],
+            &[2; 16],
+            &[3; 32],
+            &[4; 32],
+            "Guilde",
+            None,
+            Some([7u8; 32]),
+            None,
+        );
+        let link2 = decode_invite_link(&code2).unwrap();
+        assert_eq!(link2.icon_root, None);
+        assert_eq!(link2.banner_root, Some([7u8; 32]));
+        assert_eq!(link2.banner_color, None);
+    }
+
+    #[test]
+    fn invite_link_v1_still_decodes_with_none_metadata() {
+        // Payload v1 forgé à la main (octet de version = 1, pas de bloc v2) :
+        // un ancien lien reste décodable et rend des métadonnées absentes.
+        let mut payload = Vec::new();
+        payload.push(INVITE_LINK_VERSION_V1);
+        payload.extend_from_slice(&[1u8; 16]);
+        payload.extend_from_slice(&[2u8; 16]);
+        payload.extend_from_slice(&[3u8; 32]);
+        payload.extend_from_slice(&[4u8; 32]);
+        payload.extend_from_slice(b"Guilde");
+        let checksum: [u8; 32] = Sha256::digest(&payload).into();
+        payload.extend_from_slice(&checksum[..INVITE_LINK_CHECKSUM_LEN]);
+        let code = format!("{INVITE_LINK_PREFIX}{}", b64url_encode(&payload));
+        let link = decode_invite_link(&code).unwrap();
+        assert_eq!(
+            link,
+            InviteLink {
+                group_id: [1; 16],
+                invite_id: [2; 16],
+                secret: [3; 32],
+                inviter: [4; 32],
+                group_name: "Guilde".into(),
+                icon_root: None,
+                banner_root: None,
+                banner_color: None,
+            }
+        );
+    }
+
+    #[test]
     fn invite_link_truncates_name_on_char_boundary() {
         // 30 × 'é' = 60 octets UTF-8 : tronqué à ≤ 48 octets sans couper un
         // caractère (48 impair pour un alphabet 2 octets → 47 octets utiles).
         let long = "é".repeat(30);
-        let code = encode_invite_link(&[1; 16], &[2; 16], &[3; 32], &[4; 32], &long);
+        let code = encode_invite_link(
+            &[1; 16], &[2; 16], &[3; 32], &[4; 32], &long, None, None, None,
+        );
         let link = decode_invite_link(&code).unwrap();
         assert!(link.group_name.len() <= MAX_LINK_NAME_BYTES);
         assert!(link.group_name.chars().all(|c| c == 'é'));
@@ -622,7 +788,9 @@ mod tests {
 
     #[test]
     fn corrupted_or_forged_invite_links_are_rejected() {
-        let code = encode_invite_link(&[1; 16], &[2; 16], &[3; 32], &[4; 32], "Guilde");
+        let code = encode_invite_link(
+            &[1; 16], &[2; 16], &[3; 32], &[4; 32], "Guilde", None, None, None,
+        );
         // Un caractère altéré : somme de contrôle fausse.
         let mut chars: Vec<char> = code.chars().collect();
         let last = chars.len() - 1;
@@ -637,8 +805,76 @@ mod tests {
         assert!(decode_invite_link("accord://invite/").is_err());
         // Nom usurpateur (caractère de contrôle) forgé dans un code
         // par ailleurs bien formé : rejeté au décodage.
-        let forged = encode_invite_link(&[1; 16], &[2; 16], &[3; 32], &[4; 32], "Gui\u{7}lde");
+        let forged = encode_invite_link(
+            &[1; 16],
+            &[2; 16],
+            &[3; 32],
+            &[4; 32],
+            "Gui\u{7}lde",
+            None,
+            None,
+            None,
+        );
         assert!(decode_invite_link(&forged).is_err());
+    }
+
+    #[test]
+    fn invite_link_v2_corrupted_checksum_is_rejected() {
+        let code = encode_invite_link(
+            &[1; 16],
+            &[2; 16],
+            &[3; 32],
+            &[4; 32],
+            "Guilde",
+            Some([9u8; 32]),
+            Some([8u8; 32]),
+            Some(0x112233),
+        );
+        // Dernier caractère altéré : la somme de contrôle ne correspond plus.
+        let mut chars: Vec<char> = code.chars().collect();
+        let last = chars.len() - 1;
+        chars[last] = if chars[last] == 'A' { 'B' } else { 'A' };
+        let altered: String = chars.into_iter().collect();
+        assert!(decode_invite_link(&altered).is_err());
+    }
+
+    #[test]
+    fn invite_link_v2_truncated_tail_is_rejected() {
+        // Un lien v2 amputé de quelques octets de sa queue fixe : rejeté
+        // (longueur hors bornes ou somme de contrôle fausse), jamais de panique.
+        let code = encode_invite_link(
+            &[1; 16],
+            &[2; 16],
+            &[3; 32],
+            &[4; 32],
+            "Guilde",
+            Some([9u8; 32]),
+            Some([8u8; 32]),
+            Some(0x445566),
+        );
+        let bare = code.strip_prefix(INVITE_LINK_PREFIX).unwrap();
+        let raw = b64url_decode(bare).unwrap();
+        // Retire les 10 derniers octets (rogne le bloc icône/bannière/somme).
+        let truncated = b64url_encode(&raw[..raw.len() - 10]);
+        assert!(decode_invite_link(&truncated).is_err());
+    }
+
+    #[test]
+    fn invite_link_over_length_name_is_rejected() {
+        // Payload v2 forgé avec un nom de 49 octets (> MAX_LINK_NAME_BYTES) :
+        // la borne de longueur totale le rejette avant toute interprétation.
+        let mut payload = Vec::new();
+        payload.push(INVITE_LINK_VERSION_V2);
+        payload.extend_from_slice(&[1u8; 16]);
+        payload.extend_from_slice(&[2u8; 16]);
+        payload.extend_from_slice(&[3u8; 32]);
+        payload.extend_from_slice(&[4u8; 32]);
+        payload.extend_from_slice(&b"a".repeat(MAX_LINK_NAME_BYTES + 1));
+        payload.extend_from_slice(&[0u8; INVITE_LINK_V2_TAIL_LEN]);
+        let checksum: [u8; 32] = Sha256::digest(&payload).into();
+        payload.extend_from_slice(&checksum[..INVITE_LINK_CHECKSUM_LEN]);
+        let code = format!("{INVITE_LINK_PREFIX}{}", b64url_encode(&payload));
+        assert!(decode_invite_link(&code).is_err());
     }
 
     #[test]
