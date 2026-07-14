@@ -559,6 +559,21 @@ select:focus-visible {
 .toast-enter {
   animation: fade-rise-in var(--duration-fast) var(--ease-out);
 }
+/* Sortie d'un toast : fondu + glissement/repli (transform+opacity, compositor). */
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+.toast-leaving {
+  animation: toast-out var(--duration-fast) var(--ease-out) forwards;
+  pointer-events: none;
+}
 
 /* Pastille (badge de non-lu/mention) : léger dépassement à l'apparition. */
 @keyframes badge-pop {

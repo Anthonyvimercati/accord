@@ -44,6 +44,8 @@ export interface Toast {
   id: number;
   kind: 'error' | 'info';
   text: string;
+  /** En cours de sortie : joue l'animation de disparition avant le retrait. */
+  leaving?: boolean;
 }
 
 /** Rectangle d'ancrage (coordonnées viewport) d'un déclencheur de popover. */
@@ -509,6 +511,8 @@ interface UiState {
 }
 
 const TOAST_LIFETIME_MS = 5000;
+/** Durée de l'animation de sortie avant retrait effectif du toast. */
+const TOAST_EXIT_MS = 180;
 let nextToastId = 1;
 
 export const useUi = create<UiState>((set) => {
@@ -602,10 +606,21 @@ export const useUi = create<UiState>((set) => {
       const id = nextToastId++;
       set((s) => ({ toasts: [...s.toasts, { id, kind, text }] }));
       setTimeout(() => {
-        set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+        useUi.getState().dismissToast(id);
       }, TOAST_LIFETIME_MS);
     },
-    dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+    // Sortie en deux temps : marque le toast « leaving » (déclenche
+    // l'animation de disparition), puis le retire après `TOAST_EXIT_MS`.
+    dismissToast: (id) => {
+      const current = useUi.getState().toasts.find((t) => t.id === id);
+      if (current === undefined || current.leaving === true) return;
+      set((s) => ({
+        toasts: s.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t)),
+      }));
+      setTimeout(() => {
+        set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+      }, TOAST_EXIT_MS);
+    },
 
     setLang: (lang) => {
       writeStored(STORAGE_KEYS.lang, lang);
