@@ -161,6 +161,7 @@ const STORAGE_KEYS = {
   timeFormat: 'accord.timeFormat',
   keepInTray: 'accord.system.keepInTray',
   closeToTray: 'accord.system.closeToTray',
+  hideMutedChannels: 'accord.channels.hideMuted',
 } as const;
 
 /** Touche d'appui-pour-parler par défaut (`KeyboardEvent.code`). */
@@ -440,6 +441,12 @@ interface UiState {
    */
   closeToTray: boolean;
   /**
+   * Masque les salons en sourdine (niveau 'none', voir `stores/mute.ts`) dans
+   * la liste des salons du serveur — le salon actif reste toujours visible.
+   * Préférence locale (menu du serveur), façon Discord.
+   */
+  hideMutedChannels: boolean;
+  /**
    * Dernier salon (texte/annonces) consulté par serveur — clé `groupId`.
    * Restauré au reclic sur l'icône du serveur ; l'appelant valide que le
    * salon existe encore avant de s'y fier (voir `ServerRail`).
@@ -496,6 +503,9 @@ interface UiState {
   /** Persiste et applique en direct (crée/détruit l'icône de tray). */
   setKeepInTray: (enabled: boolean) => void;
   setCloseToTray: (enabled: boolean) => void;
+  setHideMutedChannels: (enabled: boolean) => void;
+  /** Bascule l'affichage des salons muets (menu du serveur). */
+  toggleHideMutedChannels: () => void;
   /** Applique `width` bornée à `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`. */
   setSidebarWidth: (width: number) => void;
   /** Restaure `SIDEBAR_WIDTH_DEFAULT` (double-clic sur la poignée). */
@@ -567,6 +577,7 @@ export const useUi = create<UiState>((set) => {
     timeFormat: initialTimeFormat(),
     keepInTray,
     closeToTray: initialBool(STORAGE_KEYS.closeToTray, false),
+    hideMutedChannels: initialBool(STORAGE_KEYS.hideMutedChannels, false),
     lastChannelByServer: loadLastChannelByServer(),
     lastDmPeer: loadLastDm(),
     sidebarWidth: initialWidth(
@@ -720,6 +731,17 @@ export const useUi = create<UiState>((set) => {
     setCloseToTray: (enabled) => {
       writeStored(STORAGE_KEYS.closeToTray, String(enabled));
       set({ closeToTray: enabled });
+    },
+    setHideMutedChannels: (enabled) => {
+      writeStored(STORAGE_KEYS.hideMutedChannels, String(enabled));
+      set({ hideMutedChannels: enabled });
+    },
+    toggleHideMutedChannels: () => {
+      set((s) => {
+        const next = !s.hideMutedChannels;
+        writeStored(STORAGE_KEYS.hideMutedChannels, String(next));
+        return { hideMutedChannels: next };
+      });
     },
 
     setSidebarWidth: (width) => {

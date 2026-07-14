@@ -92,6 +92,14 @@ const INVITE_LINK_DURATIONS: Array<{ value: number; label: (t: Dict) => string }
 /** Durée de l'animation de fermeture d'une modale (aligne `--duration-fast`). */
 const MODAL_EXIT_MS = 150;
 
+/**
+ * Durée de la confirmation « Invité ✓ » d'une rangée d'ami avant que le bouton
+ * ne redevienne « Inviter ». Transitoire volontairement : chaque appel autorise
+ * une nouvelle invitation à usage unique côté nœud, il faut donc pouvoir
+ * relancer (renvoi/rappel) le même ami sans rouvrir la modale.
+ */
+const INVITE_SENT_RESET_MS = 2500;
+
 export function ModalFrame({
   title,
   hint,
@@ -604,9 +612,10 @@ function ShareableLinkSection({ groupId }: { groupId: string }) {
 
 /**
  * Modale d'invitation façon Discord : recherche parmi les amis non-membres,
- * invitation par rangée (le bouton devient « Invité ✓ » sans fermer la
- * modale, pour enchaîner plusieurs invitations) et lien partageable créé
- * automatiquement à l'ouverture (`ShareableLinkSection`).
+ * invitation par rangée (le bouton affiche brièvement « Invité ✓ » sans fermer
+ * la modale puis redevient « Inviter », pour enchaîner ET relancer plusieurs
+ * invitations) et lien partageable créé automatiquement à l'ouverture
+ * (`ShareableLinkSection`).
  */
 function InviteModal({ groupId }: { groupId: string }) {
   const t = useT();
@@ -615,8 +624,22 @@ function InviteModal({ groupId }: { groupId: string }) {
   const state = useGroups((s) => s.states[groupId]);
   const invite = useGroups((s) => s.invite);
   const [query, setQuery] = useState('');
+  // `sent` n'est qu'une confirmation TRANSITOIRE (voir `INVITE_SENT_RESET_MS`) :
+  // jamais un verrou définitif — chaque invitation étant à usage unique côté
+  // nœud, une rangée doit toujours pouvoir être relancée.
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  // Minuteurs de retour à « Inviter » par ami, purgés au démontage pour ne
+  // jamais faire un `setState` sur une modale déjà fermée.
+  const resetTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    const timers = resetTimers.current;
+    return () => {
+      timers.forEach((id) => clearTimeout(id));
+      timers.clear();
+    };
+  }, []);
 
   const members = new Set((state?.members ?? []).map((m) => m.pubkey));
   const candidates = contacts.filter(
@@ -636,11 +659,24 @@ function InviteModal({ groupId }: { groupId: string }) {
     new Set([...set].filter((k) => k !== key));
 
   const sendInvite = (pubkey: string): void => {
+    if (pending.has(pubkey)) return;
     setPending((prev) => withKey(prev, pubkey));
     invite(groupId, pubkey)
       .then(() => {
         setSent((prev) => withKey(prev, pubkey));
         toast('info', t.groups.invited);
+        // Confirmation transitoire : le bouton redevient « Inviter » après un
+        // court délai pour autoriser un renvoi (l'invitation précédente est à
+        // usage unique — le nœud en autorise une neuve à chaque appel).
+        const existing = resetTimers.current.get(pubkey);
+        if (existing !== undefined) clearTimeout(existing);
+        resetTimers.current.set(
+          pubkey,
+          setTimeout(() => {
+            setSent((prev) => withoutKey(prev, pubkey));
+            resetTimers.current.delete(pubkey);
+          }, INVITE_SENT_RESET_MS),
+        );
       })
       .catch(() => toast('error', t.errors.actionFailed))
       .finally(() => setPending((prev) => withoutKey(prev, pubkey)));
@@ -694,7 +730,7 @@ function InviteModal({ groupId }: { groupId: string }) {
                 aria-label={interpolate(t.groups.invitedUser, {
                   name: displayNameOf(contacts, c.pubkey),
                 })}
-                className="rounded-lg border border-transparent px-3 py-1 text-sm font-medium text-green"
+                className="rounded-lg border border-green/40 bg-green/10 px-3 py-1 text-sm font-medium text-green"
               >
                 {t.groups.inviteSent}
               </button>
