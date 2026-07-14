@@ -202,6 +202,12 @@ pub async fn run_with_maintenance(
 /// `accord_transport::socket::sim`). Ni liaison UDP réelle, ni écouteur TCP de
 /// repli, ni mapping de port/mDNS : le nœud entier (DHT, maintenance, outbox,
 /// relais) tourne sur le transport injecté.
+///
+/// **RÉSERVÉ AUX TESTS (M2).** `#[doc(hidden)]` : ne PAS câbler en production —
+/// le socket injecté n'a subi aucun durcissement de liaison (pas de stratégie
+/// de port stable, pas de repli TCP, pas de mapping/mDNS). La production passe
+/// exclusivement par [`run`] / [`run_with_maintenance`].
+#[doc(hidden)]
 pub async fn run_with_socket(
     unlocked: Unlocked,
     config: NodeConfig,
