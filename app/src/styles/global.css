@@ -639,6 +639,23 @@ select:focus-visible {
 .lightbox-image-enter {
   animation: lightbox-zoom-in var(--duration-normal) var(--ease-out);
 }
+/* Fermeture de l'aperçu plein écran : symétrique de l'ouverture. */
+@keyframes lightbox-zoom-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+.lightbox-exit {
+  animation: fade-in var(--duration-fast) var(--ease-out) reverse forwards;
+}
+.lightbox-image-exit {
+  animation: lightbox-zoom-out var(--duration-fast) var(--ease-out) forwards;
+}
 
 /* Halo pulsé autour de l'avatar de la personne qui parle (salon vocal). */
 @keyframes voice-speaking {
