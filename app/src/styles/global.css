@@ -534,6 +534,23 @@ select:focus-visible {
 .modal-panel-enter {
   animation: modal-panel-in var(--duration-normal) var(--ease-out);
 }
+/* Fermeture d'une modale : symétrique de l'ouverture (voile + panneau). */
+@keyframes modal-panel-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+}
+.modal-overlay-exit {
+  animation: fade-in var(--duration-fast) var(--ease-out) reverse forwards;
+}
+.modal-panel-exit {
+  animation: modal-panel-out var(--duration-fast) var(--ease-out) forwards;
+}
 
 /*
  * Fondu + légère montée : changement de vue (salon/conversation) et

@@ -369,13 +369,14 @@ describe('Modales — accessibilité (focus, onglets, noms accessibles)', () => 
     expect(dialog).toHaveAttribute('aria-labelledby');
   });
 
-  it('Échap ferme la modale', () => {
+  it('Échap ferme la modale', async () => {
     useUi.setState({ lang: 'fr', modal: { kind: 'createGroup' } });
     render(<Modals />);
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
-    expect(useUi.getState().modal).toBeNull();
+    // Fermeture différée (animation de sortie) : le démontage suit l'animation.
+    await vi.waitFor(() => expect(useUi.getState().modal).toBeNull());
   });
 
   it('les onglets Créer/Rejoindre basculent aux flèches, focus compris', () => {
