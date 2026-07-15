@@ -2,6 +2,20 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.8] — 2026-07-15
+
+### Added
+
+- A much bigger personalization catalogue: **20 themes, 14 avatar decorations and
+  12 animated profile effects** — all still id-based (a few bytes over the wire),
+  compositor-only and reduced-motion aware.
+
+### Changed
+
+- Unified personal profile card, more secure account switching, removed a
+  redundant identifier, slimmer server banner, and a general responsive-polish
+  pass across the interface.
+
 ## [1.2.7] — 2026-07-15
 
 ### Changed
