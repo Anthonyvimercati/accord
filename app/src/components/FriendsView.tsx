@@ -8,6 +8,7 @@ import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { NetworkPanel } from './NetworkPanel';
 import { PendingInvites } from './PendingInvites';
 import { PresenceDot } from './PresenceDot';
 
@@ -213,48 +214,57 @@ function AddFriend() {
   };
 
   return (
-    <div className="max-w-2xl p-6">
-      <h2 className="mb-1 font-semibold uppercase text-header">{t.friends.addTitle}</h2>
-      <p className="mb-4 text-sm text-muted">{t.friends.addHint}</p>
-      <div className="flex gap-3 rounded-lg bg-rail p-3">
-        <input
-          aria-label={t.friends.addPlaceholder}
-          placeholder={t.friends.addPlaceholder}
-          value={code}
-          onChange={(e) => {
-            setCode(e.target.value);
-            setStatus('idle');
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void submit();
-          }}
-          className="flex-1 bg-transparent text-norm placeholder-faint outline-none"
-        />
-        <button
-          type="button"
-          disabled={code.trim() === '' || status === 'busy'}
-          onClick={() => void submit()}
-          className="rounded-sm bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover disabled:opacity-50 active:scale-95"
-        >
-          {t.friends.addSend}
-        </button>
-      </div>
-      {status === 'sent' && (
-        <p className="mt-2 text-sm text-green">{t.friends.addSent}</p>
-      )}
-      {status === 'error' && (
-        <p className="mt-2 text-sm text-red">{t.friends.addNotFound}</p>
-      )}
-      {self && (
-        <div className="mt-8 rounded-lg bg-sidebar p-4">
-          <div className="text-xs font-medium uppercase text-faint">
-            {t.friends.myCode}
-          </div>
-          <div className="selectable mt-1 font-mono text-lg text-header">
-            {self.friend_code}
-          </div>
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-2xl p-6">
+        <h2 className="mb-1 font-semibold uppercase text-header">{t.friends.addTitle}</h2>
+        <p className="mb-4 text-sm text-muted">{t.friends.addHint}</p>
+        <div className="flex gap-3 rounded-lg bg-rail p-3">
+          <input
+            aria-label={t.friends.addPlaceholder}
+            placeholder={t.friends.addPlaceholder}
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setStatus('idle');
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submit();
+            }}
+            className="flex-1 bg-transparent text-norm placeholder-faint outline-none"
+          />
+          <button
+            type="button"
+            disabled={code.trim() === '' || status === 'busy'}
+            onClick={() => void submit()}
+            className="rounded-sm bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover disabled:opacity-50 active:scale-95"
+          >
+            {t.friends.addSend}
+          </button>
         </div>
-      )}
+        {status === 'sent' && (
+          <p className="mt-2 text-sm text-green">{t.friends.addSent}</p>
+        )}
+        {status === 'error' && (
+          <p className="mt-2 text-sm text-red">{t.friends.addNotFound}</p>
+        )}
+        {self && (
+          <div className="mb-8 mt-8 rounded-lg bg-sidebar p-4">
+            <div className="text-xs font-medium uppercase text-faint">
+              {t.friends.myCode}
+            </div>
+            <div className="selectable mt-1 font-mono text-lg text-header">
+              {self.friend_code}
+            </div>
+          </div>
+        )}
+
+        {/* Toute la partie réseau (ton adresse, ajout par adresse, état de la
+            connexion) vit désormais ici : « se connecter à un ami » au même
+            endroit que l'ajout par code. */}
+        <div className="border-t border-rail pt-6">
+          <NetworkPanel />
+        </div>
+      </div>
     </div>
   );
 }
@@ -263,7 +273,10 @@ function AddFriend() {
 function EmptyFriends({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center gap-3 py-12 text-center text-muted">
-      <span aria-hidden className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint">
+      <span
+        aria-hidden
+        className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint"
+      >
         <svg
           width="22"
           height="22"
@@ -373,7 +386,9 @@ export function FriendsView() {
             aria-current={tab === 'add' ? 'page' : undefined}
             onClick={() => setTab('add')}
             className={`flex h-7 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
-              tab === 'add' ? 'bg-green/20 text-green' : 'bg-green text-white hover:brightness-110'
+              tab === 'add'
+                ? 'bg-green/20 text-green'
+                : 'bg-green text-white hover:brightness-110'
             }`}
           >
             {t.friends.add}
