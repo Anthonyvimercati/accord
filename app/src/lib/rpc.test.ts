@@ -261,4 +261,23 @@ describe('RpcClient — reconnexion', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(sockets).toHaveLength(1);
   });
+
+  it("ignore la fermeture tardive de l'ancienne socket après remplacement", async () => {
+    const { client, sockets } = makeClient();
+    const old = await connectReady(client, sockets);
+    const lateClose = old.onclose;
+    old.onclose = null;
+
+    client.close();
+    const connecting = client.connect(5252, 'nouveau-jeton');
+    const current = sockets[1];
+    current?.serverOpen();
+
+    lateClose?.();
+    current?.respond(0, { protocole: 1 });
+
+    await expect(connecting).resolves.toBeUndefined();
+    expect(client.status).toBe('ready');
+    expect(sockets).toHaveLength(2);
+  });
 });

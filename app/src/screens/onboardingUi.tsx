@@ -30,7 +30,7 @@ export function Card({
       <div
         className={`modal-panel-enter glass my-auto w-full shrink-0 ${
           wide ? 'max-w-[min(520px,94vw)]' : 'max-w-[min(440px,94vw)]'
-        } rounded-xl p-8 shadow-3`}
+        } rounded-xl p-5 shadow-3 sm:p-8`}
       >
         <img
           src={LOGO_URL}
@@ -72,7 +72,7 @@ export function Field({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-transparent bg-input px-3 py-2.5 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+        className="min-h-11 w-full rounded-md border border-transparent bg-input px-3 py-2.5 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
       />
     </label>
   );
@@ -92,7 +92,7 @@ export function PrimaryButton({
       type="button"
       disabled={disabled ?? false}
       onClick={onClick}
-      className="w-full rounded-lg bg-blurple py-2.5 font-medium text-white shadow-sm transition-[transform,background-color,box-shadow] duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:pointer-events-none disabled:opacity-50 active:translate-y-0 active:scale-[0.98]"
+      className="min-h-11 w-full rounded-lg bg-blurple py-2.5 font-medium text-white shadow-sm transition-[transform,background-color,box-shadow] duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:pointer-events-none disabled:opacity-50 active:translate-y-0 active:scale-[0.98]"
     >
       {label}
     </button>

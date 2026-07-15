@@ -942,7 +942,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
       <div
         data-testid="server-header"
         className={`relative shrink-0 border-b border-rail shadow-1 ${
-          hasBanner ? 'h-32 bg-tooltip' : 'h-12 bg-sidebar'
+          hasBanner ? 'h-24 bg-tooltip' : 'h-12 bg-sidebar'
         }`}
         style={
           bannerBackground !== null ? { backgroundImage: bannerBackground } : undefined

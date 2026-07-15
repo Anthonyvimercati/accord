@@ -197,48 +197,15 @@ describe('ProfilePopover — pseudos de serveur', () => {
     expect(screen.queryByText('Alice')).not.toBeInTheDocument();
   });
 
-  it('offre un champ de pseudo de serveur sur son propre profil en groupe', () => {
+  it('utilise le menu utilisateur unifié pour son propre profil en groupe', () => {
     useGroups.setState({
       states: { g1: stateWith([{ pubkey: 'moi', roles: [], nickname: 'MoiServeur' }]) },
     });
     openFor('moi', 'g1');
     render(<ProfilePopover />);
 
-    expect(screen.getByLabelText('Pseudo de serveur')).toHaveValue('MoiServeur');
-  });
-
-  it('enregistre son pseudo de serveur au blur s’il a changé', () => {
-    const original = useGroups.getState().setNickname;
-    const spy = vi.fn(async () => {});
-    useGroups.setState({
-      states: { g1: stateWith([{ pubkey: 'moi', roles: [] }]) },
-      setNickname: spy,
-    });
-    openFor('moi', 'g1');
-    render(<ProfilePopover />);
-
-    const input = screen.getByLabelText('Pseudo de serveur');
-    fireEvent.change(input, { target: { value: 'Bibou' } });
-    fireEvent.blur(input);
-
-    expect(spy).toHaveBeenCalledWith('g1', 'Bibou');
-    useGroups.setState({ setNickname: original });
-  });
-
-  it('n’émet rien si le pseudo est inchangé au blur', () => {
-    const original = useGroups.getState().setNickname;
-    const spy = vi.fn(async () => {});
-    useGroups.setState({
-      states: { g1: stateWith([{ pubkey: 'moi', roles: [], nickname: 'MoiServeur' }]) },
-      setNickname: spy,
-    });
-    openFor('moi', 'g1');
-    render(<ProfilePopover />);
-
-    fireEvent.blur(screen.getByLabelText('Pseudo de serveur'));
-
-    expect(spy).not.toHaveBeenCalled();
-    useGroups.setState({ setNickname: original });
+    expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Pseudo de serveur')).not.toBeInTheDocument();
   });
 
   it('ne montre pas le champ de pseudo hors contexte de serveur', () => {
@@ -362,8 +329,7 @@ describe('ProfilePopover — personnalisation', () => {
     render(<ProfilePopover />);
 
     expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
-    const effect = screen.getByTestId('profile-effect');
-    expect(effect.parentElement).toBe(screen.getByRole('dialog'));
+    expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
   });
 
   it("rend la décoration et l'effet annoncés par un ami", () => {

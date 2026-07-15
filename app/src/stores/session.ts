@@ -127,6 +127,7 @@ interface SessionState {
   restoreAccount: (phrase: string, passphrase: string) => Promise<void>;
   /** Déverrouille un compte existant du registre et bascule dessus. */
   unlockAccount: (accountId: string, passphrase: string) => Promise<void>;
+  activateAccount: (accountId: string, passphrase: string) => Promise<void>;
   /**
    * Change de compte sans quitter l'application : ferme la session active
    * (nœud arrêté, secrets en mémoire effacés côté hôte) et ramène l'UI au
@@ -280,7 +281,7 @@ export const useSession = create<SessionState>((set) => {
     loadAccounts: async () => {
       try {
         const accounts = await accountsList();
-        set({ accounts });
+        set({ accounts, error: null });
       } catch (e) {
         set({ error: e instanceof Error ? e.message : String(e) });
       }
@@ -332,6 +333,34 @@ export const useSession = create<SessionState>((set) => {
         set({ phase: 'ready', self, recoveryPhrase: null, askName: false });
       } catch (e) {
         set({ phase: 'welcome', error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+
+    activateAccount: async (accountId, passphrase) => {
+      set({ error: null });
+      let activated = false;
+      try {
+        const session = await accountUnlock(accountId, passphrase);
+        activated = true;
+        set({
+          phase: 'starting',
+          self: null,
+          recoveryPhrase: null,
+          askName: false,
+        });
+        resetAccountScopedStores();
+        clearPendingConversation();
+        rpc.close();
+        const self = await attach(session);
+        set({ phase: 'ready', self, recoveryPhrase: null, askName: false, error: null });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        if (activated) {
+          rpc.close();
+          await sessionClose().catch(() => undefined);
+          set({ phase: 'welcome', self: null, error });
+        } else set({ error });
+        throw e;
       }
     },
 

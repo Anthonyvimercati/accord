@@ -12,7 +12,7 @@ import type { Dict } from '../../i18n';
 import { OptionPill, SettingsSection } from './controls';
 
 /** Clé i18n du libellé de chaque thème (voir `settings.theme*` dans fr.ts/en.ts). */
-const THEME_LABEL_KEYS: Record<Theme, keyof Dict['settings']> = {
+export const THEME_LABEL_KEYS: Record<Theme, keyof Dict['settings']> = {
   dark: 'themeDark',
   light: 'themeLight',
   midnight: 'themeMidnight',
@@ -25,6 +25,14 @@ const THEME_LABEL_KEYS: Record<Theme, keyof Dict['settings']> = {
   paper: 'themePaper',
   topography: 'themeTopography',
   signal: 'themeSignal',
+  nebula: 'themeNebula',
+  synthwave: 'themeSynthwave',
+  sakura: 'themeSakura',
+  abyss: 'themeAbyss',
+  ember: 'themeEmber',
+  frost: 'themeFrost',
+  circuit: 'themeCircuit',
+  dream: 'themeDream',
 };
 
 function ThemeCheckIcon() {
@@ -76,7 +84,7 @@ function ThemeCard({
       aria-checked={selected}
       tabIndex={selected ? 0 : -1}
       onClick={onSelect}
-      className="group w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+      className="group w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-header focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
     >
       <span
         data-theme={id}
@@ -95,6 +103,7 @@ function ThemeCard({
           <span className="mt-1 h-1.5 w-full rounded-full bg-chat/70" />
         </span>
         <span className="theme-preview__chat flex min-w-0 flex-1 flex-col gap-1 p-1.5">
+          <span className="theme-preview__motion" />
           <span className="h-1.5 w-3/4 rounded-full bg-input/80" />
           <span className="h-1.5 w-1/2 rounded-full bg-input/80" />
           <span className="theme-preview__accent mt-auto h-1.5 w-4/5 rounded-full" />

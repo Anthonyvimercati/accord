@@ -29,6 +29,7 @@ import { CopyMenuIcon, EnvelopeMenuIcon } from './ContextMenu';
 import { MarkdownText } from './MarkdownText';
 import { PresenceDot } from './PresenceDot';
 import { ProfileBanner } from './ProfileBanner';
+import { UserMenu } from './UserMenu';
 
 /** Largeur de la carte (px, façon Discord) ; sert au calcul de position initial. */
 const CARD_WIDTH = 340;
@@ -79,11 +80,12 @@ function BlockUserIcon() {
 /** Position `fixed` (px) de la carte, calée près de l'ancre et bornée à l'écran. */
 function calculerPosition(
   ancre: AncrePopover,
+  largeur: number,
   hauteur: number,
 ): { left: number; top: number } {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const left = Math.max(MARGE, Math.min(ancre.left, vw - CARD_WIDTH - MARGE));
+  const left = Math.max(MARGE, Math.min(ancre.left, vw - largeur - MARGE));
   // Sous l'ancre si la place le permet, au-dessus sinon.
   const enDessous = ancre.bottom + MARGE + hauteur <= vh;
   const top = enDessous
@@ -124,12 +126,23 @@ export function ProfilePopover() {
   const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const avatarFileRef = useRef<HTMLInputElement>(null);
+  const ownTarget = profile !== null && self !== null && profile.pubkey === self.pubkey;
 
-  // Position calée après mesure réelle de la carte (hauteur variable).
   useLayoutEffect(() => {
-    if (profile === null || ref.current === null) return;
-    setPos(calculerPosition(profile.ancre, ref.current.offsetHeight));
-  }, [profile]);
+    if (profile === null || ownTarget || ref.current === null) return undefined;
+    const card = ref.current;
+    const update = (): void =>
+      setPos(calculerPosition(profile.ancre, card.offsetWidth, card.offsetHeight));
+    update();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => update());
+    observer?.observe(card);
+    window.addEventListener('resize', update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [ownTarget, profile]);
 
   // Nouvelle cible : la confirmation de retrait en cours est abandonnée.
   useEffect(() => {
@@ -174,7 +187,7 @@ export function ProfilePopover() {
   }, [profile, self]);
 
   useEffect(() => {
-    if (profile === null) return undefined;
+    if (profile === null || ownTarget) return undefined;
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') closeProfile();
     };
@@ -194,30 +207,37 @@ export function ProfilePopover() {
       }
       closeProfile();
     };
+    const onScroll = (e: Event): void => {
+      if (e.target instanceof Node && ref.current?.contains(e.target)) return;
+      closeProfile();
+    };
     window.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onDown);
+    document.addEventListener('scroll', onScroll, true);
     return () => {
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('scroll', onScroll, true);
     };
-  }, [profile, closeProfile]);
+  }, [profile, closeProfile, ownTarget]);
 
   // Focus pris par la carte à l'ouverture (piège Tab sur le conteneur), rendu
   // au déclencheur (avatar/pseudo cliqué) à la fermeture s'il existe encore.
   useEffect(() => {
-    if (profile === null) return undefined;
+    if (profile === null || ownTarget) return undefined;
     const declencheur =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     ref.current?.focus();
     return () => {
       if (declencheur !== null && declencheur.isConnected) declencheur.focus();
     };
-  }, [profile]);
+  }, [profile, ownTarget]);
 
   if (profile === null) return null;
 
   const pubkey = profile.pubkey;
   const isSelf = self !== null && pubkey === self.pubkey;
+  if (isSelf) return <UserMenu onClose={closeProfile} anchor={profile.ancre} />;
   const contact = contacts.find((c) => c.pubkey === pubkey);
   // Pseudo de serveur prioritaire (contexte de groupe), sinon pseudo global.
   const name =
@@ -360,9 +380,11 @@ export function ProfilePopover() {
           left: pos?.left ?? profile.ancre.left,
           top: pos?.top ?? profile.ancre.bottom,
           width: CARD_WIDTH,
+          maxWidth: 'calc(100vw - 16px)',
+          maxHeight: 'calc(100vh - 16px)',
           visibility: pos === null ? 'hidden' : 'visible',
         }}
-        className="profile-card-canvas glass-strong popover-enter z-50 origin-top overflow-hidden rounded-xl focus:outline-none"
+        className="profile-card-canvas glass-strong popover-enter z-50 origin-top overflow-y-auto overscroll-contain rounded-xl focus:outline-none"
       >
         {effect?.render()}
         {cardGradient !== null && (

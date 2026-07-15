@@ -5,6 +5,7 @@ import { armAudioUnlock } from './lib/audio';
 import './styles/global.css';
 import './styles/theme-scenes.css';
 import './styles/profile-personalization.css';
+import './styles/profile-personalization-extra.css';
 import './styles/profile-surfaces.css';
 
 // Déverrouillage audio armé avant tout : le premier geste (clic, frappe —
