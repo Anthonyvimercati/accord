@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { EXTRA_AVATAR_DECORATIONS, EXTRA_PROFILE_EFFECTS } from './decorations-extra';
 
 export interface DecorationLabel {
   fr: string;
@@ -281,6 +282,7 @@ export const AVATAR_DECORATIONS: readonly AvatarDecoration[] = [
     label: { fr: 'Arcade', en: 'Arcade' },
     render: () => <ArcadeCrown />,
   },
+  ...EXTRA_AVATAR_DECORATIONS,
 ];
 
 function EffectLayer({
@@ -381,6 +383,7 @@ export const PROFILE_EFFECTS: readonly ProfileEffect[] = [
     label: { fr: 'Braises', en: 'Embers' },
     render: () => <EmbersEffect />,
   },
+  ...EXTRA_PROFILE_EFFECTS,
 ];
 
 const DECORATION_BY_ID = new Map(AVATAR_DECORATIONS.map((item) => [item.id, item]));

@@ -584,7 +584,7 @@ export function ServerRail() {
   return (
     <nav
       aria-label={t.app.name}
-      className="theme-surface-rail flex h-full w-[72px] flex-col items-center gap-2 overflow-y-auto bg-rail py-3"
+      className="theme-surface-rail flex h-full w-[72px] flex-col items-center gap-2 overflow-hidden bg-rail py-3"
     >
       <RailButton
         label={`${t.dm.directMessages}${badgeSuffix(t, dmBadge)}`}
@@ -604,55 +604,59 @@ export function ServerRail() {
 
       <div className="h-0.5 w-8 rounded-full bg-sidebar" role="separator" />
 
-      {railEntries.map((entry) => {
-        if (entry.kind === 'server') return renderServer(entry.id);
-        const { folder, memberIds } = entry;
-        const folderLabel = interpolate(t.folders.folderLabel, { name: folder.name });
-        return (
-          <div
-            key={`dossier-${folder.id}`}
-            className={`flex w-full flex-col items-center gap-2 ${
-              folder.collapsed ? '' : 'rounded-2xl bg-sidebar/40 pb-2'
-            }`}
-          >
-            <RailButton
-              label={`${folderLabel} — ${
-                folder.collapsed ? t.folders.expand : t.folders.collapse
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden py-1">
+        {railEntries.map((entry) => {
+          if (entry.kind === 'server') return renderServer(entry.id);
+          const { folder, memberIds } = entry;
+          const folderLabel = interpolate(t.folders.folderLabel, { name: folder.name });
+          return (
+            <div
+              key={`dossier-${folder.id}`}
+              className={`flex w-full flex-col items-center gap-2 ${
+                folder.collapsed ? '' : 'rounded-2xl bg-sidebar/40 pb-2'
               }`}
-              active={false}
-              onClick={() => useFolders.getState().toggleCollapsed(folder.id)}
-              onMenu={(x, y) =>
-                useContextMenu.getState().openMenu(x, y, buildFolderItems(folder))
-              }
             >
-              {folder.collapsed ? (
-                /* Plié : mini-aperçus des premières icônes du dossier. */
-                <span aria-hidden className="grid h-9 w-9 grid-cols-2 gap-0.5">
-                  {memberIds.slice(0, 4).map((memberId) => (
-                    <span
-                      key={memberId}
-                      className="flex items-center justify-center overflow-hidden rounded-full bg-rail text-[8px] text-norm"
-                    >
-                      <ServerIcon
-                        icon={states[memberId]?.icon ?? null}
-                        name={states[memberId]?.name ?? '…'}
-                      />
-                    </span>
-                  ))}
-                </span>
-              ) : (
-                <span
-                  className="flex items-center justify-center"
-                  style={folder.color !== undefined ? { color: folder.color } : undefined}
-                >
-                  <FolderSvg size={22} />
-                </span>
-              )}
-            </RailButton>
-            {!folder.collapsed && memberIds.map((memberId) => renderServer(memberId))}
-          </div>
-        );
-      })}
+              <RailButton
+                label={`${folderLabel} — ${
+                  folder.collapsed ? t.folders.expand : t.folders.collapse
+                }`}
+                active={false}
+                onClick={() => useFolders.getState().toggleCollapsed(folder.id)}
+                onMenu={(x, y) =>
+                  useContextMenu.getState().openMenu(x, y, buildFolderItems(folder))
+                }
+              >
+                {folder.collapsed ? (
+                  /* Plié : mini-aperçus des premières icônes du dossier. */
+                  <span aria-hidden className="grid h-9 w-9 grid-cols-2 gap-0.5">
+                    {memberIds.slice(0, 4).map((memberId) => (
+                      <span
+                        key={memberId}
+                        className="flex items-center justify-center overflow-hidden rounded-full bg-rail text-[8px] text-norm"
+                      >
+                        <ServerIcon
+                          icon={states[memberId]?.icon ?? null}
+                          name={states[memberId]?.name ?? '…'}
+                        />
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  <span
+                    className="flex items-center justify-center"
+                    style={
+                      folder.color !== undefined ? { color: folder.color } : undefined
+                    }
+                  >
+                    <FolderSvg size={22} />
+                  </span>
+                )}
+              </RailButton>
+              {!folder.collapsed && memberIds.map((memberId) => renderServer(memberId))}
+            </div>
+          );
+        })}
+      </div>
 
       <RailButton
         label={t.groups.create}

@@ -283,6 +283,53 @@ describe('useSession.switchAccount', () => {
   });
 });
 
+describe('useSession.activateAccount', () => {
+  it('garde la session courante intacte si la phrase de passe est incorrecte', async () => {
+    accountUnlockMock.mockRejectedValue(new Error('phrase de passe incorrecte'));
+    useDms.setState({ conversations: { ami: [] } });
+
+    await expect(
+      useSession.getState().activateAccount('a2', 'mauvaise-phrase'),
+    ).rejects.toThrow('phrase de passe incorrecte');
+
+    expect(useSession.getState().phase).toBe('ready');
+    expect(useSession.getState().self).toEqual(self);
+    expect(useDms.getState().conversations).toEqual({ ami: [] });
+    expect(closeMock).not.toHaveBeenCalled();
+    expect(sessionCloseMock).not.toHaveBeenCalled();
+  });
+
+  it('purge les données puis hydrate le compte choisi après validation', async () => {
+    const nextSelf = { ...self, pubkey: 'bb'.repeat(32), name: 'Béa' };
+    accountUnlockMock.mockResolvedValue({ port: 5252, token: 'autre-jeton' });
+    identitySelfMock.mockResolvedValue(nextSelf);
+    useGroups.setState({ ids: ['ancien'] });
+
+    await useSession.getState().activateAccount('a2', 'phrase-correcte');
+
+    expect(accountUnlockMock).toHaveBeenCalledWith('a2', 'phrase-correcte');
+    expect(closeMock).toHaveBeenCalledTimes(1);
+    expect(connectMock).toHaveBeenCalledWith(5252, 'autre-jeton');
+    expect(useGroups.getState().ids).toEqual([]);
+    expect(useSession.getState().phase).toBe('ready');
+    expect(useSession.getState().self).toEqual(nextSelf);
+  });
+
+  it('ferme la nouvelle session si son profil ne peut pas être hydraté', async () => {
+    accountUnlockMock.mockResolvedValue({ port: 5252, token: 'autre-jeton' });
+    identitySelfMock.mockRejectedValue(new Error('profil indisponible'));
+
+    await expect(
+      useSession.getState().activateAccount('a2', 'phrase-correcte'),
+    ).rejects.toThrow('profil indisponible');
+
+    expect(closeMock).toHaveBeenCalledTimes(2);
+    expect(sessionCloseMock).toHaveBeenCalledTimes(1);
+    expect(useSession.getState().phase).toBe('welcome');
+    expect(useSession.getState().self).toBeNull();
+  });
+});
+
 describe('useSession.unlockAccount', () => {
   it('unlocks the selected account and lands on ready', async () => {
     accountUnlockMock.mockResolvedValue({ port: 4242, token: 'jeton' });

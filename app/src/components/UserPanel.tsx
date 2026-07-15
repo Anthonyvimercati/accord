@@ -3,9 +3,8 @@
  * bandeau vocal (mute / raccrocher) au-dessus quand un salon est rejoint.
  * Le clic sur l'avatar/pseudo ouvre le menu utilisateur rapide, façon
  * Discord : statut (En ligne / Inactif / Ne pas déranger / Invisible + texte
- * personnalisé), copie de l'ID, et déconnexion rapide sans passer par les
- * Paramètres (voir `UserMenu`). Le profil complet reste accessible en
- * cliquant son propre avatar/pseudo sur un message envoyé.
+ * personnalisé), changement de compte et déconnexion rapide sans passer par
+ * les Paramètres (voir `UserMenu`).
  */
 
 import { useEffect, useState } from 'react';
@@ -26,7 +25,7 @@ import { Avatar } from './Avatar';
 import { PhoneOffIcon } from './ContextMenu';
 import { PresenceDot } from './PresenceDot';
 import { SoundboardButton } from './SoundboardButton';
-import { ownDotStatus, UserMenu } from './UserMenu';
+import { ownDotStatus } from './UserMenu';
 
 /** Icône casque, barrée en rouge quand la sortie est coupée (deafen). */
 function HeadphonesIcon({ deafened }: { deafened: boolean }) {
@@ -247,11 +246,12 @@ export function UserPanel() {
   const self = useSession((s) => s.self);
   const phase = useSession((s) => s.phase);
   const openModal = useUi((s) => s.openModal);
+  const profile = useUi((s) => s.profile);
+  const openProfile = useUi((s) => s.openProfile);
   const ownStatus = useFriends((s) => s.ownStatus);
   const ownStatusText = useFriends((s) => s.ownStatusText);
   const loadOwnStatus = useFriends((s) => s.loadOwnStatus);
   const callPhase = useCalls((s) => s.phase);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   useEffect(() => {
     loadOwnStatus().catch(() => {
@@ -267,17 +267,25 @@ export function UserPanel() {
   // Un appel et un salon de groupe ne coexistent jamais (voir CallBanner) :
   // le bandeau d'appel prime, jamais les deux affichés ensemble.
   const inCallPhase = callPhase === 'outgoing_ringing' || callPhase === 'active';
+  const userMenuOpen = profile?.pubkey === self.pubkey;
 
   return (
     <div className="relative border-t border-[color:var(--glass-border)]">
       {inCallPhase ? <CallBanner /> : <VoiceBanner />}
-      {userMenuOpen && <UserMenu onClose={() => setUserMenuOpen(false)} />}
       <div className="flex items-center gap-1.5 bg-rail/70 p-2">
         <button
           type="button"
           data-user-menu-trigger
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => setUserMenuOpen((open) => !open)}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            openProfile(self.pubkey, {
+              top: r.top,
+              left: r.left,
+              bottom: r.bottom,
+              right: r.right,
+            });
+          }}
           title={t.profil.userMenu}
           aria-label={t.profil.userMenu}
           aria-haspopup="dialog"
@@ -300,7 +308,9 @@ export function UserPanel() {
             />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold text-header">{displayName}</div>
+            <div className="truncate text-sm font-semibold text-header">
+              {displayName}
+            </div>
             <div className="truncate text-xs text-faint">
               {(ownStatusText ?? '') !== '' ? ownStatusText : self.friend_code}
             </div>
