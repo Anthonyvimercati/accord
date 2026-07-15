@@ -50,15 +50,15 @@ export function SettingsModal() {
         aria-modal="true"
         aria-label={t.settings.title}
         onKeyDown={(e) => bouclerTab(e, dialogRef.current)}
-        className="modal-panel-enter relative flex h-[94vh] w-[min(1100px,94vw)] overflow-hidden rounded-xl bg-chat shadow-3"
+        className="modal-panel-enter relative flex h-[94vh] w-[min(1100px,94vw)] overflow-hidden rounded-xl bg-chat shadow-3 max-sm:h-full max-sm:w-full max-sm:rounded-none"
       >
         <nav
           ref={navRef}
           aria-label={t.settings.title}
           onKeyDown={(e) => deplacerFocusVertical(e, navRef.current)}
-          className="flex w-1/3 min-w-[232px] shrink-0 justify-end overflow-y-auto border-r border-rail/60 bg-sidebar pb-10 pl-4 pr-2 pt-14"
+          className="flex w-[30%] min-w-[180px] shrink-0 justify-end overflow-y-auto border-r border-rail/60 bg-sidebar pb-8 pl-3 pr-2 pt-12 max-sm:w-[132px] max-sm:min-w-[132px] max-sm:pl-2 max-sm:pt-14"
         >
-          <div className="w-[212px]">
+          <div className="w-[212px] max-sm:w-full">
             {SETTINGS_GROUPS.map((group, index) => (
               <div key={group.id}>
                 {index > 0 && (
@@ -73,7 +73,7 @@ export function SettingsModal() {
                     type="button"
                     aria-current={tabId === tab.id ? 'page' : undefined}
                     onClick={() => setTabId(tab.id)}
-                    className={`mb-0.5 block w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+                    className={`mb-0.5 block min-h-9 w-full truncate rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                       tabId === tab.id
                         ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
                         : 'text-muted hover:bg-chat-hover hover:text-norm'
@@ -90,22 +90,22 @@ export function SettingsModal() {
         <div className="flex min-w-0 flex-1">
           <section
             aria-label={active.label(t)}
-            className="min-w-0 max-w-[740px] flex-1 overflow-y-auto px-10 pb-20 pt-14"
+            className="min-w-0 max-w-[740px] flex-1 overflow-y-auto px-6 pb-20 pt-14 max-sm:px-4"
           >
             <h2 className="mb-6 text-xl font-semibold text-header">{active.label(t)}</h2>
             <Content />
           </section>
-          <div className="w-[84px] shrink-0 pt-14">
+          <div className="absolute right-3 top-3">
             <button
               type="button"
               aria-label={t.app.close}
               onClick={closeModal}
               className="group flex flex-col items-center focus-visible:outline-none"
             >
-              <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-fast group-hover:border-norm group-hover:text-norm group-focus-visible:ring-2 group-focus-visible:ring-blurple group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-chat">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-fast group-hover:border-norm group-hover:text-norm group-focus-visible:ring-2 group-focus-visible:ring-blurple group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-chat">
                 <CloseIcon size={18} />
               </span>
-              <span className="mt-1.5 text-xs font-medium uppercase text-faint">
+              <span className="mt-1.5 text-xs font-medium uppercase text-faint max-sm:hidden">
                 {t.settings.escKey}
               </span>
             </button>

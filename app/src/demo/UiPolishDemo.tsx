@@ -9,16 +9,18 @@ import type {
 } from '../lib/api';
 import { AppShell } from '../components/AppShell';
 import { Toasts } from '../components/Toasts';
+import { THEME_LABEL_KEYS } from '../components/settings/AppearanceTab';
 import { useCalls } from '../stores/calls';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { channelKey, useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
-import { useUi, type Theme, type View } from '../stores/ui';
+import { THEME_IDS, useT, useUi, type Theme, type View } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import '../styles/global.css';
 import '../styles/theme-scenes.css';
 import '../styles/profile-personalization.css';
+import '../styles/profile-personalization-extra.css';
 import '../styles/profile-surfaces.css';
 
 const SELF_ID = 'demo-self';
@@ -399,6 +401,7 @@ function seedDemoStores(): void {
 seedDemoStores();
 
 function DemoToolbar() {
+  const t = useT();
   const theme = useUi((state) => state.theme);
   const view = useUi((state) => state.view);
   const setTheme = useUi((state) => state.setTheme);
@@ -410,20 +413,10 @@ function DemoToolbar() {
     { label: 'MP', view: { kind: 'dm', peer: 'noa' } },
     { label: 'Amis', view: { kind: 'friends' } },
   ];
-  const themes: Array<{ label: string; theme: Theme }> = [
-    { label: 'Sombre', theme: 'dark' },
-    { label: 'Clair', theme: 'light' },
-    { label: 'Minuit', theme: 'midnight' },
-    { label: 'Tempête', theme: 'storm' },
-    { label: 'Forêt', theme: 'forest' },
-    { label: 'Crépuscule', theme: 'sunset' },
-    { label: 'Océan', theme: 'ocean' },
-    { label: 'Cramoisi', theme: 'crimson' },
-    { label: 'Boréal', theme: 'boreal' },
-    { label: 'Papier solaire', theme: 'paper' },
-    { label: 'Topographie', theme: 'topography' },
-    { label: 'Signal fantôme', theme: 'signal' },
-  ];
+  const themes: Array<{ label: string; theme: Theme }> = THEME_IDS.map((id) => ({
+    label: t.settings[THEME_LABEL_KEYS[id]],
+    theme: id,
+  }));
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-3 border-b border-[color:var(--glass-border)] bg-rail px-4 shadow-1">
@@ -467,7 +460,7 @@ function DemoToolbar() {
           aria-label="Thème de démonstration"
           value={theme}
           onChange={(event) => setTheme(event.target.value as Theme)}
-          className="min-h-8 max-w-44 rounded-md border border-input bg-sidebar px-2 text-xs font-medium text-header outline-none transition-colors duration-fast focus:border-blurple/50 focus:ring-1 focus:ring-blurple/30"
+          className="min-h-8 max-w-44 rounded-md border border-input bg-sidebar px-2 text-xs font-medium text-header transition-colors duration-fast focus:border-blurple/50 focus-visible:ring-2 focus-visible:ring-header"
         >
           {themes.map((item) => (
             <option key={item.theme} value={item.theme}>

@@ -94,6 +94,14 @@ export const THEME_IDS = [
   'paper',
   'topography',
   'signal',
+  'nebula',
+  'synthwave',
+  'sakura',
+  'abyss',
+  'ember',
+  'frost',
+  'circuit',
+  'dream',
 ] as const;
 export type Theme = (typeof THEME_IDS)[number];
 export type Density = 'comfortable' | 'compact';
@@ -611,7 +619,11 @@ export const useUi = create<UiState>((set) => {
     openModal: (modal) => set({ modal }),
     closeModal: () => set({ modal: null }),
     openProfile: (pubkey, ancre, groupId = null) =>
-      set((s) => (s.profile?.pubkey === pubkey ? { profile: null } : { profile: { pubkey, ancre, groupId } })),
+      set((s) =>
+        s.profile?.pubkey === pubkey
+          ? { profile: null }
+          : { profile: { pubkey, ancre, groupId } },
+      ),
     closeProfile: () => set({ profile: null }),
     requestMentionInsert: (name) =>
       set((s) => ({ mentionInsert: { name, nonce: (s.mentionInsert?.nonce ?? 0) + 1 } })),

@@ -216,11 +216,11 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
         {t.onboarding.phraseTitle}
       </h1>
       <p className="mb-5 text-sm text-yellow">{t.onboarding.phraseWarning}</p>
-      <ol className="mb-4 grid grid-cols-3 gap-2">
+      <ol className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {words.map((word, i) => (
           <li
             key={`${word}-${i}`}
-            className="selectable rounded-md bg-rail px-2 py-1.5 font-mono text-sm text-header"
+            className="selectable break-all rounded-md bg-rail px-2 py-1.5 font-mono text-sm text-header"
           >
             <span className="mr-1.5 text-faint">{i + 1}.</span>
             {word}

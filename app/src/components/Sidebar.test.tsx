@@ -554,7 +554,7 @@ describe('Sidebar — bannière du serveur', () => {
 
     render(<Sidebar />);
 
-    expect(screen.getByTestId('server-header')).toHaveClass('h-32', 'bg-tooltip');
+    expect(screen.getByTestId('server-header')).toHaveClass('h-24', 'bg-tooltip');
     expect(screen.getByTestId('server-header')).toHaveStyle({
       backgroundImage:
         'linear-gradient(135deg, rgb(var(--color-blurple) / 0.72), rgb(var(--color-tooltip)))',
@@ -608,7 +608,7 @@ describe('Sidebar — bannière du serveur', () => {
 
     await waitFor(() => expect(lireFichierMock).toHaveBeenCalled());
     expect(screen.queryByTestId('server-banner')).not.toBeInTheDocument();
-    expect(screen.getByTestId('server-header')).toHaveClass('h-32', 'bg-tooltip');
+    expect(screen.getByTestId('server-header')).toHaveClass('h-24', 'bg-tooltip');
     // Une seule tentative — les reprises vivent dans lib/files, pas ici.
     expect(lireFichierMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: /Guilde/ })).toBeInTheDocument();

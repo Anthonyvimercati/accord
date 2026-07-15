@@ -132,6 +132,7 @@ export function ProfilePersonalization() {
                 avatarHash={self.avatar}
                 hint={self.pubkey}
                 decoration={decoration.id}
+                decorationMotion="interaction"
               />
               <span className="personalization-choice__label">
                 {decoration.label[lang]}

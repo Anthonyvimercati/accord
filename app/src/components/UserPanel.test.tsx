@@ -6,15 +6,27 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render as renderDom, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
+import type { AccountMeta } from '../lib/bridge';
 import { useCalls } from '../stores/calls';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
+import { ProfilePopover } from './ProfilePopover';
 import { UserPanel } from './UserPanel';
+
+function render(ui: ReactElement) {
+  return renderDom(
+    <>
+      {ui}
+      <ProfilePopover />
+    </>,
+  );
+}
 
 const self: SelfProfile = {
   node_id: 'n-moi',
@@ -59,7 +71,31 @@ const groupState: GroupStateJson = {
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr', toasts: [], profile: null, modal: null });
-  useSession.setState({ self, phase: 'ready' });
+  const accounts: AccountMeta[] = [
+    {
+      id: 'current',
+      name: 'Compte actuel',
+      created_ms: 1,
+      last_used_ms: 2,
+      is_legacy: false,
+      pubkey_short: 'moi',
+    },
+    {
+      id: 'other',
+      name: 'Compte secondaire',
+      created_ms: 1,
+      last_used_ms: 1,
+      is_legacy: false,
+      pubkey_short: 'autre',
+    },
+  ];
+  useSession.setState({
+    self,
+    phase: 'ready',
+    accounts,
+    error: null,
+    loadAccounts: vi.fn(async () => {}),
+  });
   useGroups.setState({ states: { g1: groupState } });
   useVoice.setState({ active: null, participants: new Map() });
   useCalls.setState({ phase: 'idle', peer: null, callId: null, sincePhaseMs: null });
@@ -91,7 +127,7 @@ describe('UserPanel — menu utilisateur rapide', () => {
 
     expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    expect(useUi.getState().profile).toBeNull();
+    expect(useUi.getState().profile?.pubkey).toBe('moi');
   });
 
   it('referme le panneau au second clic sur son déclencheur', () => {
@@ -135,23 +171,40 @@ describe('UserPanel — menu utilisateur rapide', () => {
     expect(setOwnStatus).toHaveBeenCalledWith('idle', 'en pause');
   });
 
-  it('copie son propre ID dans le presse-papiers', () => {
-    const writeText = vi.fn(() => Promise.resolve());
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    });
+  it('ouvre le choix de compte sans fermer la session active', () => {
+    const switchAccount = vi.fn(async () => {});
+    useSession.setState({ switchAccount });
     render(<UserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Copier l’identifiant utilisateur' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Changer de compte' }));
 
-    expect(writeText).toHaveBeenCalledWith('moi');
+    expect(screen.getByText('Choisir un compte')).toBeInTheDocument();
+    expect(screen.getByText('Compte secondaire')).toBeInTheDocument();
+    expect(switchAccount).not.toHaveBeenCalled();
+    expect(useSession.getState().phase).toBe('ready');
+    expect(useSession.getState().self).toEqual(self);
     expect(
-      screen.queryByRole('dialog', { name: 'Menu utilisateur' }),
+      screen.queryByRole('button', { name: 'Copier l’identifiant utilisateur' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('active le compte choisi seulement après saisie de la phrase de passe', async () => {
+    const activateAccount = vi.fn(async () => {});
+    useSession.setState({ activateAccount });
+    render(<UserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Changer de compte' }));
+    fireEvent.click(screen.getByRole('button', { name: /Compte secondaire/ }));
+    fireEvent.change(screen.getByLabelText('Phrase de passe'), {
+      target: { value: 'secret-local' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Ouvrir ce compte' }));
+
+    await waitFor(() =>
+      expect(activateAccount).toHaveBeenCalledWith('other', 'secret-local'),
+    );
   });
 
   it('ouvre directement les paramètres de profil', () => {
@@ -196,6 +249,21 @@ describe('UserPanel — menu utilisateur rapide', () => {
     expect(
       screen.queryByRole('dialog', { name: 'Menu utilisateur' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('piège le focus puis le rend au déclencheur', () => {
+    render(<UserPanel />);
+    const trigger = screen.getByRole('button', { name: 'Menu utilisateur' });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: 'Menu utilisateur' });
+    expect(dialog).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(screen.getByRole('button', { name: 'Se déconnecter' })).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(trigger).toHaveFocus();
   });
 });
 

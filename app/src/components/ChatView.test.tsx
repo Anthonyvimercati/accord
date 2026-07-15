@@ -376,6 +376,36 @@ describe('GroupView — statut personnalisé dans la liste des membres', () => {
     expect(screen.queryByText('En pleine partie')).not.toBeInTheDocument();
   });
 
+  it('ouvre la liste des membres dans un volet compact', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({
+          channels: [
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+          ],
+          members: [{ pubkey: PEER, roles: [] }],
+        }),
+      },
+    });
+
+    render(<GroupView groupId="g1" channelId="c1" />);
+    const trigger = screen.getByRole('button', { name: 'Membres' });
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: 'Membres' });
+    expect(dialog).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Fermer' }));
+    expect(trigger).toHaveFocus();
+  });
+
   it('affiche son propre texte de statut personnalisé dans la liste des membres', async () => {
     useSession.setState({
       self: {
@@ -440,7 +470,12 @@ describe('GroupView — purge (mode sélection)', () => {
       lamport,
       sent_ms: lamport * 1000,
       deleted: false,
-      body: { type: 'text' as const, text: `message ${id}`, reply_to: null, attachments: 0 },
+      body: {
+        type: 'text' as const,
+        text: `message ${id}`,
+        reply_to: null,
+        attachments: 0,
+      },
       edited: null,
     };
   }
@@ -513,9 +548,7 @@ describe('GroupView — purge (mode sélection)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Supprimer' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmer la suppression' }));
 
-    await waitFor(() =>
-      expect(purgeMock).toHaveBeenCalledWith('g1', 'c1', ['a', 'b']),
-    );
+    await waitFor(() => expect(purgeMock).toHaveBeenCalledWith('g1', 'c1', ['a', 'b']));
     // Sortie du mode : la barre disparaît.
     await waitFor(() =>
       expect(screen.queryByText(/sélectionné/)).not.toBeInTheDocument(),

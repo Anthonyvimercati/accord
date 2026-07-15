@@ -30,6 +30,7 @@ interface AvatarProps {
    * décorative (`pointer-events:none`) et se met à l'échelle avec `size`.
    */
   decoration?: string | null;
+  decorationMotion?: 'full' | 'interaction' | 'static';
 }
 
 export function Avatar({
@@ -41,6 +42,7 @@ export function Avatar({
   hint,
   online,
   decoration = null,
+  decorationMotion,
 }: AvatarProps) {
   const [url, setUrl] = useState<string | null>(null);
 
@@ -61,6 +63,7 @@ export function Avatar({
   }, [avatarHash, hint, imageUrl]);
 
   const resolvedUrl = imageUrl ?? url;
+  const motion = decorationMotion ?? (size >= 54 ? 'full' : 'interaction');
 
   const cercle = (
     <div
@@ -84,6 +87,7 @@ export function Avatar({
     return (
       <div
         className="avatar-root relative shrink-0"
+        data-decoration-motion={motion}
         style={{ width: size, height: size }}
       >
         {cercle}
@@ -95,7 +99,11 @@ export function Avatar({
   // Avec présence : pastille verte/grise en bas à droite.
   const pastille = Math.max(8, Math.round(size * 0.3));
   return (
-    <div className="avatar-root relative shrink-0" style={{ width: size, height: size }}>
+    <div
+      className="avatar-root relative shrink-0"
+      data-decoration-motion={motion}
+      style={{ width: size, height: size }}
+    >
       {cercle}
       {cadre}
       <span

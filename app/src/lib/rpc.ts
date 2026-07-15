@@ -59,6 +59,7 @@ export class RpcClient {
   private retryMs = RETRY_MIN_MS;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private statusValue: RpcStatus = 'idle';
+  private generation = 0;
 
   constructor(factory: WsFactory = defaultFactory) {
     this.factory = factory;
@@ -70,10 +71,19 @@ export class RpcClient {
 
   /** Ouvre la connexion et s'authentifie. Résout une fois prêt. */
   connect(port: number, token: string): Promise<void> {
+    const previous = this.ws;
+    const generation = ++this.generation;
+    this.ws = null;
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.failPending(new RpcCallError({ code: -1, message: 'connexion remplacée' }));
+    previous?.close();
     this.url = `ws://127.0.0.1:${port}/`;
     this.token = token;
     this.closedByUser = false;
-    return this.open();
+    return this.open(generation);
   }
 
   /** Appelle une méthode et rend son résultat typé par l'appelant. */
@@ -103,12 +113,16 @@ export class RpcClient {
 
   /** Ferme définitivement (pas de reconnexion). */
   close(): void {
+    const ws = this.ws;
+    this.generation += 1;
+    this.ws = null;
     this.closedByUser = true;
     if (this.retryTimer !== null) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
     }
-    this.ws?.close();
+    this.failPending(new RpcCallError({ code: -1, message: 'connexion fermée' }));
+    ws?.close();
     this.setStatus('closed');
   }
 
@@ -118,7 +132,7 @@ export class RpcClient {
     for (const handler of this.statusHandlers) handler(status);
   }
 
-  private open(): Promise<void> {
+  private open(generation = this.generation): Promise<void> {
     this.setStatus(this.statusValue === 'idle' ? 'connecting' : 'reconnecting');
     return new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -126,6 +140,14 @@ export class RpcClient {
       this.ws = ws;
 
       ws.onopen = () => {
+        if (generation !== this.generation || this.ws !== ws) {
+          if (!settled) {
+            settled = true;
+            reject(new RpcCallError({ code: -1, message: 'connexion remplacée' }));
+          }
+          ws.close();
+          return;
+        }
         // Auth obligatoire en première requête (API.md §Authentification).
         const id = this.nextId++;
         this.pending.set(id, {
@@ -152,17 +174,26 @@ export class RpcClient {
       };
 
       ws.onmessage = (ev) => {
+        if (generation !== this.generation || this.ws !== ws) return;
         if (typeof ev.data !== 'string') return;
         this.handleMessage(ev.data);
       };
 
       ws.onclose = () => {
+        if (generation !== this.generation || this.ws !== ws) {
+          if (!settled) {
+            settled = true;
+            reject(new RpcCallError({ code: -1, message: 'connexion remplacée' }));
+          }
+          return;
+        }
+        this.ws = null;
         this.failPending(new RpcCallError({ code: -1, message: 'connexion fermée' }));
         if (!settled) {
           settled = true;
           reject(new RpcCallError({ code: -1, message: 'connexion impossible' }));
         }
-        this.scheduleReconnect();
+        this.scheduleReconnect(generation);
       };
 
       ws.onerror = () => {
@@ -208,7 +239,8 @@ export class RpcClient {
     this.pending.clear();
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(generation: number): void {
+    if (generation !== this.generation) return;
     if (this.closedByUser) {
       this.setStatus('closed');
       return;
@@ -216,7 +248,8 @@ export class RpcClient {
     this.setStatus('reconnecting');
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      void this.open().catch(() => {
+      if (generation !== this.generation) return;
+      void this.open(generation).catch(() => {
         // Échec géré par onclose → nouvelle tentative planifiée.
       });
     }, this.retryMs);

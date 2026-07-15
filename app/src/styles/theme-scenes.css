@@ -14,6 +14,63 @@
   --theme-sidebar-size: auto;
   --theme-chat-size: auto;
   --theme-modal-size: auto;
+  --theme-motion-art: none;
+  --theme-motion-opacity: 0;
+  --theme-motion-duration: 24s;
+}
+
+.theme-surface-chat {
+  position: relative;
+  isolation: isolate;
+}
+
+.theme-surface-chat::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--theme-motion-art);
+  background-position: center;
+  background-size: 120% 120%;
+  opacity: var(--theme-motion-opacity);
+  pointer-events: none;
+  transform: translate3d(-2%, -1%, 0) scale(1.04);
+  animation: theme-scene-float var(--theme-motion-duration) ease-in-out infinite alternate;
+  animation-play-state: paused;
+  content: '';
+}
+
+.theme-preview__motion {
+  position: absolute;
+  inset: -20%;
+  background-image: var(--theme-motion-art);
+  background-position: center;
+  background-size: cover;
+  opacity: var(--theme-motion-opacity);
+  pointer-events: none;
+  animation: theme-scene-float 8s ease-in-out infinite alternate;
+  animation-play-state: paused;
+}
+
+:root:is(
+    [data-theme='nebula'],
+    [data-theme='synthwave'],
+    [data-theme='sakura'],
+    [data-theme='abyss'],
+    [data-theme='ember'],
+    [data-theme='frost'],
+    [data-theme='circuit'],
+    [data-theme='dream']
+  )
+  .theme-surface-chat::before,
+button[role='radio'][aria-checked='true'] .theme-preview__motion,
+button[role='radio']:is(:hover, :focus-visible) .theme-preview__motion {
+  animation-play-state: running;
+}
+
+@keyframes theme-scene-float {
+  to {
+    transform: translate3d(3%, 2%, 0) scale(1.08) rotate(0.6deg);
+  }
 }
 
 .theme-surface-rail,
@@ -79,6 +136,9 @@
   --theme-sidebar-size: auto;
   --theme-chat-size: auto;
   --theme-modal-size: auto;
+  --theme-motion-art: none;
+  --theme-motion-opacity: 0;
+  --theme-motion-duration: 24s;
 }
 
 .theme-preview__rail {
@@ -311,4 +371,423 @@
     rgb(215 56 135 / 0.07)
   );
   color-scheme: dark;
+}
+
+[data-theme='nebula'] {
+  --color-rail: 10 8 25;
+  --color-sidebar: 23 17 44;
+  --color-chat: 28 22 51;
+  --color-chat-hover: 38 30 65;
+  --color-input: 46 37 75;
+  --color-modal: 34 27 61;
+  --color-tooltip: 6 5 15;
+  --color-blurple: 105 78 220;
+  --color-blurple-hover: 84 60 185;
+  --color-link: 79 184 223;
+  --theme-accent-secondary: 223 72 175;
+  --ambient-a: 76 213 222;
+  --ambient-b: 218 73 181;
+  --ambient-alpha-a: 0.08;
+  --ambient-alpha-b: 0.07;
+  --theme-seam: rgb(129 103 232 / 0.18);
+  --theme-rail-art: radial-gradient(
+    circle at 40% 8%,
+    rgb(223 72 175 / 0.2),
+    transparent 42%
+  );
+  --theme-sidebar-art:
+    radial-gradient(circle at 12% 80%, rgb(75 202 222 / 0.12), transparent 42%),
+    linear-gradient(150deg, rgb(114 79 225 / 0.08), transparent 50%);
+  --theme-chat-art:
+    radial-gradient(circle, rgb(242 239 255 / 0.15) 0 1px, transparent 1.25px),
+    radial-gradient(ellipse at 80% 0%, rgb(223 72 175 / 0.08), transparent 42%);
+  --theme-chat-size: 52px 52px, auto;
+  --theme-modal-art: linear-gradient(
+    140deg,
+    rgb(79 203 222 / 0.06),
+    transparent 45%,
+    rgb(223 72 175 / 0.08)
+  );
+  --theme-motion-art:
+    radial-gradient(ellipse at 22% 36%, rgb(74 211 222 / 0.46), transparent 34%),
+    radial-gradient(ellipse at 74% 62%, rgb(225 70 178 / 0.42), transparent 38%),
+    radial-gradient(circle at 50% 20%, rgb(126 92 232 / 0.38), transparent 34%);
+  --theme-motion-opacity: 0.34;
+  --theme-motion-duration: 26s;
+  color-scheme: dark;
+}
+
+[data-theme='synthwave'] {
+  --color-rail: 14 7 27;
+  --color-sidebar: 30 14 47;
+  --color-chat: 24 17 44;
+  --color-chat-hover: 36 24 59;
+  --color-input: 48 30 68;
+  --color-modal: 38 22 57;
+  --color-tooltip: 7 4 14;
+  --color-blurple: 164 45 126;
+  --color-blurple-hover: 129 31 99;
+  --color-link: 49 186 218;
+  --theme-accent-secondary: 37 220 203;
+  --ambient-a: 250 58 168;
+  --ambient-b: 35 218 211;
+  --ambient-alpha-a: 0.075;
+  --ambient-alpha-b: 0.06;
+  --theme-seam: rgb(250 58 168 / 0.16);
+  --theme-rail-art: repeating-linear-gradient(
+    165deg,
+    transparent 0 12px,
+    rgb(250 58 168 / 0.1) 13px 14px
+  );
+  --theme-sidebar-art: linear-gradient(180deg, rgb(35 218 211 / 0.08), transparent 42%);
+  --theme-chat-art:
+    linear-gradient(rgb(35 218 211 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(250 58 168 / 0.04) 1px, transparent 1px),
+    radial-gradient(ellipse at 50% 100%, rgb(250 58 168 / 0.11), transparent 48%);
+  --theme-chat-size: 34px 34px, 34px 34px, auto;
+  --theme-modal-art: linear-gradient(
+    150deg,
+    rgb(250 58 168 / 0.07),
+    transparent 45%,
+    rgb(35 218 211 / 0.06)
+  );
+  --theme-motion-art:
+    conic-gradient(
+      from 240deg at 50% 80%,
+      transparent,
+      rgb(250 58 168 / 0.42),
+      transparent 28%
+    ),
+    radial-gradient(ellipse at 48% 85%, rgb(35 218 211 / 0.3), transparent 38%);
+  --theme-motion-opacity: 0.32;
+  --theme-motion-duration: 18s;
+  color-scheme: dark;
+}
+
+[data-theme='sakura'] {
+  --color-rail: 232 211 221;
+  --color-sidebar: 248 231 238;
+  --color-chat: 255 247 249;
+  --color-chat-hover: 245 229 235;
+  --color-input: 237 219 227;
+  --color-modal: 255 240 245;
+  --color-tooltip: 28 17 24;
+  --color-norm: 62 45 55;
+  --color-muted: 101 74 89;
+  --color-faint: 116 86 102;
+  --color-header: 40 25 34;
+  --color-blurple: 151 43 89;
+  --color-blurple-hover: 122 31 69;
+  --color-green: 29 112 75;
+  --color-red: 174 44 64;
+  --color-yellow: 130 82 0;
+  --color-link: 31 96 139;
+  --color-on-green: 255 255 255;
+  --color-on-red: 255 255 255;
+  --theme-accent-secondary: 190 77 118;
+  --ambient-a: 233 116 158;
+  --ambient-b: 139 109 194;
+  --ambient-alpha-a: 0.09;
+  --ambient-alpha-b: 0.055;
+  --theme-seam: rgb(116 74 95 / 0.14);
+  --theme-rail-art: radial-gradient(
+    circle at 35% 0%,
+    rgb(190 77 118 / 0.18),
+    transparent 45%
+  );
+  --theme-sidebar-art: radial-gradient(
+    ellipse at 0% 100%,
+    rgb(139 109 194 / 0.09),
+    transparent 46%
+  );
+  --theme-chat-art:
+    radial-gradient(ellipse at 92% 4%, rgb(233 116 158 / 0.1), transparent 38%),
+    radial-gradient(circle, rgb(151 43 89 / 0.05) 0 1px, transparent 1.3px);
+  --theme-chat-size: auto, 48px 48px;
+  --theme-modal-art: linear-gradient(
+    145deg,
+    rgb(233 116 158 / 0.08),
+    transparent 48%,
+    rgb(139 109 194 / 0.05)
+  );
+  --theme-motion-art:
+    radial-gradient(ellipse at 18% 28%, rgb(255 152 189 / 0.48), transparent 8%),
+    radial-gradient(ellipse at 68% 18%, rgb(230 112 163 / 0.42), transparent 7%),
+    radial-gradient(ellipse at 82% 72%, rgb(176 121 210 / 0.35), transparent 8%);
+  --theme-motion-opacity: 0.27;
+  --theme-motion-duration: 22s;
+  color-scheme: light;
+}
+
+[data-theme='abyss'] {
+  --color-rail: 3 17 25;
+  --color-sidebar: 7 34 46;
+  --color-chat: 10 42 56;
+  --color-chat-hover: 15 53 68;
+  --color-input: 20 62 76;
+  --color-modal: 11 49 64;
+  --color-tooltip: 2 10 16;
+  --color-blurple: 13 113 134;
+  --color-blurple-hover: 8 89 108;
+  --color-green: 48 190 148;
+  --color-link: 75 190 220;
+  --theme-accent-secondary: 57 210 181;
+  --ambient-a: 51 202 188;
+  --ambient-b: 36 116 188;
+  --ambient-alpha-a: 0.07;
+  --ambient-alpha-b: 0.07;
+  --theme-seam: rgb(57 210 181 / 0.16);
+  --theme-rail-art: linear-gradient(180deg, rgb(36 116 188 / 0.16), transparent 46%);
+  --theme-sidebar-art: radial-gradient(
+    ellipse at 20% 0%,
+    rgb(57 210 181 / 0.1),
+    transparent 48%
+  );
+  --theme-chat-art:
+    radial-gradient(circle, rgb(153 238 229 / 0.08) 0 1px, transparent 1.4px),
+    radial-gradient(ellipse at 84% 110%, rgb(36 116 188 / 0.13), transparent 45%);
+  --theme-chat-size: 64px 64px, auto;
+  --theme-modal-art: radial-gradient(
+    ellipse at 50% 110%,
+    rgb(57 210 181 / 0.1),
+    transparent 55%
+  );
+  --theme-motion-art:
+    radial-gradient(ellipse at 22% 88%, rgb(52 215 191 / 0.4), transparent 28%),
+    radial-gradient(ellipse at 74% 18%, rgb(37 128 202 / 0.42), transparent 34%);
+  --theme-motion-opacity: 0.3;
+  --theme-motion-duration: 30s;
+  color-scheme: dark;
+}
+
+[data-theme='ember'] {
+  --color-rail: 20 13 11;
+  --color-sidebar: 38 25 21;
+  --color-chat: 45 31 27;
+  --color-chat-hover: 56 39 33;
+  --color-input: 67 46 38;
+  --color-modal: 50 34 29;
+  --color-tooltip: 11 7 6;
+  --color-blurple: 181 63 31;
+  --color-blurple-hover: 145 45 20;
+  --color-green: 86 177 105;
+  --color-red: 238 82 65;
+  --color-link: 221 137 74;
+  --theme-accent-secondary: 231 155 61;
+  --ambient-a: 231 93 40;
+  --ambient-b: 244 178 64;
+  --ambient-alpha-a: 0.07;
+  --ambient-alpha-b: 0.045;
+  --theme-seam: rgb(231 123 50 / 0.16);
+  --theme-rail-art: radial-gradient(
+    circle at 50% 100%,
+    rgb(231 93 40 / 0.2),
+    transparent 48%
+  );
+  --theme-sidebar-art: linear-gradient(150deg, transparent 50%, rgb(244 178 64 / 0.08));
+  --theme-chat-art:
+    radial-gradient(circle, rgb(255 187 80 / 0.1) 0 1px, transparent 1.4px),
+    radial-gradient(ellipse at 5% 105%, rgb(231 93 40 / 0.14), transparent 42%);
+  --theme-chat-size: 58px 58px, auto;
+  --theme-modal-art: linear-gradient(
+    145deg,
+    rgb(231 93 40 / 0.08),
+    transparent 52%,
+    rgb(244 178 64 / 0.05)
+  );
+  --theme-motion-art:
+    radial-gradient(circle at 18% 82%, rgb(255 116 50 / 0.52), transparent 5%),
+    radial-gradient(circle at 58% 72%, rgb(255 194 73 / 0.46), transparent 4%),
+    radial-gradient(circle at 82% 90%, rgb(238 77 32 / 0.5), transparent 6%);
+  --theme-motion-opacity: 0.3;
+  --theme-motion-duration: 16s;
+  color-scheme: dark;
+}
+
+[data-theme='frost'] {
+  --color-rail: 210 226 235;
+  --color-sidebar: 232 242 247;
+  --color-chat: 247 252 255;
+  --color-chat-hover: 226 239 246;
+  --color-input: 216 233 241;
+  --color-modal: 241 249 253;
+  --color-tooltip: 15 28 38;
+  --color-norm: 36 54 66;
+  --color-muted: 69 91 105;
+  --color-faint: 85 107 120;
+  --color-header: 17 39 53;
+  --color-blurple: 48 86 158;
+  --color-blurple-hover: 35 65 126;
+  --color-green: 26 112 87;
+  --color-red: 177 49 58;
+  --color-yellow: 126 84 0;
+  --color-link: 22 98 145;
+  --color-on-green: 255 255 255;
+  --color-on-red: 255 255 255;
+  --theme-accent-secondary: 45 139 161;
+  --ambient-a: 96 188 217;
+  --ambient-b: 108 120 210;
+  --ambient-alpha-a: 0.09;
+  --ambient-alpha-b: 0.055;
+  --theme-seam: rgb(63 108 132 / 0.15);
+  --theme-rail-art: linear-gradient(155deg, rgb(48 134 158 / 0.12), transparent 52%);
+  --theme-sidebar-art: radial-gradient(
+    ellipse at 90% 0%,
+    rgb(108 120 210 / 0.08),
+    transparent 44%
+  );
+  --theme-chat-art:
+    linear-gradient(
+      135deg,
+      rgb(45 139 161 / 0.025) 25%,
+      transparent 25% 75%,
+      rgb(45 139 161 / 0.025) 75%
+    ),
+    radial-gradient(ellipse at 0% 105%, rgb(96 188 217 / 0.1), transparent 42%);
+  --theme-chat-size: 42px 42px, auto;
+  --theme-modal-art: linear-gradient(
+    140deg,
+    rgb(96 188 217 / 0.08),
+    transparent 48%,
+    rgb(108 120 210 / 0.05)
+  );
+  --theme-motion-art:
+    linear-gradient(
+      120deg,
+      transparent 20%,
+      rgb(162 229 243 / 0.44) 42%,
+      transparent 62%
+    ),
+    radial-gradient(ellipse at 72% 28%, rgb(133 154 228 / 0.3), transparent 32%);
+  --theme-motion-opacity: 0.26;
+  --theme-motion-duration: 28s;
+  color-scheme: light;
+}
+
+[data-theme='circuit'] {
+  --color-rail: 8 15 10;
+  --color-sidebar: 18 30 22;
+  --color-chat: 22 37 27;
+  --color-chat-hover: 31 49 36;
+  --color-input: 39 59 44;
+  --color-modal: 27 44 32;
+  --color-tooltip: 4 9 6;
+  --color-blurple: 52 124 51;
+  --color-blurple-hover: 38 96 39;
+  --color-green: 92 201 101;
+  --color-link: 87 194 150;
+  --theme-accent-secondary: 174 216 74;
+  --ambient-a: 93 213 109;
+  --ambient-b: 182 226 76;
+  --ambient-alpha-a: 0.055;
+  --ambient-alpha-b: 0.04;
+  --theme-seam: rgb(147 205 83 / 0.16);
+  --theme-rail-art: repeating-linear-gradient(
+    135deg,
+    transparent 0 11px,
+    rgb(174 216 74 / 0.08) 12px 13px
+  );
+  --theme-sidebar-art:
+    linear-gradient(rgb(93 213 109 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(93 213 109 / 0.035) 1px, transparent 1px);
+  --theme-sidebar-size: 28px 28px, 28px 28px;
+  --theme-chat-art:
+    linear-gradient(rgb(174 216 74 / 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(93 213 109 / 0.03) 1px, transparent 1px),
+    radial-gradient(circle at 85% 15%, rgb(174 216 74 / 0.08), transparent 34%);
+  --theme-chat-size: 36px 36px, 36px 36px, auto;
+  --theme-modal-art: linear-gradient(
+    145deg,
+    rgb(93 213 109 / 0.06),
+    transparent 48%,
+    rgb(174 216 74 / 0.05)
+  );
+  --theme-motion-art:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 12%,
+      rgb(174 216 74 / 0.26) 12.5% 13%,
+      transparent 13.5% 25%
+    ),
+    radial-gradient(circle at 65% 35%, rgb(93 213 109 / 0.42), transparent 24%);
+  --theme-motion-opacity: 0.25;
+  --theme-motion-duration: 20s;
+  color-scheme: dark;
+}
+
+[data-theme='dream'] {
+  --color-rail: 221 216 237;
+  --color-sidebar: 239 233 248;
+  --color-chat: 251 247 255;
+  --color-chat-hover: 235 228 246;
+  --color-input: 226 218 241;
+  --color-modal: 247 239 253;
+  --color-tooltip: 26 20 37;
+  --color-norm: 56 47 70;
+  --color-muted: 91 77 109;
+  --color-faint: 106 90 124;
+  --color-header: 34 27 46;
+  --color-blurple: 106 65 170;
+  --color-blurple-hover: 82 47 139;
+  --color-green: 31 113 81;
+  --color-red: 175 48 75;
+  --color-yellow: 126 79 0;
+  --color-link: 43 93 151;
+  --color-on-green: 255 255 255;
+  --color-on-red: 255 255 255;
+  --theme-accent-secondary: 182 78 151;
+  --ambient-a: 151 117 215;
+  --ambient-b: 230 118 180;
+  --ambient-alpha-a: 0.08;
+  --ambient-alpha-b: 0.065;
+  --theme-seam: rgb(91 76 119 / 0.14);
+  --theme-rail-art: radial-gradient(
+    circle at 40% 0%,
+    rgb(151 117 215 / 0.16),
+    transparent 45%
+  );
+  --theme-sidebar-art: linear-gradient(150deg, rgb(230 118 180 / 0.07), transparent 48%);
+  --theme-chat-art:
+    radial-gradient(ellipse at 80% 0%, rgb(151 117 215 / 0.09), transparent 40%),
+    radial-gradient(ellipse at 5% 100%, rgb(230 118 180 / 0.08), transparent 38%);
+  --theme-modal-art: linear-gradient(
+    140deg,
+    rgb(151 117 215 / 0.07),
+    transparent 46%,
+    rgb(230 118 180 / 0.06)
+  );
+  --theme-motion-art:
+    radial-gradient(ellipse at 22% 48%, rgb(183 149 232 / 0.4), transparent 28%),
+    radial-gradient(ellipse at 76% 34%, rgb(241 151 201 / 0.38), transparent 31%);
+  --theme-motion-opacity: 0.28;
+  --theme-motion-duration: 24s;
+  color-scheme: light;
+}
+
+:is([data-theme='sakura'], [data-theme='frost'], [data-theme='dream']) {
+  --shadow-elevation: 0 8px 16px rgb(62 48 74 / 0.12);
+  --shadow-modal: 0 12px 24px rgb(62 48 74 / 0.16);
+  --shadow-1: 0 1px 2px rgb(62 48 74 / 0.08);
+  --shadow-2: 0 2px 6px rgb(62 48 74 / 0.08), 0 12px 28px rgb(62 48 74 / 0.06);
+  --shadow-3: 0 8px 16px rgb(62 48 74 / 0.12), 0 24px 56px rgb(62 48 74 / 0.1);
+  --scrollbar-thumb: rgb(78 69 96 / 0.28);
+  --scrollbar-thumb-hover: rgb(78 69 96 / 0.42);
+  --glass-bg: rgb(var(--color-modal) / 0.82);
+  --glass-bg-strong: rgb(var(--color-modal) / 0.92);
+  --glass-border: rgb(69 56 84 / 0.14);
+  --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 0.78);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-surface-chat::before,
+  .theme-preview__motion {
+    animation: none;
+    transform: none;
+  }
+}
+
+:root[data-motion='reduce'] .theme-surface-chat::before,
+:root[data-motion='reduce'] .theme-preview__motion {
+  animation: none;
+  transform: none;
 }

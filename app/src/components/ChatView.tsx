@@ -5,7 +5,7 @@ import '../styles/chat-polish.css';
 import { interpolate } from '../i18n';
 import type { Contact, GroupThread, PresenceStatus, SelfProfile } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
-import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
+import { bouclerTab, estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
 import { formatTimestamp } from '../lib/format';
 import { useCalls } from '../stores/calls';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
@@ -155,6 +155,7 @@ function HeaderIconButton({
   active,
   onClick,
   ariaExpanded,
+  buttonRef,
   disabled = false,
   children,
 }: {
@@ -162,11 +163,13 @@ function HeaderIconButton({
   active: boolean;
   onClick: () => void;
   ariaExpanded?: boolean;
+  buttonRef?: React.Ref<HTMLButtonElement>;
   disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       title={label}
@@ -465,7 +468,7 @@ export function DmView({ peer }: { peer: string }) {
   );
 }
 
-function MemberList({ groupId }: { groupId: string }) {
+function MemberList({ groupId, fill = false }: { groupId: string; fill?: boolean }) {
   const t = useT();
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
@@ -624,8 +627,8 @@ function MemberList({ groupId }: { groupId: string }) {
 
   return (
     <aside
-      className="theme-surface-sidebar shrink-0 overflow-y-auto bg-sidebar p-2"
-      style={{ width: membersWidth }}
+      className="theme-surface-sidebar h-full shrink-0 overflow-y-auto bg-sidebar p-2"
+      style={{ width: fill ? '100%' : membersWidth }}
       aria-label={t.groups.members}
     >
       {populatedSections.map((section) => (
@@ -1033,6 +1036,8 @@ export function GroupView({
   const [pinsOpen, setPinsOpen] = useState(false);
   /** Popover de la liste des fils du salon (fermé par défaut). */
   const [threadsListOpen, setThreadsListOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const membersButtonRef = useRef<HTMLButtonElement>(null);
   /** Fil ouvert dans le panneau latéral (`null` : aucun). */
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   /** Message auquel la prochaine saisie répondra (null : envoi simple). */
@@ -1062,10 +1067,15 @@ export function GroupView({
 
   const channel = state?.channels.find((c) => c.channel_id === channelId);
   const canModerate = hasPerm(state?.my_permissions ?? 0, PERMISSIONS.MANAGE_MESSAGES);
+  const closeMembers = (): void => {
+    setMembersOpen(false);
+    membersButtonRef.current?.focus();
+  };
 
   useEffect(() => {
     setPinsOpen(false);
     setThreadsListOpen(false);
+    setMembersOpen(false);
     setOpenThreadId(null);
     setReplyTo(null);
     setSelecting(false);
@@ -1304,6 +1314,32 @@ export function GroupView({
             </>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <span className="lg:hidden">
+              <HeaderIconButton
+                label={t.groups.members}
+                active={membersOpen}
+                ariaExpanded={membersOpen}
+                buttonRef={membersButtonRef}
+                onClick={() => setMembersOpen((open) => !open)}
+              >
+                <svg
+                  width="19"
+                  height="19"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </HeaderIconButton>
+            </span>
             <HeaderIconButton
               label={t.threads.threadsList}
               active={threadsListOpen}
@@ -1481,7 +1517,7 @@ export function GroupView({
           onClose={() => setOpenThreadId(null)}
         />
       )}
-      <div className="group-chat-members flex min-w-0 shrink-0">
+      <div className="group-chat-members hidden min-w-0 shrink-0 lg:flex">
         <ResizeHandle
           value={membersWidth}
           min={MEMBERS_WIDTH_MIN}
@@ -1494,6 +1530,46 @@ export function GroupView({
         />
         <MemberList groupId={groupId} />
       </div>
+      {membersOpen && (
+        <div className="absolute inset-0 z-30 lg:hidden">
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={t.app.close}
+            onClick={closeMembers}
+            className="absolute inset-0 cursor-default bg-rail/65 backdrop-blur-[2px]"
+          />
+          <div
+            role="dialog"
+            aria-label={t.groups.members}
+            aria-modal="true"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') closeMembers();
+              else bouclerTab(e, e.currentTarget);
+            }}
+            className="absolute inset-y-0 right-0 flex max-w-[calc(100vw-48px)] flex-col overflow-hidden border-l border-[color:var(--glass-border)] bg-sidebar shadow-3"
+            style={{ width: membersWidth }}
+          >
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-[color:var(--glass-border)] px-3">
+              <span className="text-sm font-semibold text-header">
+                {t.groups.members}
+              </span>
+              <button
+                type="button"
+                autoFocus
+                aria-label={t.app.close}
+                onClick={closeMembers}
+                className="flex h-10 w-10 items-center justify-center rounded-md text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <MemberList groupId={groupId} fill />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
