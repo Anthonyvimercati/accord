@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { OwnPresenceStatus, PresenceStatus } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { profileCardGradient, profileColorCss } from '../lib/color';
-import { effectById } from '../lib/decorations';
+import { effectById, frameById } from '../lib/decorations';
 import type { AccountMeta } from '../lib/bridge';
 import { bouclerTab, focusables } from '../lib/focus';
 import { useFriends } from '../stores/friends';
@@ -246,6 +246,7 @@ export function UserMenu({
   const accentHex = profileColorCss(self.accent_color);
   const cardGradient = profileCardGradient(self.banner_color ?? self.accent_color);
   const effect = effectById(self.profile_effect);
+  const frame = frameById(self.profile_frame);
   const currentStatusLabel =
     options.find(({ status }) => status === ownStatus)?.label ?? t.profil.online;
 
@@ -324,412 +325,433 @@ export function UserMenu({
               visibility: position === null ? 'hidden' : 'visible',
             }),
       }}
-      className={`glass-strong context-menu-enter z-50 overflow-hidden rounded-xl shadow-3 focus:outline-none ${
+      className={`context-menu-enter z-50 focus:outline-none ${
         anchor === undefined
           ? 'absolute bottom-[calc(100%+10px)] left-2 origin-bottom-left'
           : 'origin-top-left'
       }`}
     >
-      <div
-        className="overflow-y-auto overscroll-contain"
-        style={{
-          maxHeight:
-            anchor === undefined
-              ? 'min(720px, calc(100vh - 80px))'
-              : 'calc(100vh - 16px)',
-        }}
-      >
-        <div className="profile-card-canvas min-h-full">
-          {effect?.render()}
-          {cardGradient !== null && (
-            <span
-              aria-hidden
-              className="profile-card-tint"
-              style={{ backgroundImage: cardGradient }}
-            />
-          )}
-
-          <div className="profile-card-content">
-            {view === 'profile' ? (
-              <>
-                <ProfileBanner
-                  hash={self.banner}
-                  hint={self.pubkey}
-                  color={self.banner_color}
-                  heightClassName="h-28"
-                />
-
-                <div className="-mt-11 px-4 pb-4">
-                  <div className="flex items-end justify-between gap-3">
-                    <div className="relative z-10 rounded-full bg-modal p-1 shadow-2">
-                      <Avatar
-                        id={self.pubkey}
-                        name={displayName}
-                        size={80}
-                        avatarHash={self.avatar}
-                        hint={self.pubkey}
-                        decoration={self.avatar_decoration}
-                      />
-                      <PresenceDot
-                        status={ownDotStatus(ownStatus)}
-                        label={currentStatusLabel}
-                        className="absolute bottom-1 right-1 rounded-full ring-[3px] ring-modal"
-                      />
-                    </div>
-                    <span className="mb-1 flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--glass-border)] bg-modal/75 px-2.5 py-1 text-xs font-medium text-muted shadow-1">
-                      <PresenceDot status={ownDotStatus(ownStatus)} />
-                      <span className="truncate">{currentStatusLabel}</span>
-                    </span>
-                  </div>
-
-                  <div className="mt-2">
-                    <h2
-                      className="truncate text-xl font-semibold tracking-[-0.02em] text-header"
-                      style={accentHex !== null ? { color: accentHex } : undefined}
-                    >
-                      {displayName}
-                    </h2>
-                    {self.pronouns !== null && self.pronouns !== '' && (
-                      <p className="mt-0.5 text-xs text-muted">{self.pronouns}</p>
-                    )}
-
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                      <span className="selectable min-w-0 truncate font-mono text-xs text-faint">
-                        {self.friend_code}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={t.profil.copyFriendCode}
-                        title={t.profil.copyFriendCode}
-                        onClick={copyFriendCode}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
-                      >
-                        <CopyMenuIcon />
-                      </button>
-                    </div>
-
-                    {ownStatusText !== null && ownStatusText !== '' && (
-                      <div className="mt-3 flex items-start gap-2 rounded-lg border border-[color:var(--glass-border)] bg-modal/55 px-3 py-2.5 text-sm text-norm shadow-1">
-                        <span className="mt-0.5 text-blurple">✦</span>
-                        <p className="min-w-0 break-words text-pretty">{ownStatusText}</p>
-                      </div>
-                    )}
-
-                    {self.bio !== null && self.bio !== '' && (
-                      <p className="mt-3 whitespace-pre-wrap break-words text-pretty text-sm leading-relaxed text-norm">
-                        {self.bio}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2 px-3 pb-3">
-                  <div className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1">
-                    <button type="button" onClick={editProfile} className={ACTION_CLASS}>
-                      <span className={ICON_FRAME_CLASS}>
-                        <PencilIcon />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {t.profil.editProfile}
-                      </span>
-                    </button>
-                    <div className="mx-3 h-px bg-input/70" role="separator" />
-                    <button
-                      type="button"
-                      aria-label={`${t.profil.setStatus} — ${currentStatusLabel}`}
-                      onClick={() => setView('status')}
-                      className={ACTION_CLASS}
-                    >
-                      <span className={ICON_FRAME_CLASS}>
-                        <PresenceDot status={ownDotStatus(ownStatus)} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {currentStatusLabel}
-                      </span>
-                      <span className="text-faint">
-                        <ChevronRightIcon />
-                      </span>
-                    </button>
-                  </div>
-
-                  <div className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1">
-                    <button type="button" onClick={openAccounts} className={ACTION_CLASS}>
-                      <span className={ICON_FRAME_CLASS}>
-                        <SwitchAccountIcon />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {t.profil.switchAccount}
-                      </span>
-                      <span className="text-faint">
-                        <ChevronRightIcon />
-                      </span>
-                    </button>
-                  </div>
-
-                  {!confirmingLogout ? (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmingLogout(true)}
-                      className={`${ACTION_CLASS} border border-red/20 bg-red/10 text-red hover:bg-red/15 hover:text-red`}
-                    >
-                      <span className={`${ICON_FRAME_CLASS} bg-red/10 text-red`}>
-                        <LeaveMenuIcon />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">{t.settings.logout}</span>
-                    </button>
-                  ) : (
-                    <div className="rounded-lg border border-red/20 bg-sidebar/85 p-3 shadow-1">
-                      <p className="text-pretty text-sm text-norm">
-                        {t.settings.logoutConfirmText}
-                      </p>
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={confirmLogout}
-                          className="min-h-10 flex-1 rounded-md bg-red px-3 text-sm font-medium text-on-red transition-[filter,transform] duration-fast hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red active:scale-[0.98]"
-                        >
-                          {t.settings.logoutConfirm}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmingLogout(false)}
-                          className="min-h-10 rounded-md bg-input px-3 text-sm font-medium text-norm transition-[background-color,transform] duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
-                        >
-                          {t.app.cancel}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : view === 'status' ? (
-              <div className="p-3">
-                <div className="flex items-center gap-2 px-1 pb-3">
-                  <button
-                    type="button"
-                    aria-label={t.profil.backToProfile}
-                    onClick={() => setView('profile')}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
-                  >
-                    <BackIcon />
-                  </button>
-                  <div>
-                    <h2 className="text-lg font-semibold text-header">
-                      {t.profil.setStatus}
-                    </h2>
-                    <p className="text-xs text-muted">{currentStatusLabel}</p>
-                  </div>
-                </div>
-
-                <div
-                  role="radiogroup"
-                  aria-label={t.profil.setStatus}
-                  className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1"
-                >
-                  {options.map(({ status, label }, index) => {
-                    const checked = ownStatus === status;
-                    return (
-                      <div key={status}>
-                        {index > 0 && <div className="mx-3 h-px bg-input/70" />}
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={checked}
-                          onClick={() => {
-                            applyStatus(status);
-                            onClose();
-                          }}
-                          className={`${ACTION_CLASS} ${checked ? 'bg-chat-hover text-header' : ''}`}
-                        >
-                          <span className={ICON_FRAME_CLASS}>
-                            <PresenceDot status={ownDotStatus(status)} />
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">{label}</span>
-                          {checked && (
-                            <span className="flex h-6 w-6 items-center justify-center text-header">
-                              <CheckMenuIcon />
-                            </span>
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-3 rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-3 shadow-1">
-                  <label
-                    htmlFor="user-custom-status"
-                    className="text-xs font-medium text-muted"
-                  >
-                    {t.profil.customStatusPlaceholder}
-                  </label>
-                  <div className="mt-2">
-                    <input
-                      id="user-custom-status"
-                      value={draft}
-                      maxLength={128}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          applyStatus(ownStatus, draft);
-                          onClose();
-                        }
-                      }}
-                      className="min-h-10 w-full rounded-md border border-transparent bg-input px-3 text-sm text-norm placeholder-faint outline-none transition-[border-color,box-shadow] duration-fast focus:border-blurple/50 focus:ring-1 focus:ring-blurple/25"
-                    />
-                    <div className="mt-2 flex items-center gap-2">
-                      <p className="min-w-0 flex-1 truncate text-xs text-faint">
-                        {t.profil.customStatusHint}
-                      </p>
-                      {(ownStatusText ?? '') !== '' && (
-                        <button
-                          type="button"
-                          aria-label={t.profil.clearCustomStatus}
-                          title={t.profil.clearCustomStatus}
-                          onClick={() => {
-                            applyStatus(ownStatus, '');
-                            onClose();
-                          }}
-                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
-                        >
-                          <CloseIcon size={15} />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          applyStatus(ownStatus, draft);
-                          onClose();
-                        }}
-                        className="min-h-10 rounded-md bg-blurple px-3 text-sm font-medium text-white transition-[background-color,transform] duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
-                      >
-                        {t.profil.saveStatus}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="p-3">
-                <div className="flex items-center gap-2 px-1 pb-3">
-                  <button
-                    type="button"
-                    aria-label={t.profil.backToProfile}
-                    onClick={() => setView('profile')}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
-                  >
-                    <BackIcon />
-                  </button>
-                  <div className="min-w-0">
-                    <h2 className="truncate text-lg font-semibold text-header">
-                      {t.profil.chooseAccount}
-                    </h2>
-                    <p className="text-xs text-muted">{t.profil.chooseAccountHint}</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {accounts.map((account) => {
-                    const current = accountIsCurrent(
-                      account,
-                      self.pubkey,
-                      accounts.length,
-                    );
-                    const selected = selectedAccount === account.id;
-                    return (
-                      <div
-                        key={account.id}
-                        className={`overflow-hidden rounded-lg border bg-sidebar/80 shadow-1 ${
-                          selected
-                            ? 'border-blurple/60'
-                            : 'border-[color:var(--glass-border)]'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          disabled={current || switching}
-                          aria-expanded={selected}
-                          onClick={() => {
-                            setSelectedAccount(selected ? null : account.id);
-                            setPassphrase('');
-                          }}
-                          className="flex min-h-14 w-full items-center gap-3 px-3 text-left transition-[background-color,opacity] duration-fast hover:bg-chat-hover disabled:cursor-default disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple"
-                        >
-                          <Avatar
-                            id={account.id}
-                            name={account.name}
-                            size={38}
-                            avatarHash={null}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold text-header">
-                              {account.name}
-                            </span>
-                            <span className="block truncate font-mono text-[11px] text-faint">
-                              {current
-                                ? t.profil.currentAccount
-                                : (account.pubkey_short ?? t.profil.localAccount)}
-                            </span>
-                          </span>
-                          {!current && (
-                            <span className="text-faint">
-                              <ChevronRightIcon />
-                            </span>
-                          )}
-                        </button>
-                        {selected && !current && (
-                          <form
-                            className="border-t border-[color:var(--glass-border)] p-3"
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              void activateSelectedAccount();
-                            }}
-                          >
-                            <label
-                              htmlFor={`account-passphrase-${account.id}`}
-                              className="text-xs font-medium text-muted"
-                            >
-                              {t.onboarding.passphrase}
-                            </label>
-                            <input
-                              id={`account-passphrase-${account.id}`}
-                              type="password"
-                              autoFocus
-                              value={passphrase}
-                              onChange={(e) => setPassphrase(e.target.value)}
-                              className="mt-2 min-h-10 w-full rounded-md border border-transparent bg-input px-3 text-sm text-norm outline-none transition-[border-color,box-shadow] duration-fast focus:border-blurple/50 focus:ring-1 focus:ring-blurple/25"
-                            />
-                            {accountError !== null && (
-                              <p
-                                role="alert"
-                                className="mt-2 text-pretty text-xs text-red"
-                              >
-                                {accountError}
-                              </p>
-                            )}
-                            <button
-                              type="submit"
-                              disabled={passphrase === '' || switching}
-                              className="mt-3 min-h-10 w-full rounded-md bg-blurple px-3 text-sm font-medium text-white transition-[background-color,transform,opacity] duration-fast hover:bg-blurple-hover disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
-                            >
-                              {switching ? t.app.loading : t.profil.confirmAccountSwitch}
-                            </button>
-                          </form>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={addAccount}
-                  className="mt-3 min-h-11 w-full rounded-md border border-[color:var(--glass-border)] bg-input/70 px-3 text-sm font-medium text-norm transition-[background-color,transform] duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
-                >
-                  {t.onboarding.addAccount}
-                </button>
-              </div>
+      {/* Même enveloppe que la carte de profil (`ProfilePopover`) : le cadre
+          déborde de la surface, qui doit donc rester `overflow: visible` et
+          porter l'arrondi/rognage sur la couche intérieure. Sans elle, le
+          profil ouvert depuis le panneau utilisateur perdait son cadre. */}
+      <div className="profile-card-shell">
+        {frame?.render()}
+        <div
+          className="profile-card-shell__surface glass-strong overflow-y-auto overscroll-contain rounded-xl"
+          style={{
+            maxHeight:
+              anchor === undefined
+                ? 'min(720px, calc(100vh - 80px))'
+                : 'calc(100vh - 16px)',
+          }}
+        >
+          <div className="profile-card-canvas min-h-full">
+            {effect?.render()}
+            {cardGradient !== null && (
+              <span
+                aria-hidden
+                className="profile-card-tint"
+                style={{ backgroundImage: cardGradient }}
+              />
             )}
+
+            <div className="profile-card-content">
+              {view === 'profile' ? (
+                <>
+                  <ProfileBanner
+                    hash={self.banner}
+                    hint={self.pubkey}
+                    color={self.banner_color}
+                    heightClassName="h-28"
+                  />
+
+                  <div className="-mt-11 px-4 pb-4">
+                    <div className="flex items-end justify-between gap-3">
+                      <div className="relative z-10 rounded-full bg-modal p-1 shadow-2">
+                        <Avatar
+                          id={self.pubkey}
+                          name={displayName}
+                          size={80}
+                          avatarHash={self.avatar}
+                          hint={self.pubkey}
+                          decoration={self.avatar_decoration}
+                        />
+                        <PresenceDot
+                          status={ownDotStatus(ownStatus)}
+                          label={currentStatusLabel}
+                          className="absolute bottom-1 right-1 rounded-full ring-[3px] ring-modal"
+                        />
+                      </div>
+                      <span className="mb-1 flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--glass-border)] bg-modal/75 px-2.5 py-1 text-xs font-medium text-muted shadow-1">
+                        <PresenceDot status={ownDotStatus(ownStatus)} />
+                        <span className="truncate">{currentStatusLabel}</span>
+                      </span>
+                    </div>
+
+                    <div className="mt-2">
+                      <h2
+                        className="truncate text-xl font-semibold tracking-[-0.02em] text-header"
+                        style={accentHex !== null ? { color: accentHex } : undefined}
+                      >
+                        {displayName}
+                      </h2>
+                      {self.pronouns !== null && self.pronouns !== '' && (
+                        <p className="mt-0.5 text-xs text-muted">{self.pronouns}</p>
+                      )}
+
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <span className="selectable min-w-0 truncate font-mono text-xs text-faint">
+                          {self.friend_code}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={t.profil.copyFriendCode}
+                          title={t.profil.copyFriendCode}
+                          onClick={copyFriendCode}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
+                        >
+                          <CopyMenuIcon />
+                        </button>
+                      </div>
+
+                      {ownStatusText !== null && ownStatusText !== '' && (
+                        <div className="mt-3 flex items-start gap-2 rounded-lg border border-[color:var(--glass-border)] bg-modal/55 px-3 py-2.5 text-sm text-norm shadow-1">
+                          <span className="mt-0.5 text-blurple">✦</span>
+                          <p className="min-w-0 break-words text-pretty">
+                            {ownStatusText}
+                          </p>
+                        </div>
+                      )}
+
+                      {self.bio !== null && self.bio !== '' && (
+                        <p className="mt-3 whitespace-pre-wrap break-words text-pretty text-sm leading-relaxed text-norm">
+                          {self.bio}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 px-3 pb-3">
+                    <div className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1">
+                      <button
+                        type="button"
+                        onClick={editProfile}
+                        className={ACTION_CLASS}
+                      >
+                        <span className={ICON_FRAME_CLASS}>
+                          <PencilIcon />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {t.profil.editProfile}
+                        </span>
+                      </button>
+                      <div className="mx-3 h-px bg-input/70" role="separator" />
+                      <button
+                        type="button"
+                        aria-label={`${t.profil.setStatus} — ${currentStatusLabel}`}
+                        onClick={() => setView('status')}
+                        className={ACTION_CLASS}
+                      >
+                        <span className={ICON_FRAME_CLASS}>
+                          <PresenceDot status={ownDotStatus(ownStatus)} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {currentStatusLabel}
+                        </span>
+                        <span className="text-faint">
+                          <ChevronRightIcon />
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1">
+                      <button
+                        type="button"
+                        onClick={openAccounts}
+                        className={ACTION_CLASS}
+                      >
+                        <span className={ICON_FRAME_CLASS}>
+                          <SwitchAccountIcon />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {t.profil.switchAccount}
+                        </span>
+                        <span className="text-faint">
+                          <ChevronRightIcon />
+                        </span>
+                      </button>
+                    </div>
+
+                    {!confirmingLogout ? (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingLogout(true)}
+                        className={`${ACTION_CLASS} border border-red/20 bg-red/10 text-red hover:bg-red/15 hover:text-red`}
+                      >
+                        <span className={`${ICON_FRAME_CLASS} bg-red/10 text-red`}>
+                          <LeaveMenuIcon />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {t.settings.logout}
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="rounded-lg border border-red/20 bg-sidebar/85 p-3 shadow-1">
+                        <p className="text-pretty text-sm text-norm">
+                          {t.settings.logoutConfirmText}
+                        </p>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={confirmLogout}
+                            className="min-h-10 flex-1 rounded-md bg-red px-3 text-sm font-medium text-on-red transition-[filter,transform] duration-fast hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red active:scale-[0.98]"
+                          >
+                            {t.settings.logoutConfirm}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingLogout(false)}
+                            className="min-h-10 rounded-md bg-input px-3 text-sm font-medium text-norm transition-[background-color,transform] duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
+                          >
+                            {t.app.cancel}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : view === 'status' ? (
+                <div className="p-3">
+                  <div className="flex items-center gap-2 px-1 pb-3">
+                    <button
+                      type="button"
+                      aria-label={t.profil.backToProfile}
+                      onClick={() => setView('profile')}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
+                    >
+                      <BackIcon />
+                    </button>
+                    <div>
+                      <h2 className="text-lg font-semibold text-header">
+                        {t.profil.setStatus}
+                      </h2>
+                      <p className="text-xs text-muted">{currentStatusLabel}</p>
+                    </div>
+                  </div>
+
+                  <div
+                    role="radiogroup"
+                    aria-label={t.profil.setStatus}
+                    className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1"
+                  >
+                    {options.map(({ status, label }, index) => {
+                      const checked = ownStatus === status;
+                      return (
+                        <div key={status}>
+                          {index > 0 && <div className="mx-3 h-px bg-input/70" />}
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={checked}
+                            onClick={() => {
+                              applyStatus(status);
+                              onClose();
+                            }}
+                            className={`${ACTION_CLASS} ${checked ? 'bg-chat-hover text-header' : ''}`}
+                          >
+                            <span className={ICON_FRAME_CLASS}>
+                              <PresenceDot status={ownDotStatus(status)} />
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">{label}</span>
+                            {checked && (
+                              <span className="flex h-6 w-6 items-center justify-center text-header">
+                                <CheckMenuIcon />
+                              </span>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-3 shadow-1">
+                    <label
+                      htmlFor="user-custom-status"
+                      className="text-xs font-medium text-muted"
+                    >
+                      {t.profil.customStatusPlaceholder}
+                    </label>
+                    <div className="mt-2">
+                      <input
+                        id="user-custom-status"
+                        value={draft}
+                        maxLength={128}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            applyStatus(ownStatus, draft);
+                            onClose();
+                          }
+                        }}
+                        className="min-h-10 w-full rounded-md border border-transparent bg-input px-3 text-sm text-norm placeholder-faint outline-none transition-[border-color,box-shadow] duration-fast focus:border-blurple/50 focus:ring-1 focus:ring-blurple/25"
+                      />
+                      <div className="mt-2 flex items-center gap-2">
+                        <p className="min-w-0 flex-1 truncate text-xs text-faint">
+                          {t.profil.customStatusHint}
+                        </p>
+                        {(ownStatusText ?? '') !== '' && (
+                          <button
+                            type="button"
+                            aria-label={t.profil.clearCustomStatus}
+                            title={t.profil.clearCustomStatus}
+                            onClick={() => {
+                              applyStatus(ownStatus, '');
+                              onClose();
+                            }}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
+                          >
+                            <CloseIcon size={15} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            applyStatus(ownStatus, draft);
+                            onClose();
+                          }}
+                          className="min-h-10 rounded-md bg-blurple px-3 text-sm font-medium text-white transition-[background-color,transform] duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
+                        >
+                          {t.profil.saveStatus}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3">
+                  <div className="flex items-center gap-2 px-1 pb-3">
+                    <button
+                      type="button"
+                      aria-label={t.profil.backToProfile}
+                      onClick={() => setView('profile')}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
+                    >
+                      <BackIcon />
+                    </button>
+                    <div className="min-w-0">
+                      <h2 className="truncate text-lg font-semibold text-header">
+                        {t.profil.chooseAccount}
+                      </h2>
+                      <p className="text-xs text-muted">{t.profil.chooseAccountHint}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {accounts.map((account) => {
+                      const current = accountIsCurrent(
+                        account,
+                        self.pubkey,
+                        accounts.length,
+                      );
+                      const selected = selectedAccount === account.id;
+                      return (
+                        <div
+                          key={account.id}
+                          className={`overflow-hidden rounded-lg border bg-sidebar/80 shadow-1 ${
+                            selected
+                              ? 'border-blurple/60'
+                              : 'border-[color:var(--glass-border)]'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            disabled={current || switching}
+                            aria-expanded={selected}
+                            onClick={() => {
+                              setSelectedAccount(selected ? null : account.id);
+                              setPassphrase('');
+                            }}
+                            className="flex min-h-14 w-full items-center gap-3 px-3 text-left transition-[background-color,opacity] duration-fast hover:bg-chat-hover disabled:cursor-default disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple"
+                          >
+                            <Avatar
+                              id={account.id}
+                              name={account.name}
+                              size={38}
+                              avatarHash={null}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold text-header">
+                                {account.name}
+                              </span>
+                              <span className="block truncate font-mono text-[11px] text-faint">
+                                {current
+                                  ? t.profil.currentAccount
+                                  : (account.pubkey_short ?? t.profil.localAccount)}
+                              </span>
+                            </span>
+                            {!current && (
+                              <span className="text-faint">
+                                <ChevronRightIcon />
+                              </span>
+                            )}
+                          </button>
+                          {selected && !current && (
+                            <form
+                              className="border-t border-[color:var(--glass-border)] p-3"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                void activateSelectedAccount();
+                              }}
+                            >
+                              <label
+                                htmlFor={`account-passphrase-${account.id}`}
+                                className="text-xs font-medium text-muted"
+                              >
+                                {t.onboarding.passphrase}
+                              </label>
+                              <input
+                                id={`account-passphrase-${account.id}`}
+                                type="password"
+                                autoFocus
+                                value={passphrase}
+                                onChange={(e) => setPassphrase(e.target.value)}
+                                className="mt-2 min-h-10 w-full rounded-md border border-transparent bg-input px-3 text-sm text-norm outline-none transition-[border-color,box-shadow] duration-fast focus:border-blurple/50 focus:ring-1 focus:ring-blurple/25"
+                              />
+                              {accountError !== null && (
+                                <p
+                                  role="alert"
+                                  className="mt-2 text-pretty text-xs text-red"
+                                >
+                                  {accountError}
+                                </p>
+                              )}
+                              <button
+                                type="submit"
+                                disabled={passphrase === '' || switching}
+                                className="mt-3 min-h-10 w-full rounded-md bg-blurple px-3 text-sm font-medium text-white transition-[background-color,transform,opacity] duration-fast hover:bg-blurple-hover disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
+                              >
+                                {switching
+                                  ? t.app.loading
+                                  : t.profil.confirmAccountSwitch}
+                              </button>
+                            </form>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addAccount}
+                    className="mt-3 min-h-11 w-full rounded-md border border-[color:var(--glass-border)] bg-input/70 px-3 text-sm font-medium text-norm transition-[background-color,transform] duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
+                  >
+                    {t.onboarding.addAccount}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

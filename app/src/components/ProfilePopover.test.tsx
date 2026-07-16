@@ -28,6 +28,7 @@ const MOI: SelfProfile = {
   banner_color: null,
   avatar_decoration: null,
   profile_effect: null,
+  profile_frame: null,
 };
 
 const AMI: Contact = {
@@ -244,6 +245,26 @@ describe('ProfilePopover — pseudos de serveur', () => {
     expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
   });
 
+  it('rend le cadre et l’effet dans le menu ouvert depuis le panneau local', () => {
+    useSession.setState({
+      self: { ...MOI, profile_effect: 'starfield', profile_frame: 'lumen_bloom' },
+    });
+    openFor('moi', null, 'user-menu');
+    render(<ProfilePopover />);
+
+    expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
+    expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
+    expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
+  });
+
+  it('n’affiche aucun cadre dans le menu local sans cadre choisi', () => {
+    useSession.setState({ self: { ...MOI, profile_frame: null } });
+    openFor('moi', null, 'user-menu');
+    render(<ProfilePopover />);
+
+    expect(screen.queryByTestId('profile-frame')).not.toBeInTheDocument();
+  });
+
   it('ne montre pas le champ de pseudo hors contexte de serveur', () => {
     openFor('moi');
     render(<ProfilePopover />);
@@ -353,12 +374,13 @@ describe('ProfilePopover — bio et liens', () => {
 });
 
 describe('ProfilePopover — personnalisation', () => {
-  it("rend la décoration et l'effet du profil local sur toute la carte", () => {
+  it("rend séparément la décoration, l'effet et le cadre du profil local", () => {
     useSession.setState({
       self: {
         ...MOI,
         avatar_decoration: 'aurora_ring',
-        profile_effect: 'lumen_bloom',
+        profile_effect: 'starfield',
+        profile_frame: 'lumen_bloom',
       },
     });
     openFor('moi');
@@ -369,13 +391,14 @@ describe('ProfilePopover — personnalisation', () => {
     expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
   });
 
-  it("rend la décoration et l'effet annoncés par un ami", () => {
+  it("rend séparément la décoration, l'effet et le cadre annoncés par un ami", () => {
     useFriends.setState({
       contacts: [
         {
           ...AMI,
           avatar_decoration: 'sakura_arc',
           profile_effect: 'falling_petals',
+          profile_frame: 'crystal_crown',
         },
       ],
     });
@@ -384,18 +407,27 @@ describe('ProfilePopover — personnalisation', () => {
 
     expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
     expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
+    expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
   });
 
   it("ignore les ids inconnus d'un pair sans les refléter dans le DOM", () => {
     const hostile = '"><style>body{display:none}</style>';
     useFriends.setState({
-      contacts: [{ ...AMI, avatar_decoration: hostile, profile_effect: hostile }],
+      contacts: [
+        {
+          ...AMI,
+          avatar_decoration: hostile,
+          profile_effect: hostile,
+          profile_frame: hostile,
+        },
+      ],
     });
     openFor('ami-pk');
     const { container } = render(<ProfilePopover />);
 
     expect(screen.queryByTestId('avatar-decoration')).not.toBeInTheDocument();
     expect(screen.queryByTestId('profile-effect')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('profile-frame')).not.toBeInTheDocument();
     expect(container.innerHTML).not.toContain(hostile);
   });
 });
