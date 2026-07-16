@@ -401,7 +401,7 @@ describe('MessageInput — composeur en lecture seule', () => {
       { members: [{ pubkey: 'moi', roles: [], timeout_until_ms: Date.now() + 60_000 }] },
       'text',
     );
-    render(
+    const { container } = render(
       <MessageInput
         placeholder="Écrire dans #salon"
         onSend={vi.fn()}
@@ -412,6 +412,7 @@ describe('MessageInput — composeur en lecture seule', () => {
 
     expect(screen.getByRole('status').textContent).toMatch(/sourdine/);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass('pb-1');
   });
 
   it('passe un salon d’annonces en lecture seule sans MANAGE_CHANNELS', () => {
