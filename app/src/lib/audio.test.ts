@@ -222,8 +222,7 @@ describe('audio partagé (lib/audio)', () => {
       const context = FakeAudioContext.instances[0];
       expect(context?.decodeAudioData).toHaveBeenCalledTimes(1);
       const source = context?.createBufferSource.mock.results[0]?.value as
-        | FakeBufferSource
-        | undefined;
+        FakeBufferSource | undefined;
       expect(source?.start).toHaveBeenCalledTimes(1);
     });
 

@@ -85,7 +85,10 @@ describe('EmojiPicker — insertion', () => {
     useGroups.setState({
       ids: ['g1', 'g2'],
       states: {
-        g1: makeState({ group_id: 'g1', emojis: [{ name: 'parrot', merkle_root: 'racine' }] }),
+        g1: makeState({
+          group_id: 'g1',
+          emojis: [{ name: 'parrot', merkle_root: 'racine' }],
+        }),
         g2: makeState({
           group_id: 'g2',
           emojis: [{ name: 'penguin', merkle_root: 'racine2' }],

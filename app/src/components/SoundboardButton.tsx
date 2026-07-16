@@ -180,7 +180,11 @@ export function SoundboardButton({ className }: { className: string }) {
     // Focus rendu au déclencheur avant la modale : c'est lui que la modale
     // mémorise, et donc lui qui récupère le focus à sa fermeture.
     triggerRef.current?.focus();
-    openModal({ kind: 'serverSettings', groupId: active.groupId, initialTab: 'soundboard' });
+    openModal({
+      kind: 'serverSettings',
+      groupId: active.groupId,
+      initialTab: 'soundboard',
+    });
   };
 
   return (

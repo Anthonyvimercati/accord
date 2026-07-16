@@ -76,8 +76,22 @@ beforeEach(() => {
     states: {
       g1: groupState({
         channels: [
-          { channel_id: 'c1', name: 'général', kind: 'text', category: null, position: 0, topic: '' },
-          { channel_id: 'v1', name: 'salle-vocale', kind: 'voice', category: null, position: 1, topic: '' },
+          {
+            channel_id: 'c1',
+            name: 'général',
+            kind: 'text',
+            category: null,
+            position: 0,
+            topic: '',
+          },
+          {
+            channel_id: 'v1',
+            name: 'salle-vocale',
+            kind: 'voice',
+            category: null,
+            position: 1,
+            topic: '',
+          },
         ],
       }),
     },
@@ -142,7 +156,11 @@ describe('QuickSwitcher', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'général' } });
     fireEvent.click(screen.getByText('général'));
 
-    expect(useUi.getState().view).toEqual({ kind: 'group', groupId: 'g1', channelId: 'c1' });
+    expect(useUi.getState().view).toEqual({
+      kind: 'group',
+      groupId: 'g1',
+      channelId: 'c1',
+    });
     expect(useUi.getState().quickSwitcherOpen).toBe(false);
   });
 
@@ -191,7 +209,11 @@ describe('QuickSwitcher', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Guilde' } });
     fireEvent.click(screen.getByText('Guilde'));
 
-    expect(useUi.getState().view).toEqual({ kind: 'group', groupId: 'g1', channelId: 'c1' });
+    expect(useUi.getState().view).toEqual({
+      kind: 'group',
+      groupId: 'g1',
+      channelId: 'c1',
+    });
     expect(useUi.getState().quickSwitcherOpen).toBe(false);
   });
 

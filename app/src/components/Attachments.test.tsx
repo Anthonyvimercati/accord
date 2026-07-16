@@ -104,9 +104,7 @@ describe('Pièces jointes — vignette d’image', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     // Fermeture différée (animation de sortie) : le dialogue se démonte après
     // l'animation, pas de façon synchrone.
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('signale une image indisponible sans casser le fil', async () => {

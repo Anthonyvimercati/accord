@@ -1,10 +1,6 @@
 /** Onglet Bannis : liste des clés bannies et réhabilitation (BAN). */
 
-import {
-  avatarDecorationOf,
-  displayNameOf,
-  useFriends,
-} from '../../stores/friends';
+import { avatarDecorationOf, displayNameOf, useFriends } from '../../stores/friends';
 import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useUi, useT } from '../../stores/ui';
 import { Avatar } from '../Avatar';

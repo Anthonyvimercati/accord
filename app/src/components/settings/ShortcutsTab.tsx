@@ -49,7 +49,10 @@ export function ShortcutsTab() {
       <SettingsSection title={t.shortcuts.messagingSection}>
         <ShortcutRow label={t.shortcuts.toggleMuteLabel} combo={`${mod}+⇧+M`} />
         <ShortcutRow label={t.shortcuts.sendMessageLabel} combo={t.shortcuts.keyEnter} />
-        <ShortcutRow label={t.shortcuts.newLineLabel} combo={`⇧+${t.shortcuts.keyEnter}`} />
+        <ShortcutRow
+          label={t.shortcuts.newLineLabel}
+          combo={`⇧+${t.shortcuts.keyEnter}`}
+        />
       </SettingsSection>
     </div>
   );

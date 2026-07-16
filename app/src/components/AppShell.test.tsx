@@ -21,9 +21,15 @@ vi.mock('../lib/client', () => ({
     groupsList: vi.fn(() => Promise.resolve({ groups: [], unread: {}, mentions: {} })),
     groupsInvitesList: vi.fn(() => Promise.resolve({ invites: [] })),
     voiceStatus: vi.fn(() =>
-      Promise.resolve({ active: null, master_volume: 100, dsp: { noise_suppression: false, agc: false } }),
+      Promise.resolve({
+        active: null,
+        master_volume: 100,
+        dsp: { noise_suppression: false, agc: false },
+      }),
     ),
-    callsStatus: vi.fn(() => Promise.resolve({ state: 'idle', peer: null, call_id: null })),
+    callsStatus: vi.fn(() =>
+      Promise.resolve({ state: 'idle', peer: null, call_id: null }),
+    ),
     voiceMute: vi.fn(() => Promise.resolve()),
   },
 }));
@@ -135,7 +141,9 @@ describe('AppShell — raccourcis globaux', () => {
 
   it('Ctrl+K reste actif même quand un champ de saisie a le focus', () => {
     render(<AppShell />);
-    render(<input aria-label="champ de test" />, { container: document.body.appendChild(document.createElement('div')) });
+    render(<input aria-label="champ de test" />, {
+      container: document.body.appendChild(document.createElement('div')),
+    });
     const input = screen.getByLabelText('champ de test');
     input.focus();
 
@@ -150,9 +158,30 @@ describe('AppShell — raccourcis globaux', () => {
       states: {
         g1: groupState({
           channels: [
-            { channel_id: 't1', name: 'texte-1', kind: 'text', category: null, position: 0, topic: '' },
-            { channel_id: 'v1', name: 'vocal-1', kind: 'voice', category: null, position: 1, topic: '' },
-            { channel_id: 't2', name: 'texte-2', kind: 'text', category: null, position: 2, topic: '' },
+            {
+              channel_id: 't1',
+              name: 'texte-1',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+            {
+              channel_id: 'v1',
+              name: 'vocal-1',
+              kind: 'voice',
+              category: null,
+              position: 1,
+              topic: '',
+            },
+            {
+              channel_id: 't2',
+              name: 'texte-2',
+              kind: 'text',
+              category: null,
+              position: 2,
+              topic: '',
+            },
           ],
         }),
       },
@@ -162,7 +191,11 @@ describe('AppShell — raccourcis globaux', () => {
 
     fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true });
 
-    expect(useUi.getState().view).toEqual({ kind: 'group', groupId: 'g1', channelId: 't2' });
+    expect(useUi.getState().view).toEqual({
+      kind: 'group',
+      groupId: 'g1',
+      channelId: 't2',
+    });
   });
 
   it('Alt+ArrowUp/Down fait défiler les conversations privées en vue Accueil', () => {
@@ -181,8 +214,22 @@ describe('AppShell — raccourcis globaux', () => {
       states: {
         g1: groupState({
           channels: [
-            { channel_id: 't1', name: 'texte-1', kind: 'text', category: null, position: 0, topic: '' },
-            { channel_id: 't2', name: 'texte-2', kind: 'text', category: null, position: 1, topic: '' },
+            {
+              channel_id: 't1',
+              name: 'texte-1',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+            {
+              channel_id: 't2',
+              name: 'texte-2',
+              kind: 'text',
+              category: null,
+              position: 1,
+              topic: '',
+            },
           ],
         }),
       },
@@ -196,7 +243,11 @@ describe('AppShell — raccourcis globaux', () => {
 
     fireEvent.keyDown(textarea, { key: 'ArrowDown', altKey: true });
 
-    expect(useUi.getState().view).toEqual({ kind: 'group', groupId: 'g1', channelId: 't1' });
+    expect(useUi.getState().view).toEqual({
+      kind: 'group',
+      groupId: 'g1',
+      channelId: 't1',
+    });
   });
 
   it('Ctrl+Maj+M bascule le micro en salon vocal', async () => {
@@ -204,7 +255,13 @@ describe('AppShell — raccourcis globaux', () => {
     // écraserait un `useVoice.setState` posé avant le rendu : on fait plutôt
     // porter le salon actif par la réponse simulée du nœud.
     voiceStatusMock.mockResolvedValueOnce({
-      active: { group_id: 'g1', channel_id: 'v1', muted: false, is_call: false, participants: [] },
+      active: {
+        group_id: 'g1',
+        channel_id: 'v1',
+        muted: false,
+        is_call: false,
+        participants: [],
+      },
       master_volume: 100,
       dsp: { noise_suppression: false, agc: false },
     });

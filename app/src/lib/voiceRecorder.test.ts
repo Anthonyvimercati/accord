@@ -74,7 +74,9 @@ class FakeMediaRecorder {
   }
 }
 
-function installBrowserMocks(getUserMedia: (...args: unknown[]) => Promise<FakeStream>): void {
+function installBrowserMocks(
+  getUserMedia: (...args: unknown[]) => Promise<FakeStream>,
+): void {
   vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
   // jsdom rend toujours '' : par défaut, tout candidat est réputé décodable.
   vi.spyOn(window.HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('maybe');
@@ -353,7 +355,12 @@ describe('VoiceRecorder — courses pendant getUserMedia', () => {
     installBrowserMocks(vi.fn(pending.getUserMedia));
     const onStart = vi.fn();
     const onTick = vi.fn();
-    const recorder = new VoiceRecorder({ onStart, onTick, onStop: vi.fn(), onError: vi.fn() });
+    const recorder = new VoiceRecorder({
+      onStart,
+      onTick,
+      onStop: vi.fn(),
+      onError: vi.fn(),
+    });
 
     const started = recorder.start();
     expect(onStart).not.toHaveBeenCalled();

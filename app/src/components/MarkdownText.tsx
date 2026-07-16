@@ -285,5 +285,7 @@ export function MarkdownText({
 }: MarkdownTextProps) {
   const emojiSize = useUi((s) => s.emojiSize);
   const nodes = analyserMarkdown(text);
-  return <>{renderNodes(nodes, { emojis, knownMentions, roleColors, hint, emojiSize })}</>;
+  return (
+    <>{renderNodes(nodes, { emojis, knownMentions, roleColors, hint, emojiSize })}</>
+  );
 }

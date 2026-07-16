@@ -202,7 +202,11 @@ export function EmojiPicker({
                     onClick={() => handleSelect(pick)}
                     className="flex h-9 w-9 items-center justify-center rounded-md transition-transform duration-fast ease-spring hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
                   >
-                    <CustomEmoji name={pick.name} merkleRoot={pick.merkleRoot} size={24} />
+                    <CustomEmoji
+                      name={pick.name}
+                      merkleRoot={pick.merkleRoot}
+                      size={24}
+                    />
                   </button>
                 ),
               )}

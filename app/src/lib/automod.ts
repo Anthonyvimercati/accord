@@ -28,10 +28,7 @@ function escapeRegExp(word: string): string {
  * immédiatement avant ni après), insensible à la casse, Unicode.
  */
 function wordPattern(word: string): RegExp {
-  return new RegExp(
-    `(?<!${WORD_CHAR})${escapeRegExp(word)}(?!${WORD_CHAR})`,
-    'giu',
-  );
+  return new RegExp(`(?<!${WORD_CHAR})${escapeRegExp(word)}(?!${WORD_CHAR})`, 'giu');
 }
 
 /** Mots exploitables d'une liste AutoMod : non vides une fois émondés. */

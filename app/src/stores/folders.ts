@@ -187,7 +187,6 @@ export const useFolders = create<FoldersState>((set) => {
       set((s) => apply(removeServerFromFolders(s.folders, serverId))),
     toggleCollapsed: (folderId) =>
       set((s) => apply(toggleFolderCollapsed(s.folders, folderId))),
-    deleteFolder: (folderId) =>
-      set((s) => apply(deleteFolder(s.folders, folderId))),
+    deleteFolder: (folderId) => set((s) => apply(deleteFolder(s.folders, folderId))),
   };
 });

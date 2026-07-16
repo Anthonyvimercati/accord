@@ -189,7 +189,9 @@ describe('isSoundEligible', () => {
   });
 
   it('mode « mentions seulement » : joue pour une mention', () => {
-    expect(isSoundEligible({ ...BASE, mode: 'mentionsOnly', isMention: true })).toBe(true);
+    expect(isSoundEligible({ ...BASE, mode: 'mentionsOnly', isMention: true })).toBe(
+      true,
+    );
   });
 
   it('mode « tous » : joue pour un message ordinaire comme pour une mention', () => {

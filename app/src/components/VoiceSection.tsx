@@ -262,7 +262,11 @@ export function VoiceSection({ groupId }: { groupId: string }) {
   // Présence passive : les occupants d'un salon non rejoint n'arrivent pas par
   // événement (gate sur le salon actif), on interroge donc `voice.rooms`.
   useEffect(() => {
-    const refresh = () => useVoice.getState().syncRooms().catch(() => undefined);
+    const refresh = () =>
+      useVoice
+        .getState()
+        .syncRooms()
+        .catch(() => undefined);
     refresh();
     const id = window.setInterval(refresh, ROOMS_POLL_MS);
     return () => window.clearInterval(id);

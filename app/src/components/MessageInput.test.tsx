@@ -268,7 +268,9 @@ function setupGroup(): void {
     bans: [],
     channels: [],
     categories: [],
-    roles: [{ role_id: 'r1', name: 'Mods', color: 0xff0000, position: 1, permissions: 0 }],
+    roles: [
+      { role_id: 'r1', name: 'Mods', color: 0xff0000, position: 1, permissions: 0 },
+    ],
     invites: [],
     my_permissions: 0,
   } satisfies GroupStateJson;
@@ -362,7 +364,10 @@ const SELF = {
 const GROUP_TARGET = { kind: 'group', groupId: 'g1', channelId: 'c1' } as const;
 
 /** Installe un groupe d'un seul salon `c1` avec le membre local `moi`. */
-function seedComposer(over: Partial<GroupStateJson>, channelKind: 'text' | 'announcement'): void {
+function seedComposer(
+  over: Partial<GroupStateJson>,
+  channelKind: 'text' | 'announcement',
+): void {
   useSession.setState({ self: SELF });
   const state = {
     group_id: 'g1',
@@ -372,7 +377,14 @@ function seedComposer(over: Partial<GroupStateJson>, channelKind: 'text' | 'anno
     members: [{ pubkey: 'moi', roles: [] }],
     bans: [],
     channels: [
-      { channel_id: 'c1', name: 'salon', kind: channelKind, category: null, position: 0, topic: '' },
+      {
+        channel_id: 'c1',
+        name: 'salon',
+        kind: channelKind,
+        category: null,
+        position: 0,
+        topic: '',
+      },
     ],
     categories: [],
     roles: [],
@@ -445,8 +457,12 @@ describe('MessageInput — message vocal', () => {
     expect(screen.getByRole('status')).toHaveTextContent('0:00');
     expect(screen.getByLabelText('Annuler l’enregistrement')).toBeInTheDocument();
     expect(screen.getByLabelText('Envoyer le message vocal')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Enregistrer un message vocal')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Joindre des fichiers', { selector: 'button' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Enregistrer un message vocal'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Joindre des fichiers', { selector: 'button' }),
+    ).not.toBeInTheDocument();
   });
 
   it('la pastille ne pulse qu’au vrai démarrage de la capture (onStart)', () => {
@@ -549,9 +565,7 @@ describe('MessageInput — message vocal', () => {
     );
 
     await waitFor(() =>
-      expect(
-        useUi.getState().toasts.some((toast) => toast.kind === 'info'),
-      ).toBe(true),
+      expect(useUi.getState().toasts.some((toast) => toast.kind === 'info')).toBe(true),
     );
   });
 
@@ -590,7 +604,9 @@ describe('MessageInput — bouton « + » (pièces jointes et sondage)', () => {
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
     renderInput();
 
-    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+    fireEvent.click(
+      screen.getByLabelText('Joindre des fichiers', { selector: 'button' }),
+    );
 
     expect(clickSpy).toHaveBeenCalled();
     expect(useContextMenu.getState().menu).toBeNull();
@@ -600,7 +616,9 @@ describe('MessageInput — bouton « + » (pièces jointes et sondage)', () => {
   it('aucune option de sondage en message privé (D-048)', () => {
     renderInput();
 
-    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+    fireEvent.click(
+      screen.getByLabelText('Joindre des fichiers', { selector: 'button' }),
+    );
 
     // MP : aucune modale de sondage possible, le menu n'est jamais déplié.
     expect(useContextMenu.getState().menu).toBeNull();
@@ -618,7 +636,9 @@ describe('MessageInput — bouton « + » (pièces jointes et sondage)', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+    fireEvent.click(
+      screen.getByLabelText('Joindre des fichiers', { selector: 'button' }),
+    );
 
     const menu = useContextMenu.getState().menu;
     expect(menu).not.toBeNull();
@@ -640,7 +660,9 @@ describe('MessageInput — bouton « + » (pièces jointes et sondage)', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+    fireEvent.click(
+      screen.getByLabelText('Joindre des fichiers', { selector: 'button' }),
+    );
     const joindre = useContextMenu
       .getState()
       .menu?.items.find((item) => item.label === 'Joindre des fichiers');
@@ -661,7 +683,9 @@ describe('MessageInput — bouton « + » (pièces jointes et sondage)', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+    fireEvent.click(
+      screen.getByLabelText('Joindre des fichiers', { selector: 'button' }),
+    );
     const sondage = useContextMenu
       .getState()
       .menu?.items.find((item) => item.label === 'Créer un sondage');
@@ -699,7 +723,12 @@ describe('MessageInput — ArrowUp édite le dernier message propre (composeur v
       conversations: {
         pk_alice: [
           dmTextMessage({ msg_id: 'm1', author: 'pk_alice', lamport: 1 }),
-          dmTextMessage({ msg_id: 'm2', author: 'moi', lamport: 2, body: { type: 'text', text: 'coucou', reply_to: null, attachments: 0 } }),
+          dmTextMessage({
+            msg_id: 'm2',
+            author: 'moi',
+            lamport: 2,
+            body: { type: 'text', text: 'coucou', reply_to: null, attachments: 0 },
+          }),
           dmTextMessage({ msg_id: 'm3', author: 'moi', lamport: 3, deleted: true }),
         ],
       },
@@ -784,7 +813,11 @@ describe('MessageInput — ArrowUp édite le dernier message propre (composeur v
 describe('MessageInput — brouillons de composeur persistés', () => {
   it('conserve le texte par cible et le restaure au retour', () => {
     const { rerender } = render(
-      <MessageInput placeholder="p" onSend={vi.fn(async () => {})} typingTarget={DM_TARGET} />,
+      <MessageInput
+        placeholder="p"
+        onSend={vi.fn(async () => {})}
+        typingTarget={DM_TARGET}
+      />,
     );
     typeInput('brouillon pour Alice');
     expect(screen.getByRole('textbox')).toHaveValue('brouillon pour Alice');
@@ -802,7 +835,11 @@ describe('MessageInput — brouillons de composeur persistés', () => {
 
     // Retour au MP : le brouillon d’Alice est restauré tel quel.
     rerender(
-      <MessageInput placeholder="p" onSend={vi.fn(async () => {})} typingTarget={DM_TARGET} />,
+      <MessageInput
+        placeholder="p"
+        onSend={vi.fn(async () => {})}
+        typingTarget={DM_TARGET}
+      />,
     );
     expect(screen.getByRole('textbox')).toHaveValue('brouillon pour Alice');
   });
@@ -810,7 +847,11 @@ describe('MessageInput — brouillons de composeur persistés', () => {
   it('restaure un brouillon déjà stocké au montage (après redémarrage)', () => {
     window.localStorage.setItem('draft:dm:pk_alice', 'texte survivant');
     render(
-      <MessageInput placeholder="p" onSend={vi.fn(async () => {})} typingTarget={DM_TARGET} />,
+      <MessageInput
+        placeholder="p"
+        onSend={vi.fn(async () => {})}
+        typingTarget={DM_TARGET}
+      />,
     );
     expect(screen.getByRole('textbox')).toHaveValue('texte survivant');
   });
@@ -905,7 +946,9 @@ describe('MessageInput — avertissement AutoMod émetteur', () => {
   it('aucun avertissement pour un mot filtré au milieu d’un autre mot ou sans liste', () => {
     render(<MessageInput placeholder="p" onSend={vi.fn()} automodWords={['chat']} />);
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'le chaton dort' } });
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'le chaton dort' },
+    });
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'sans souci' } });

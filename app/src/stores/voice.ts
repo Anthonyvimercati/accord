@@ -345,7 +345,10 @@ export const useVoice = create<VoiceState>((set, get) => ({
   applyMuteState: ({ pubkey, muted, deafened }) => {
     set((s) => {
       const current = s.participants.get(pubkey);
-      if (current === undefined || (current.muted === muted && current.deafened === deafened)) {
+      if (
+        current === undefined ||
+        (current.muted === muted && current.deafened === deafened)
+      ) {
         return s;
       }
       const participants = new Map(s.participants);
@@ -354,7 +357,13 @@ export const useVoice = create<VoiceState>((set, get) => ({
     });
   },
 
-  applyVoiceModerate: ({ group_id, pubkey, server_muted, server_deafened, priority_speaker }) => {
+  applyVoiceModerate: ({
+    group_id,
+    pubkey,
+    server_muted,
+    server_deafened,
+    priority_speaker,
+  }) => {
     set((s) => {
       // Jamais émis pour une session d'appel (group_id sentinelle) : la
       // comparaison directe suffit à ignorer l'événement sans jamais indexer

@@ -140,7 +140,10 @@ function RoleEditor({
               onClick={() => move('up')}
               className="flex h-7 w-7 items-center justify-center rounded-md bg-rail text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
             >
-              <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+              <span
+                aria-hidden
+                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+              >
                 <svg
                   width="14"
                   height="14"
@@ -164,7 +167,10 @@ function RoleEditor({
               onClick={() => move('down')}
               className="flex h-7 w-7 items-center justify-center rounded-md bg-rail text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
             >
-              <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+              <span
+                aria-hidden
+                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+              >
                 <svg
                   width="14"
                   height="14"

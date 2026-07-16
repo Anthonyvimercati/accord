@@ -1559,13 +1559,21 @@ describe('pollResults', () => {
   });
 
   it('efface myVote si son index dépasse les options réelles (même défense que counts)', () => {
-    const p = poll({ counts: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], my_vote: 7, total_votes: 2 });
+    const p = poll({
+      counts: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      my_vote: 7,
+      total_votes: 2,
+    });
     const results = pollResults(p, 2);
     expect(results.myVote).toBeNull();
   });
 
   it('conserve myVote quand il pointe vers une option réelle', () => {
-    const p = poll({ counts: [1, 1, 0, 0, 0, 0, 0, 0, 0, 0], my_vote: 1, total_votes: 2 });
+    const p = poll({
+      counts: [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+      my_vote: 1,
+      total_votes: 2,
+    });
     const results = pollResults(p, 3);
     expect(results.myVote).toBe(1);
   });
@@ -1610,7 +1618,9 @@ describe('useGroups — sondages (D-048)', () => {
       ids: ['g1'],
       states: {
         g1: groupState({
-          polls: [poll({ counts: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], my_vote: 0, total_votes: 1 })],
+          polls: [
+            poll({ counts: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], my_vote: 0, total_votes: 1 }),
+          ],
         }),
       },
     });

@@ -34,7 +34,13 @@ function forumChannel(over: Partial<GroupChannel> = {}): GroupChannel {
 }
 
 function post(threadId: string, name: string, archived = false): GroupThread {
-  return { thread_id: threadId, parent_channel: FORUM, root_msg: '0'.repeat(32), name, archived };
+  return {
+    thread_id: threadId,
+    parent_channel: FORUM,
+    root_msg: '0'.repeat(32),
+    name,
+    archived,
+  };
 }
 
 function renderForum(posts: GroupThread[], canPost = true) {
@@ -77,14 +83,18 @@ describe('ForumView — liste des posts', () => {
   it('montre l’état vide quand le forum n’a aucun post', () => {
     renderForum([]);
     expect(
-      screen.getByText('Aucun post pour l’instant — créez-en un pour lancer la discussion.'),
+      screen.getByText(
+        'Aucun post pour l’instant — créez-en un pour lancer la discussion.',
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText('Posts actifs')).not.toBeInTheDocument();
   });
 
   it('masque le bouton « Nouveau post » sans droit d’écriture', () => {
     renderForum([], false);
-    expect(screen.queryByRole('button', { name: 'Nouveau post' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Nouveau post' }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -107,7 +117,12 @@ describe('ForumView — création d’un post', () => {
 
     await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
     // Fil créé sous le FORUM avec un root_msg de 16 octets zéro (32 hex).
-    expect(createThread).toHaveBeenCalledWith(GROUP, FORUM, '0'.repeat(32), 'Mon premier post');
+    expect(createThread).toHaveBeenCalledWith(
+      GROUP,
+      FORUM,
+      '0'.repeat(32),
+      'Mon premier post',
+    );
     // 1er message publié DANS le fil (thread_id), jamais dans la racine forum.
     expect(send).toHaveBeenCalledWith(GROUP, 'new-thread', 'Bonjour à tous');
   });

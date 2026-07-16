@@ -31,8 +31,22 @@ function groupWithChannels(): GroupStateJson {
     members: [],
     bans: [],
     channels: [
-      { channel_id: 'c1', name: 'general', kind: 'text', category: null, position: 0, topic: '' },
-      { channel_id: 'v1', name: 'Voix', kind: 'voice', category: null, position: 1, topic: '' },
+      {
+        channel_id: 'c1',
+        name: 'general',
+        kind: 'text',
+        category: null,
+        position: 0,
+        topic: '',
+      },
+      {
+        channel_id: 'v1',
+        name: 'Voix',
+        kind: 'voice',
+        category: null,
+        position: 1,
+        topic: '',
+      },
     ],
     categories: [],
     roles: [],
@@ -49,7 +63,9 @@ beforeEach(() => {
     ] as unknown as Contact[],
   });
   useGroups.setState({ ids: ['g1'], states: { g1: groupWithChannels() } });
-  useDms.setState({ send: dmSend as unknown as ReturnType<typeof useDms.getState>['send'] });
+  useDms.setState({
+    send: dmSend as unknown as ReturnType<typeof useDms.getState>['send'],
+  });
   useGroups.setState({
     send: groupSend as unknown as ReturnType<typeof useGroups.getState>['send'],
   });

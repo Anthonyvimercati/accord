@@ -60,7 +60,9 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
         </button>
         <button
           type="button"
-          aria-label={interpolate(t.invitations.declineLabel, { name: invite.group_name })}
+          aria-label={interpolate(t.invitations.declineLabel, {
+            name: invite.group_name,
+          })}
           onClick={() => act(() => declineInvite(invite.group_id, invite.invite_id))}
           className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
         >
@@ -78,7 +80,10 @@ export function PendingInvites() {
   if (invites.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 py-12 text-center text-muted">
-        <span aria-hidden className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint">
+        <span
+          aria-hidden
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint"
+        >
           <EnvelopeMenuIcon size={20} />
         </span>
         <p>{t.invitations.empty}</p>

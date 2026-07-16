@@ -28,7 +28,13 @@ let ringTimer: ReturnType<typeof setInterval> | null = null;
 /** Un cycle de sonnerie : deux notes (façon téléphone), C5 puis E5. */
 function playRingOnce(): void {
   playTones([
-    { freq: 523.25, at: 0, duration: NOTE_DURATION_S, peak: RING_PEAK, attack: RING_ATTACK_S },
+    {
+      freq: 523.25,
+      at: 0,
+      duration: NOTE_DURATION_S,
+      peak: RING_PEAK,
+      attack: RING_ATTACK_S,
+    },
     {
       freq: 659.25,
       at: NOTE_GAP_S,

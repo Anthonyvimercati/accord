@@ -609,11 +609,7 @@ interface GroupsState {
     name: string,
   ) => Promise<string>;
   /** Archive ou désarchive un fil puis recharge l'état. */
-  archiveThread: (
-    groupId: string,
-    threadId: string,
-    archived: boolean,
-  ) => Promise<void>;
+  archiveThread: (groupId: string, threadId: string, archived: boolean) => Promise<void>;
   addCategory: (groupId: string, name: string) => Promise<string>;
   renameCategory: (groupId: string, categoryId: string, name: string) => Promise<void>;
   /** Supprime la catégorie ; ses salons restent, sans catégorie. */
@@ -866,9 +862,7 @@ export const useGroups = create<GroupsState>((set, get) => ({
       );
       if (removed !== undefined) {
         set((s) =>
-          s.pendingInvites.some(
-            (i) => i.group_id === groupId && i.invite_id === inviteId,
-          )
+          s.pendingInvites.some((i) => i.group_id === groupId && i.invite_id === inviteId)
             ? {}
             : { pendingInvites: [...s.pendingInvites, removed] },
         );
@@ -894,9 +888,7 @@ export const useGroups = create<GroupsState>((set, get) => ({
       );
       if (removed !== undefined) {
         set((s) =>
-          s.pendingInvites.some(
-            (i) => i.group_id === groupId && i.invite_id === inviteId,
-          )
+          s.pendingInvites.some((i) => i.group_id === groupId && i.invite_id === inviteId)
             ? {}
             : { pendingInvites: [...s.pendingInvites, removed] },
         );

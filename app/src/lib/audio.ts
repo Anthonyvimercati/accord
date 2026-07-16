@@ -168,7 +168,9 @@ function extractBase64(dataUrlOrBase64: string): string {
 export async function playClip(dataUrlOrBase64: string): Promise<number> {
   const context = ensureRunning();
   if (context === null) throw new Error('API Web Audio indisponible');
-  const buffer = await context.decodeAudioData(base64ToArrayBuffer(extractBase64(dataUrlOrBase64)));
+  const buffer = await context.decodeAudioData(
+    base64ToArrayBuffer(extractBase64(dataUrlOrBase64)),
+  );
   // `ensureRunning` a lancé la reprise avant le décodage ; si le contexte ne
   // tourne toujours pas, la lecture serait silencieuse — on échoue clairement.
   if (context.state !== 'running') {

@@ -75,7 +75,9 @@ export function ServerEmojisTab({ groupId }: { groupId: string }) {
     } catch (e) {
       const gifTropLourd =
         e instanceof EmojiCompressionError && e.raison === 'gif-anime-trop-lourd';
-      setErreur(gifTropLourd ? t.serveur.emojiAnimatedTooLarge : t.serveur.emojiInvalidImage);
+      setErreur(
+        gifTropLourd ? t.serveur.emojiAnimatedTooLarge : t.serveur.emojiInvalidImage,
+      );
     }
   };
 

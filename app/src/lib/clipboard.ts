@@ -5,7 +5,11 @@
  * (toast). Même garde que l'ancien `copyLink` de `MessageList`, généralisée
  * pour tous les usages « Copier … » du menu contextuel.
  */
-export function copyToClipboard(text: string, onSuccess: () => void, onError: () => void): void {
+export function copyToClipboard(
+  text: string,
+  onSuccess: () => void,
+  onError: () => void,
+): void {
   try {
     void navigator.clipboard.writeText(text).then(onSuccess).catch(onError);
   } catch {

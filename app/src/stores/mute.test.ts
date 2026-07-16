@@ -128,7 +128,9 @@ describe('useMute — actions persistées', () => {
   it('règle le niveau propre d’un salon sans affecter un homonyme', () => {
     useMute.getState().setChannelLevel('g1', 'c1', 'none');
 
-    expect(useMute.getState().channelLevels).toEqual({ [channelKey('g1', 'c1')]: 'none' });
+    expect(useMute.getState().channelLevels).toEqual({
+      [channelKey('g1', 'c1')]: 'none',
+    });
     expect(channelLevel(useMute.getState(), 'g2', 'c1')).toBe('all');
     expect(window.localStorage.getItem('accord.mute.channels')).toBe(
       JSON.stringify({ [channelKey('g1', 'c1')]: 'none' }),

@@ -54,7 +54,11 @@ interface CallsState {
    * (toast) que dans ce cas, ce qui évite aussi un toast redondant pour une
    * fin d'appel qu'on a soi-même déclenchée.
    */
-  applyEnded: (params: { peer: string; call_id: string; reason: CallEndedReason }) => boolean;
+  applyEnded: (params: {
+    peer: string;
+    call_id: string;
+    reason: CallEndedReason;
+  }) => boolean;
   /** Marque `peer` comme ayant un appel manqué (badge DM). */
   markMissed: (peer: string) => void;
   /** Efface le badge d'appel manqué de `peer` (ouverture de la conversation). */

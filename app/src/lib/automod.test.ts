@@ -24,9 +24,9 @@ describe('maskFiltered', () => {
   it('borne le masque à 3 minimum et 8 maximum', () => {
     expect(maskFiltered('oh zut', ['zut'])).toBe('oh ███');
     expect(maskFiltered('un ah', ['ah'])).toBe('un ███');
-    expect(maskFiltered('anticonstitutionnellement !', ['anticonstitutionnellement'])).toBe(
-      '████████ !',
-    );
+    expect(
+      maskFiltered('anticonstitutionnellement !', ['anticonstitutionnellement']),
+    ).toBe('████████ !');
   });
 
   it('est insensible à la casse', () => {
