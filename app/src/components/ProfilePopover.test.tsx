@@ -245,6 +245,26 @@ describe('ProfilePopover — pseudos de serveur', () => {
     expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
   });
 
+  it('rend le cadre et l’effet dans le menu ouvert depuis le panneau local', () => {
+    useSession.setState({
+      self: { ...MOI, profile_effect: 'starfield', profile_frame: 'lumen_bloom' },
+    });
+    openFor('moi', null, 'user-menu');
+    render(<ProfilePopover />);
+
+    expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
+    expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
+    expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
+  });
+
+  it('n’affiche aucun cadre dans le menu local sans cadre choisi', () => {
+    useSession.setState({ self: { ...MOI, profile_frame: null } });
+    openFor('moi', null, 'user-menu');
+    render(<ProfilePopover />);
+
+    expect(screen.queryByTestId('profile-frame')).not.toBeInTheDocument();
+  });
+
   it('ne montre pas le champ de pseudo hors contexte de serveur', () => {
     openFor('moi');
     render(<ProfilePopover />);
