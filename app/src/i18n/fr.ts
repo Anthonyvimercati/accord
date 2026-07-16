@@ -872,14 +872,29 @@ export const fr = {
       'La fenêtre se cache au lieu de quitter Accord ; utilisez « Quitter » dans le menu de l’icône pour fermer réellement.',
     systemCloseToTrayDisabledHint:
       'Activez d’abord « Garder Accord dans la barre des menus/systray ».',
-    // Autorisations système (notifications, micro).
+    // Autorisations système (notifications, micro, réseau entrant).
     systemPermsTitle: 'Autorisations',
     systemPermsHint:
-      'Re-sollicite les autorisations système utilisées par Accord (notifications, micro) si vous en avez refusé une par erreur.',
-    systemPermsButton: 'Redemander les autorisations',
-    systemPermsRequested: 'Demandes d’autorisation envoyées.',
-    systemPermsHintDenied:
-      'Si une autorisation a déjà été refusée, activez-la pour Accord dans les réglages système.',
+      'Chaque autorisation se gère séparément. L’OS n’affiche son invite qu’une seule fois : après un refus, seul le panneau des réglages système permet de revenir en arrière.',
+    systemPermsOpenSettings: 'Ouvrir les réglages',
+    systemPermsSettingsUnavailable:
+      'Ouvrez les réglages système de votre plateforme et autorisez Accord.',
+    systemPermsNotifTitle: 'Notifications',
+    systemPermsNotifHint:
+      'Messages et invitations reçus pendant que la fenêtre est en arrière-plan.',
+    systemPermsNotifButton: 'Demander',
+    systemPermsNotifGranted: 'Notifications autorisées.',
+    systemPermsNotifDenied:
+      'Refusées : activez-les pour Accord dans les réglages système.',
+    systemPermsMicTitle: 'Microphone',
+    systemPermsMicHint:
+      'Salons vocaux, appels et messages vocaux. La demande déclenche une capture d’une seconde pour faire apparaître l’invite système.',
+    systemPermsMicButton: 'Demander',
+    systemPermsMicRequested:
+      'Demande envoyée. Si aucune invite n’apparaît, l’autorisation a déjà été accordée ou refusée : passez par les réglages système.',
+    systemPermsNetTitle: 'Connexions entrantes (pare-feu)',
+    systemPermsNetHint:
+      'Accord est pair-à-pair : vos amis se connectent DIRECTEMENT à votre machine. Si le pare-feu bloque les connexions entrantes — ou redemande à chaque lancement quand l’app n’est pas signée — autorisez Accord dans le panneau du pare-feu.',
     // Zone de danger (déconnexion).
     dangerZoneTitle: 'Zone de danger',
     logout: 'Se déconnecter',

@@ -72,6 +72,7 @@ pub fn executer() -> ExitCode {
             commandes::account_restore,
             commandes::account_unlock,
             commandes::session_close,
+            commandes::ouvrir_reglages_systeme,
             tray::tray_set_enabled
         ])
         .build(tauri::generate_context!());

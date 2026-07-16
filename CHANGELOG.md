@@ -2,6 +2,22 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+
+- **Repeated permission prompts on macOS.** Root cause: with the default
+  ad-hoc signature, macOS ties the microphone grant and the firewall's
+  "accept incoming connections" grant (vital for P2P) to a fingerprint that
+  changes at every build — so the prompts kept coming back.
+  `build-macos.sh` now signs with a stable local identity when available
+  (`Accord Dev` certificate or `ACCORD_SIGNING_IDENTITY`; see
+  DISTRIBUTION.md), and the Settings → System → Permissions section was
+  rebuilt: one row per permission (notifications, microphone, incoming
+  connections/firewall) with separate requests — no more two stacked
+  system dialogs from a single button — and a direct "Open settings"
+  shortcut to the right system pane, the only way back after a denial.
+
 ## [1.3.0] — 2026-07-16
 
 ### Security

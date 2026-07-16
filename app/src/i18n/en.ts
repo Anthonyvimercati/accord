@@ -860,14 +860,28 @@ export const en: Dict = {
     systemCloseToTrayHint:
       'The window hides instead of quitting Accord; use "Quit" in the icon menu to actually close it.',
     systemCloseToTrayDisabledHint: 'First enable "Keep Accord in the menu bar/systray".',
-    // System permissions (notifications, microphone).
+    // System permissions (notifications, microphone, incoming network).
     systemPermsTitle: 'Permissions',
     systemPermsHint:
-      'Re-request the system permissions Accord uses (notifications, microphone) if you denied one by mistake.',
-    systemPermsButton: 'Re-request permissions',
-    systemPermsRequested: 'Permission requests sent.',
-    systemPermsHintDenied:
-      'If a permission was already denied, enable it for Accord in your system settings.',
+      'Each permission is managed separately. The OS shows its prompt only once: after a denial, the system settings pane is the only way back.',
+    systemPermsOpenSettings: 'Open settings',
+    systemPermsSettingsUnavailable:
+      'Open your platform’s system settings and allow Accord.',
+    systemPermsNotifTitle: 'Notifications',
+    systemPermsNotifHint:
+      'Messages and invites received while the window is in the background.',
+    systemPermsNotifButton: 'Request',
+    systemPermsNotifGranted: 'Notifications allowed.',
+    systemPermsNotifDenied: 'Denied: enable them for Accord in the system settings.',
+    systemPermsMicTitle: 'Microphone',
+    systemPermsMicHint:
+      'Voice channels, calls and voice messages. Requesting triggers a one-second capture so the system prompt can appear.',
+    systemPermsMicButton: 'Request',
+    systemPermsMicRequested:
+      'Request sent. If no prompt appears, the permission was already granted or denied: use the system settings.',
+    systemPermsNetTitle: 'Incoming connections (firewall)',
+    systemPermsNetHint:
+      'Accord is peer-to-peer: your friends connect DIRECTLY to your machine. If the firewall blocks incoming connections — or asks again at every launch when the app is unsigned — allow Accord in the firewall pane.',
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logout: 'Log out',

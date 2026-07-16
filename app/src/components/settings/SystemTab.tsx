@@ -8,11 +8,71 @@
  */
 
 import { useEffect, useState } from 'react';
-import { autostartIsEnabled, autostartSetEnabled } from '../../lib/bridge';
+import {
+  autostartIsEnabled,
+  autostartSetEnabled,
+  openSystemSettings,
+  type SystemSettingsSection,
+} from '../../lib/bridge';
 import { api } from '../../lib/client';
 import { requestNotificationPermission } from '../../lib/notifications';
 import { useUi, useT } from '../../stores/ui';
 import { SettingsSection, ToggleRow } from './controls';
+
+/** Durée de la capture-éclair qui matérialise l'invite micro système. */
+const MIC_PROMPT_PULSE_MS = 1500;
+
+/**
+ * Ligne d'autorisation : intitulé + explication, action de demande facultative
+ * (l'OS n'affiche son invite qu'à l'état « indéterminé ») et raccourci vers le
+ * panneau des réglages système — seul recours après un refus.
+ */
+function PermissionRow({
+  title,
+  hint,
+  action,
+  section,
+}: {
+  title: string;
+  hint: string;
+  action?: { label: string; busy: boolean; onClick: () => void };
+  section: SystemSettingsSection;
+}) {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+  const openSettings = (): void => {
+    openSystemSettings(section).catch(() => {
+      toast('info', t.settings.systemPermsSettingsUnavailable);
+    });
+  };
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-lg bg-sidebar px-4 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-header">{title}</div>
+        <p className="mt-0.5 text-xs leading-relaxed text-faint">{hint}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {action !== undefined && (
+          <button
+            type="button"
+            disabled={action.busy}
+            onClick={action.onClick}
+            className="rounded-md bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-60"
+          >
+            {action.label}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={openSettings}
+          className="rounded-md bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+        >
+          {t.settings.systemPermsOpenSettings}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function SystemTab() {
   const t = useT();
@@ -24,7 +84,8 @@ export function SystemTab() {
 
   const [autostart, setAutostart] = useState(false);
   const [autostartBusy, setAutostartBusy] = useState(false);
-  const [permsBusy, setPermsBusy] = useState(false);
+  const [notifBusy, setNotifBusy] = useState(false);
+  const [micBusy, setMicBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,26 +105,39 @@ export function SystemTab() {
       .finally(() => setAutostartBusy(false));
   };
 
-  // Re-sollicite les autorisations système (notifications + micro). L'OS ne
-  // ré-affiche l'invite que si l'état est « indéterminé » ; après un refus
-  // explicite, l'utilisateur doit passer par les Réglages système — d'où le
-  // message d'indication.
-  const reRequestPermissions = (): void => {
-    setPermsBusy(true);
+  // Demandes SÉPARÉES par autorisation : deux invites système empilées d'un
+  // coup (l'ancien bouton combiné) se lisaient comme une boucle de dialogues.
+  // L'OS ne ré-affiche l'invite que si l'état est « indéterminé » ; après un
+  // refus explicite, seul le panneau système (bouton dédié) permet de revenir.
+  const requestNotifications = (): void => {
+    setNotifBusy(true);
     void requestNotificationPermission()
       .then((notif) => {
-        void api.voiceMicTest(true).catch(() => undefined);
-        window.setTimeout(() => {
-          void api.voiceMicTest(false).catch(() => undefined);
-        }, 1500);
         toast(
           'info',
           notif === 'granted'
-            ? t.settings.systemPermsRequested
-            : t.settings.systemPermsHintDenied,
+            ? t.settings.systemPermsNotifGranted
+            : t.settings.systemPermsNotifDenied,
         );
       })
-      .finally(() => setPermsBusy(false));
+      .finally(() => setNotifBusy(false));
+  };
+
+  // Capture-éclair d'une seconde : l'unique moyen côté app de matérialiser
+  // l'invite micro de l'OS (elle n'apparaît qu'à la première VRAIE capture).
+  // Une seule à la fois — le verrou évite d'empiler des invites.
+  const requestMicrophone = (): void => {
+    setMicBusy(true);
+    void api
+      .voiceMicTest(true)
+      .catch(() => undefined)
+      .then(() => {
+        window.setTimeout(() => {
+          void api.voiceMicTest(false).catch(() => undefined);
+          setMicBusy(false);
+        }, MIC_PROMPT_PULSE_MS);
+        toast('info', t.settings.systemPermsMicRequested);
+      });
   };
 
   return (
@@ -105,14 +179,33 @@ export function SystemTab() {
         title={t.settings.systemPermsTitle}
         hint={t.settings.systemPermsHint}
       >
-        <button
-          type="button"
-          disabled={permsBusy}
-          onClick={reRequestPermissions}
-          className="rounded-md bg-blurple px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-[transform,background-color,box-shadow,opacity] duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-60"
-        >
-          {t.settings.systemPermsButton}
-        </button>
+        <div className="space-y-2">
+          <PermissionRow
+            title={t.settings.systemPermsNotifTitle}
+            hint={t.settings.systemPermsNotifHint}
+            action={{
+              label: t.settings.systemPermsNotifButton,
+              busy: notifBusy,
+              onClick: requestNotifications,
+            }}
+            section="notifications"
+          />
+          <PermissionRow
+            title={t.settings.systemPermsMicTitle}
+            hint={t.settings.systemPermsMicHint}
+            action={{
+              label: t.settings.systemPermsMicButton,
+              busy: micBusy,
+              onClick: requestMicrophone,
+            }}
+            section="microphone"
+          />
+          <PermissionRow
+            title={t.settings.systemPermsNetTitle}
+            hint={t.settings.systemPermsNetHint}
+            section="firewall"
+          />
+        </div>
       </SettingsSection>
     </div>
   );
