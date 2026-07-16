@@ -208,6 +208,51 @@ pub async fn lock(etat: State<'_, EtatHote>) -> Result<StatutCoffre, ErreurHote>
     Ok(etat.statut_coffre())
 }
 
+/// Ouvre le panneau des réglages système correspondant à une autorisation.
+///
+/// Après un refus (micro, notifications) l'OS ne ré-affiche plus jamais son
+/// invite : le seul recours de l'utilisateur est le panneau système, d'où ce
+/// raccourci. `section` est validée contre une liste fermée — jamais d'URL
+/// arbitraire. Le pare-feu y figure car Accord est P2P : sans acceptation des
+/// connexions ENTRANTES, un pair ne peut pas nous joindre directement.
+#[tauri::command]
+pub fn ouvrir_reglages_systeme(section: String) -> Result<(), ErreurHote> {
+    #[cfg(target_os = "macos")]
+    let cible = match section.as_str() {
+        "microphone" => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        }
+        "notifications" => "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+        "firewall" => "x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall",
+        _ => return Err(ErreurHote::Tache("section inconnue".into())),
+    };
+    #[cfg(target_os = "windows")]
+    let cible = match section.as_str() {
+        "microphone" => "ms-settings:privacy-microphone",
+        "notifications" => "ms-settings:notifications",
+        "firewall" => "windowsdefender://network/",
+        _ => return Err(ErreurHote::Tache("section inconnue".into())),
+    };
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let _ = section;
+        return Err(ErreurHote::Tache(
+            "réglages système non pris en charge sur cette plateforme".into(),
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    let lancement = std::process::Command::new("open").arg(cible).spawn();
+    #[cfg(target_os = "windows")]
+    let lancement = std::process::Command::new("cmd")
+        .args(["/C", "start", "", cible])
+        .spawn();
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    match lancement {
+        Ok(_) => Ok(()),
+        Err(e) => Err(ErreurHote::Tache(format!("ouverture des réglages : {e}"))),
+    }
+}
+
 /// Exécute un travail CPU lourd hors du fil principal.
 async fn en_arriere_plan<T, F>(travail: F) -> Result<T, ErreurHote>
 where

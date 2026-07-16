@@ -274,3 +274,18 @@ export function registerCloseInterception(shouldHideOnClose: () => boolean): voi
     }
   })();
 }
+
+/** Sections des réglages système ouvrables depuis l'onglet Autorisations. */
+export type SystemSettingsSection = 'microphone' | 'notifications' | 'firewall';
+
+/**
+ * Ouvre le panneau des réglages système d'une autorisation (micro,
+ * notifications, pare-feu). Après un refus, l'OS ne ré-affiche jamais son
+ * invite : ce raccourci est le seul recours. Rejette hors Tauri ou sur une
+ * plateforme sans panneau connu (Linux) — l'appelant affiche alors l'astuce
+ * textuelle.
+ */
+export async function openSystemSettings(section: SystemSettingsSection): Promise<void> {
+  if (!isTauri()) throw new Error('hors Tauri');
+  await invoke('ouvrir_reglages_systeme', { section });
+}

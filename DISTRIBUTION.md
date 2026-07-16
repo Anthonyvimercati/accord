@@ -119,6 +119,23 @@ WebKitGTK 4.1 may be missing — prefer Ubuntu 22.04 or newer.
 > Homebrew: `brew install node@22` and prefix
 > `PATH="/opt/homebrew/opt/node@22/bin:$PATH"`.
 
+#### Signature locale stable (macOS)
+
+macOS attaches the microphone permission (TCC) and the firewall's
+"accept incoming connections" grant to the app's **code signature**. With
+the default ad-hoc signature, every rebuild has a different fingerprint:
+the mic prompt comes back after each build, and the firewall asks again at
+every launch — fatal for a P2P app that needs incoming connections. Create
+a local self-signed identity **once**, and `build-macos.sh` picks it up
+automatically (or set `ACCORD_SIGNING_IDENTITY`):
+
+1. Keychain Access → menu **Keychain Access → Certificate Assistant →
+   Create a Certificate…**
+2. Name: `Accord Dev` — Identity type: *Self-Signed Root* — Certificate
+   type: **Code Signing** → Create.
+3. Rebuild: the script detects `Accord Dev` and signs with it; mic and
+   firewall grants now persist across builds and launches.
+
 ### 3. Windows (run on Windows, in PowerShell)
 
 ```powershell

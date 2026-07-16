@@ -38,6 +38,34 @@ echo "== Installation des dépendances frontend (si nécessaire) =="
 cd "$RACINE/app"
 [ -d node_modules ] || npm ci
 
+echo "== Signature (identité stable) =="
+# macOS attache les autorisations TCC (micro) et l'accord du pare-feu à la
+# SIGNATURE du binaire. En signature ad-hoc (défaut sans identité), chaque
+# build produit une empreinte différente : macOS redemande alors le micro à
+# chaque nouvelle build et le pare-feu redemande les connexions ENTRANTES
+# (indispensables en P2P) à chaque lancement. Une identité stable — même un
+# simple certificat auto-signé local — fait persister les deux accords.
+#
+# Priorité : $ACCORD_SIGNING_IDENTITY > $APPLE_SIGNING_IDENTITY déjà posée >
+# certificat local « Accord Dev » s'il existe > ad-hoc (avec avertissement).
+if [[ -n "${ACCORD_SIGNING_IDENTITY:-}" ]]; then
+  export APPLE_SIGNING_IDENTITY="$ACCORD_SIGNING_IDENTITY"
+elif [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]] \
+  && security find-identity -v -p codesigning 2>/dev/null | grep -q '"Accord Dev"'; then
+  export APPLE_SIGNING_IDENTITY="Accord Dev"
+fi
+if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  echo "Identité de signature : $APPLE_SIGNING_IDENTITY"
+else
+  cat <<'AVERTISSEMENT'
+AVERTISSEMENT : aucune identité de signature — signature ad-hoc.
+  Conséquences : macOS redemandera l'autorisation micro après CHAQUE build,
+  et le pare-feu redemandera les connexions entrantes à CHAQUE lancement.
+  Pour une identité stable locale (une seule fois) :
+    voir DISTRIBUTION.md § « Signature locale stable (macOS) ».
+AVERTISSEMENT
+fi
+
 echo "== Build Tauri (cible : $CIBLE) =="
 # CI=true évite l'échec cosmétique du DMG (script AppleScript de mise en page de
 # la fenêtre du DMG, qui échoue notamment sans session graphique interactive).
