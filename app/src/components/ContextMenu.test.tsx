@@ -212,4 +212,43 @@ describe('ContextMenu', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(useContextMenu.getState().menu).toBeNull();
   });
+
+  it('Entrée active l’item FOCALISÉ, pas celui survolé en dernier', async () => {
+    const onCopy = vi.fn();
+    const onDelete = vi.fn();
+    openWith([
+      { label: 'Copier le texte', onClick: onCopy },
+      { label: 'Supprimer le message', onClick: onDelete, danger: true },
+    ]);
+    render(<ContextMenu />);
+
+    const copy = screen.getByRole('menuitem', { name: 'Copier le texte' });
+    const remove = screen.getByRole('menuitem', { name: 'Supprimer le message' });
+    await waitFor(() => expect(copy).toHaveFocus());
+
+    fireEvent.mouseEnter(remove);
+    expect(copy).toHaveFocus();
+
+    fireEvent.keyDown(copy, { key: 'Enter' });
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('les flèches repartent de l’item focalisé malgré un survol ailleurs', async () => {
+    openWith([
+      { label: 'Premier', onClick: vi.fn() },
+      { label: 'Deuxième', onClick: vi.fn() },
+      { label: 'Dernier', onClick: vi.fn() },
+    ]);
+    render(<ContextMenu />);
+
+    const first = screen.getByRole('menuitem', { name: 'Premier' });
+    const second = screen.getByRole('menuitem', { name: 'Deuxième' });
+    const last = screen.getByRole('menuitem', { name: 'Dernier' });
+    await waitFor(() => expect(first).toHaveFocus());
+
+    fireEvent.mouseEnter(last);
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(second).toHaveFocus();
+  });
 });

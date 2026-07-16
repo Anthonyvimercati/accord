@@ -465,6 +465,32 @@ describe('Sidebar — menu du nom de serveur', () => {
       screen.queryByRole('menu', { name: 'Menu du serveur' }),
     ).not.toBeInTheDocument();
   });
+
+  it('le clavier repart de l’item focalisé malgré un survol ailleurs', () => {
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+
+    render(
+      <>
+        <Sidebar />
+        <ContextMenu />
+      </>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+
+    const settings = screen.getByRole('menuitem', { name: 'Paramètres du serveur' });
+    expect(settings).toHaveFocus();
+    const notifications = screen.getByRole('menuitem', { name: 'Notifications' });
+    fireEvent.keyDown(settings, { key: 'ArrowDown' });
+    expect(notifications).toHaveFocus();
+
+    fireEvent.mouseEnter(
+      screen.getByRole('menuitem', { name: 'Copier l’ID du serveur' }),
+    );
+    expect(notifications).toHaveFocus();
+
+    fireEvent.keyDown(notifications, { key: 'ArrowRight' });
+    expect(screen.getByRole('menuitemradio', { name: 'Rien' })).toBeInTheDocument();
+  });
 });
 
 describe('Sidebar — sourdine des notifications (salon)', () => {

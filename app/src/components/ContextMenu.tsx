@@ -193,6 +193,17 @@ export function ContextMenu() {
     itemRefs.current[bounded]?.focus();
   };
 
+  // Base des raccourcis clavier : l'élément réellement FOCALISÉ, jamais
+  // `activeIndex` seul — le survol le déplace sans bouger le focus, et Entrée
+  // activerait alors l'élément survolé (potentiellement destructeur) au lieu
+  // de celui que l'anneau de focus désigne.
+  const focusedIndex = (): number => {
+    const i = itemRefs.current.findIndex(
+      (el) => el !== null && el === document.activeElement,
+    );
+    return i >= 0 ? i : activeIndex;
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -204,12 +215,12 @@ export function ContextMenu() {
       closeMenu();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      moveActive(activeIndex + 1);
+      moveActive(focusedIndex() + 1);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      moveActive(activeIndex - 1);
+      moveActive(focusedIndex() - 1);
     } else if (e.key === 'Enter' || e.key === ' ') {
-      const item = items[activeIndex];
+      const item = items[focusedIndex()];
       if (item !== undefined) {
         e.preventDefault();
         activate(item);

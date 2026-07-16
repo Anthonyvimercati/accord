@@ -2,6 +2,36 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.4.0] — 2026-07-16
+
+### Added
+
+- **Animated profile card frame**: profile popovers and the user panel share
+  a decorated, animated card surface (id-based like the rest of the
+  personalization catalogue, compositor-only, reduced-motion aware).
+
+### Fixed
+
+- **macOS microphone prompt looping even after accepting.** The bundle was
+  only linker-signed (Info.plist not bound, no sealed resources), so TCC
+  could not durably attribute the grant. Builds are now fully signed (ad-hoc
+  by default, stable identity when available) and the Permissions row reads
+  the real system state via AVFoundation — it only offers "Request" when the
+  OS can actually show its prompt, so the app can never re-trigger it in a
+  loop; when denied it deep-links to the exact system pane.
+- A batch of design bugfixes: broken avatar/attachment images fall back
+  cleanly, the typing indicator no longer shifts the composer (and shows
+  server nicknames, threads included), threads/pinned panels no longer
+  overlap, the members list adapts to narrow layouts, the server menu got
+  full keyboard support and clearer checkboxes, composer focus and the
+  attach menu were polished, jump-to-message honors reduced motion, and
+  touch targets were enlarged across the app.
+- **Menus: keyboard acts on the focused item, never the hovered one.**
+  Resting the pointer over one row while arrow-navigating another could make
+  Enter activate the hovered row (e.g. a destructive "Delete message") and
+  left the new ArrowRight-to-submenu shortcut dead; both the context menu
+  and the server menu now derive every key action from the real focus.
+
 ## [1.3.1] — 2026-07-16
 
 ### Fixed

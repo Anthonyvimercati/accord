@@ -796,6 +796,17 @@ function ServerHeaderMenu({
     itemRefs.current[bounded]?.focus();
   };
 
+  // Base des raccourcis clavier : l'élément réellement FOCALISÉ, jamais
+  // `activeIndex` seul — le survol le déplace sans bouger le focus, et les
+  // flèches (ou ArrowRight vers un sous-menu) agiraient alors depuis la ligne
+  // survolée au lieu de celle que l'anneau de focus désigne.
+  const focusedIndex = (): number => {
+    const i = itemRefs.current.findIndex(
+      (el) => el !== null && el === document.activeElement,
+    );
+    return i >= 0 ? i : activeIndex;
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -804,10 +815,10 @@ function ServerHeaderMenu({
       onClose();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      moveActive(activeIndex + 1);
+      moveActive(focusedIndex() + 1);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      moveActive(activeIndex - 1);
+      moveActive(focusedIndex() - 1);
     } else if (e.key === 'Home') {
       e.preventDefault();
       moveActive(0);
@@ -815,8 +826,9 @@ function ServerHeaderMenu({
       e.preventDefault();
       moveActive(items.length - 1);
     } else if (e.key === 'ArrowRight') {
-      const item = items[activeIndex];
-      const trigger = itemRefs.current[activeIndex];
+      const index = focusedIndex();
+      const item = items[index];
+      const trigger = itemRefs.current[index];
       if (item?.submenu !== undefined && trigger !== null && trigger !== undefined) {
         e.preventDefault();
         openSubmenu(item, trigger);
