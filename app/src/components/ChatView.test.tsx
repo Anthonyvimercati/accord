@@ -381,6 +381,45 @@ describe('GroupView — statut personnalisé dans la liste des membres', () => {
     expect(screen.queryByText('En pleine partie')).not.toBeInTheDocument();
   });
 
+  it('ouvre la carte publique depuis la liste des membres', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({
+          channels: [
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+          ],
+          members: [{ pubkey: PEER, roles: [] }],
+        }),
+      },
+    });
+    useFriends.setState({ contacts: [contact(PEER, 'Alice')] });
+
+    render(<GroupView groupId="g1" channelId="c1" />);
+
+    const trigger = await screen.findByRole('button', {
+      name: 'Voir le profil de Alice',
+    });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(trigger);
+
+    expect(useUi.getState().profile).toMatchObject({
+      pubkey: PEER,
+      groupId: 'g1',
+      surface: 'profile-card',
+    });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('sépare la saisie du composeur et utilise le surnom du serveur', async () => {
     useGroups.setState({
       ids: ['g1'],

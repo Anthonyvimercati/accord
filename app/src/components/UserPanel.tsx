@@ -267,7 +267,7 @@ export function UserPanel() {
   // Un appel et un salon de groupe ne coexistent jamais (voir CallBanner) :
   // le bandeau d'appel prime, jamais les deux affichés ensemble.
   const inCallPhase = callPhase === 'outgoing_ringing' || callPhase === 'active';
-  const userMenuOpen = profile?.pubkey === self.pubkey;
+  const userMenuOpen = profile?.pubkey === self.pubkey && profile.surface === 'user-menu';
 
   return (
     <div className="relative border-t border-[color:var(--glass-border)]">
@@ -279,12 +279,17 @@ export function UserPanel() {
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
-            openProfile(self.pubkey, {
-              top: r.top,
-              left: r.left,
-              bottom: r.bottom,
-              right: r.right,
-            });
+            openProfile(
+              self.pubkey,
+              {
+                top: r.top,
+                left: r.left,
+                bottom: r.bottom,
+                right: r.right,
+              },
+              null,
+              'user-menu',
+            );
           }}
           title={t.profil.userMenu}
           aria-label={t.profil.userMenu}

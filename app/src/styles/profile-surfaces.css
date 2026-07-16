@@ -3,6 +3,21 @@
   isolation: isolate;
 }
 
+.profile-card-shell {
+  position: relative;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.profile-card-shell__surface {
+  z-index: 1;
+  width: 100%;
+  box-shadow:
+    0 22px 64px rgb(0 0 0 / 0.46),
+    0 4px 16px rgb(0 0 0 / 0.3),
+    var(--glass-highlight);
+}
+
 .profile-card-canvas::after {
   position: absolute;
   inset: 0;
@@ -49,6 +64,472 @@
   background: rgb(var(--color-modal));
   box-shadow: var(--glass-highlight), var(--shadow-2);
   isolation: isolate;
+}
+
+.profile-frame {
+  position: absolute;
+  inset: -30px;
+  z-index: 3;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.profile-frame--lumen-bloom {
+  color: #8deaff;
+  filter: drop-shadow(0 0 7px rgb(79 199 255 / 0.58));
+  animation: lumen-frame-breathe 4.8s ease-in-out infinite;
+}
+
+.lumen-frame__aura {
+  position: absolute;
+  inset: 19px;
+  border: 1px solid rgb(132 225 255 / 0.56);
+  border-radius: 20px;
+  box-shadow:
+    inset 0 0 22px rgb(82 128 255 / 0.18),
+    0 0 14px rgb(82 202 255 / 0.22);
+}
+
+.lumen-frame__crown {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 2px 2px rgb(12 25 79 / 0.72))
+    drop-shadow(0 0 5px rgb(112 219 255 / 0.66));
+}
+
+.lumen-frame__crown--top {
+  top: 0;
+  height: 70px;
+}
+
+.lumen-frame__crown--bottom {
+  bottom: 0;
+  height: 62px;
+}
+
+.lumen-frame__vine {
+  fill: none;
+  stroke: #a4efff;
+  stroke-dasharray: 8 5 2 5;
+  stroke-linecap: round;
+  stroke-width: 2.6;
+  vector-effect: non-scaling-stroke;
+  animation: lumen-vine-flow 9s linear infinite;
+}
+
+.lumen-frame__vine--echo {
+  stroke: #705cff;
+  stroke-dasharray: none;
+  stroke-width: 7;
+  opacity: 0.28;
+  filter: blur(3px);
+}
+
+.lumen-frame__filament {
+  fill: none;
+  stroke: rgb(157 129 255 / 0.76);
+  stroke-dasharray: 2 5;
+  stroke-linecap: round;
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+  animation: lumen-vine-flow 13s linear infinite reverse;
+}
+
+.lumen-frame__petal {
+  fill: #73dfff;
+  stroke: #d9fbff;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  animation: lumen-petal-pulse 3.6s ease-in-out infinite;
+}
+
+.lumen-frame__core {
+  fill: #fffbd4;
+  stroke: #8a72ff;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+  animation: lumen-core-glow 2.8s ease-in-out infinite;
+}
+
+.lumen-frame__gem {
+  fill: #e7feff;
+  stroke: #7f68ff;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lumen-gem-glint 3.4s ease-in-out infinite;
+}
+
+.lumen-frame__gem--soft {
+  opacity: 0.8;
+  animation-delay: -1.7s;
+}
+
+.lumen-frame__rail {
+  position: absolute;
+  top: 64px;
+  bottom: 58px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    #91efff 15%,
+    #7966ff 35%,
+    #bffaff 52%,
+    #7765ff 72%,
+    #91efff 88%,
+    transparent
+  );
+  background-size: 100% 180%;
+  box-shadow:
+    0 0 5px #74ddff,
+    0 0 12px rgb(111 82 255 / 0.52);
+  animation: lumen-rail-flow 5.6s linear infinite;
+}
+
+.lumen-frame__rail::before,
+.lumen-frame__rail::after {
+  position: absolute;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  border: 1px solid #d8fbff;
+  background: #7769ff;
+  box-shadow: 0 0 10px #7ce7ff;
+  content: '';
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.lumen-frame__rail::before {
+  top: 22%;
+}
+
+.lumen-frame__rail::after {
+  bottom: 20%;
+}
+
+.lumen-frame__rail--left {
+  left: 19px;
+}
+
+.lumen-frame__rail--right {
+  right: 19px;
+  animation-direction: reverse;
+}
+
+.lumen-frame__mote {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #e6ffff;
+  box-shadow:
+    0 0 5px #dfffff,
+    0 0 12px #7d69ff;
+  opacity: 0;
+  animation: lumen-frame-mote 4.6s ease-in-out infinite;
+}
+
+.lumen-frame__mote--1 {
+  top: 10%;
+  left: 8%;
+}
+
+.lumen-frame__mote--2 {
+  top: 4%;
+  left: 34%;
+  animation-delay: -1.4s;
+}
+
+.lumen-frame__mote--3 {
+  top: 12%;
+  right: 8%;
+  animation-delay: -2.6s;
+}
+
+.lumen-frame__mote--4 {
+  top: 34%;
+  right: 2%;
+  animation-delay: -0.7s;
+}
+
+.lumen-frame__mote--5 {
+  right: 5%;
+  bottom: 21%;
+  animation-delay: -3.4s;
+}
+
+.lumen-frame__mote--6 {
+  right: 30%;
+  bottom: 3%;
+  animation-delay: -1.9s;
+}
+
+.lumen-frame__mote--7 {
+  bottom: 15%;
+  left: 3%;
+  animation-delay: -2.9s;
+}
+
+.lumen-frame__mote--8 {
+  top: 46%;
+  left: 2%;
+  animation-delay: -4.1s;
+}
+
+.profile-effect--lumen-bloom {
+  background:
+    radial-gradient(circle at 50% -8%, rgb(105 210 255 / 0.42), transparent 42%),
+    radial-gradient(circle at 95% 72%, rgb(116 76 255 / 0.32), transparent 46%),
+    linear-gradient(155deg, rgb(9 24 51 / 0.86), rgb(26 18 58 / 0.74));
+}
+
+.lumen-effect__veil {
+  position: absolute;
+  width: 78%;
+  height: 62%;
+  border-radius: 50%;
+  filter: blur(28px);
+  opacity: 0.5;
+  animation: lumen-veil-drift 12s ease-in-out infinite;
+}
+
+.lumen-effect__veil--one {
+  top: -24%;
+  left: -28%;
+  background: rgb(77 219 255 / 0.5);
+}
+
+.lumen-effect__veil--two {
+  right: -32%;
+  bottom: -18%;
+  background: rgb(126 85 255 / 0.5);
+  animation-delay: -6s;
+}
+
+.lumen-effect__beam {
+  position: absolute;
+  top: -22%;
+  width: 18%;
+  height: 150%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgb(187 246 255 / 0.12),
+    transparent
+  );
+  filter: blur(7px);
+  transform: rotate(18deg);
+  animation: lumen-beam-sweep 9s ease-in-out infinite;
+}
+
+.lumen-effect__beam--one {
+  left: 8%;
+}
+
+.lumen-effect__beam--two {
+  left: 48%;
+  animation-delay: -4.5s;
+}
+
+.lumen-effect__mote {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #dffcff;
+  box-shadow:
+    0 0 5px #9defff,
+    0 0 10px #7a68ff;
+  opacity: 0;
+  animation: lumen-effect-mote 7s ease-in-out infinite;
+}
+
+.lumen-effect__mote--1 {
+  top: 18%;
+  left: 14%;
+}
+.lumen-effect__mote--2 {
+  top: 34%;
+  left: 78%;
+  animation-delay: -1s;
+}
+.lumen-effect__mote--3 {
+  top: 72%;
+  left: 18%;
+  animation-delay: -2s;
+}
+.lumen-effect__mote--4 {
+  top: 84%;
+  left: 68%;
+  animation-delay: -3s;
+}
+.lumen-effect__mote--5 {
+  top: 52%;
+  left: 44%;
+  animation-delay: -4s;
+}
+.lumen-effect__mote--6 {
+  top: 12%;
+  left: 60%;
+  animation-delay: -5s;
+}
+.lumen-effect__mote--7 {
+  top: 64%;
+  left: 86%;
+  animation-delay: -6s;
+}
+.lumen-effect__mote--8 {
+  top: 90%;
+  left: 38%;
+  animation-delay: -2.5s;
+}
+.lumen-effect__mote--9 {
+  top: 42%;
+  left: 8%;
+  animation-delay: -3.5s;
+}
+.lumen-effect__mote--10 {
+  top: 25%;
+  left: 36%;
+  animation-delay: -5.5s;
+}
+
+.personalization-preview > .profile-frame {
+  inset: -14px;
+  z-index: 2;
+  opacity: 0.84;
+}
+
+.personalization-preview > .profile-frame .lumen-frame__crown--top {
+  height: 54px;
+}
+
+.personalization-preview > .profile-frame .lumen-frame__crown--bottom {
+  height: 46px;
+}
+
+.personalization-choice__effect > .profile-frame {
+  inset: -7px;
+  opacity: 0.78;
+}
+
+.personalization-choice__effect > .profile-frame .lumen-frame__crown--top {
+  height: 28px;
+}
+
+.personalization-choice__effect > .profile-frame .lumen-frame__crown--bottom {
+  height: 24px;
+}
+
+.personalization-choice__effect > .profile-frame .lumen-frame__rail {
+  top: 25px;
+  bottom: 22px;
+}
+
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .profile-effect--lumen-bloom {
+  background:
+    radial-gradient(circle at 50% -8%, rgb(74 183 234 / 0.3), transparent 42%),
+    radial-gradient(circle at 95% 72%, rgb(117 91 229 / 0.22), transparent 46%),
+    linear-gradient(155deg, rgb(221 246 255 / 0.9), rgb(235 228 255 / 0.82));
+}
+
+@keyframes lumen-frame-breathe {
+  50% {
+    filter: drop-shadow(0 0 10px rgb(92 216 255 / 0.74));
+  }
+}
+
+@keyframes lumen-vine-flow {
+  to {
+    stroke-dashoffset: -80;
+  }
+}
+
+@keyframes lumen-petal-pulse {
+  50% {
+    fill: #a891ff;
+    opacity: 0.84;
+  }
+}
+
+@keyframes lumen-core-glow {
+  50% {
+    fill: #fff;
+    filter: drop-shadow(0 0 6px #d9ffff);
+  }
+}
+
+@keyframes lumen-gem-glint {
+  50% {
+    opacity: 0.76;
+    transform: scale(0.82) rotate(45deg);
+  }
+}
+
+@keyframes lumen-rail-flow {
+  to {
+    background-position: 0 180%;
+  }
+}
+
+@keyframes lumen-frame-mote {
+  20% {
+    opacity: 0.95;
+  }
+  70% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(8px, -28px, 0) scale(0.55);
+  }
+}
+
+@keyframes lumen-veil-drift {
+  50% {
+    opacity: 0.68;
+    transform: translate3d(18%, 12%, 0) scale(1.12);
+  }
+}
+
+@keyframes lumen-beam-sweep {
+  50% {
+    opacity: 0.25;
+    transform: translate3d(110%, 0, 0) rotate(18deg);
+  }
+}
+
+@keyframes lumen-effect-mote {
+  16% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(8px, -62px, 0) scale(0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-frame :is(*, *::before, *::after) {
+    animation: none !important;
+  }
+}
+
+:root[data-motion='reduce'] .profile-frame :is(*, *::before, *::after) {
+  animation: none !important;
 }
 
 .personalization-preview__scrim {

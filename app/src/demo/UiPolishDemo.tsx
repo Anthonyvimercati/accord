@@ -40,7 +40,7 @@ const SELF: SelfProfile = {
   accent_color: 0x7c6df2,
   banner_color: 0x27244a,
   avatar_decoration: 'golden_laurel',
-  profile_effect: 'aurora',
+  profile_effect: 'lumen_bloom',
 };
 
 const CONTACTS: Contact[] = [

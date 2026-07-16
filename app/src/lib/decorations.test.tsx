@@ -15,7 +15,7 @@ describe('catalogue de personnalisation', () => {
     ];
 
     expect(AVATAR_DECORATIONS).toHaveLength(14);
-    expect(PROFILE_EFFECTS).toHaveLength(12);
+    expect(PROFILE_EFFECTS).toHaveLength(13);
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) {
       expect(id).toMatch(/^[a-z0-9_-]{1,24}$/);
@@ -25,6 +25,7 @@ describe('catalogue de personnalisation', () => {
   it('résout les nouveaux choix et ignore les identifiants inconnus', () => {
     expect(decorationById('moon_moths')?.label.fr).toBe('Papillons lunaires');
     expect(effectById('cosmic_portal')?.label.en).toBe('Cosmic Portal');
+    expect(effectById('lumen_bloom')?.label.fr).toBe('Jardin de lumière');
     expect(decorationById('<style>')).toBeUndefined();
     expect(effectById('missing')).toBeUndefined();
   });
@@ -42,5 +43,11 @@ describe('catalogue de personnalisation', () => {
       'true',
     );
     expect(screen.getByTestId('profile-effect')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('rend le cadre animé de carte comme contenu décoratif', () => {
+    render(<div>{effectById('lumen_bloom')?.renderFrame?.()}</div>);
+
+    expect(screen.getByTestId('profile-frame')).toHaveAttribute('aria-hidden', 'true');
   });
 });

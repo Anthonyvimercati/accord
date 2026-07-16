@@ -477,6 +477,7 @@ function MemberList({ groupId, fill = false }: { groupId: string; fill?: boolean
   const ownStatusText = useFriends((s) => s.ownStatusText);
   const state = useGroups((s) => s.states[groupId]);
   const openProfile = useUi((s) => s.openProfile);
+  const activeProfile = useUi((s) => s.profile);
   const requestMentionInsert = useUi((s) => s.requestMentionInsert);
   const toast = useUi((s) => s.toast);
   const membersWidth = useUi((s) => s.membersWidth);
@@ -662,6 +663,11 @@ function MemberList({ groupId, fill = false }: { groupId: string; fill?: boolean
                 aria-label={interpolate(t.profil.openProfile, {
                   name: nameOf(member.pubkey),
                 })}
+                aria-haspopup="dialog"
+                aria-expanded={
+                  activeProfile?.pubkey === member.pubkey &&
+                  activeProfile.surface === 'profile-card'
+                }
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
                   openProfile(

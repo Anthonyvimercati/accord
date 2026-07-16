@@ -369,7 +369,7 @@ describe('AccountTab — personnalisation', () => {
     render(<AccountTab />);
 
     expect(screen.getByText('Orbite · Constellation')).toBeInTheDocument();
-    const group = screen.getByRole('group', { name: 'Effet de profil' });
+    const group = screen.getByRole('group', { name: 'Effet et cadre de profil' });
     expect(within(group).getByRole('button', { name: 'Constellation' })).toHaveAttribute(
       'aria-pressed',
       'true',
