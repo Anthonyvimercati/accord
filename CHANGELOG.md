@@ -2,6 +2,23 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.5.0] — 2026-07-16
+
+### Added
+
+- **Profile frames are now their own personalization slot**, separate from
+  profile effects: pick an animated frame and an animated background
+  independently (both id-based, a few bytes over the wire, compositor-only
+  and reduced-motion aware). Four frames to start: Lumen Garden, Crystal
+  Crown, Celestial Wings, Neon Circuit.
+
+### Fixed
+
+- Your frame now also shows on the profile opened from the **user panel in
+  the bottom-left corner** — it previously appeared only on server members'
+  cards, because that panel opens a different surface which never rendered
+  the frame (and clipped its bleed).
+
 ## [1.4.0] — 2026-07-16
 
 ### Added
