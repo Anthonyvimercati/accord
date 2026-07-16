@@ -134,11 +134,36 @@ pub fn author_op(
     }
 }
 
-/// Ingère une op reçue du réseau : vérification de signature, insertion
-/// idempotente, avance de l'horloge de Lamport locale et application des
-/// suppressions de modération à l'historique local.
+/// `op_id` canonique d'une opération : les 16 premiers octets de
+/// SHA-256(contenu) (contenu = tout sauf `op_id`/`sig`). Lier l'`op_id` au
+/// contenu rend infaisable, pour un membre malveillant, de signer deux
+/// opérations de contenu DIFFÉRENT partageant un même `op_id` : l'insertion
+/// étant idempotente sur `op_id` et l'anti-entropie hachant les `op_id`, une
+/// telle collision provoquerait une divergence d'état permanente et non
+/// détectée. Avec cet invariant, deux corps distincts ont deux `op_id`
+/// distincts, se répliquent tous deux et convergent par LWW.
+///
+/// NOTE sécurité : l'id fait 128 bits (format filaire existant), donc la
+/// résistance à la collision est ≈ 2^64 (borne des anniversaires) — largement
+/// suffisant pour le modèle de menace (cercle d'amis), pas « impossible » au
+/// sens strict. Si le format filaire est rompu de toute façon (voir la
+/// migration requise, DECISIONS/THREAT-MODEL), envisager 32 octets (≈ 2^128).
+fn op_content_id(op: &GroupOp) -> [u8; 16] {
+    let digest = Sha256::digest(op.content_bytes());
+    let mut id = [0u8; 16];
+    id.copy_from_slice(&digest[..16]);
+    id
+}
+
+/// Ingère une op reçue du réseau : vérification de signature, cohérence de
+/// l'`op_id` avec le contenu, insertion idempotente, avance de l'horloge de
+/// Lamport locale et application des suppressions de modération à l'historique.
 pub fn ingest_op(db: &Db, op: &GroupOp) -> Result<IngestOutcome, CoreError> {
     verify_signature(&op.author, &op.signable_bytes(), &op.sig)?;
+    // Intégrité (SPEC §6.2) : l'`op_id` DOIT être le hash du contenu.
+    if op.op_id != op_content_id(op) {
+        return Err(CoreError::Invalid("op_id incohérent avec le contenu"));
+    }
     // Le corps doit être décodable : une op indéchiffrable ne sert à rien
     // et polluerait le log répliqué.
     GroupOpBody::decode_body(op.kind, &op.body)?;
@@ -279,7 +304,7 @@ fn sign_op(
     now_ms: u64,
 ) -> Result<GroupOp, CoreError> {
     let mut op = GroupOp {
-        op_id: new_id16(),
+        op_id: [0u8; 16], // provisoire : remplacé par le hash du contenu
         group_id: *group_id,
         lamport: db.bump_lamport(0)?,
         wall_ms: now_ms,
@@ -288,6 +313,9 @@ fn sign_op(
         body: body.encode_body(),
         sig: [0u8; 64],
     };
+    // `op_id` = hash du contenu (déterministe, non falsifiable) : voir
+    // [`op_content_id`]. La signature couvre ensuite cet `op_id`.
+    op.op_id = op_content_id(&op);
     op.sig = identity.sign(&op.signable_bytes());
     Ok(op)
 }
@@ -394,13 +422,38 @@ mod tests {
     }
 
     #[test]
+    fn op_id_lie_au_contenu_bloque_la_collision() {
+        let (db, id) = setup();
+        let created = create_group(&db, &id, "G", 0).unwrap();
+        // `op_id` produit = hash du contenu.
+        assert_eq!(created.op.op_id, op_content_id(&created.op));
+        // Deux ops de CONTENU différent ont des `op_id` distincts : un membre
+        // malveillant ne peut PAS leur donner le même `op_id` (base de la
+        // divergence d'état) — chacun a un id imposé par son contenu.
+        let mut a = created.op.clone();
+        a.lamport = 10;
+        a.op_id = op_content_id(&a);
+        let mut b = created.op.clone();
+        b.lamport = 11;
+        b.op_id = op_content_id(&b);
+        assert_ne!(a.op_id, b.op_id);
+        // Un `op_id` falsifié (ne correspondant pas au contenu), MÊME signé
+        // valablement par l'auteur, est rejeté à l'ingestion.
+        let mut forged = created.op.clone();
+        forged.op_id = [0xEE; 16];
+        forged.sig = id.sign(&forged.signable_bytes());
+        assert!(ingest_op(&db, &forged).is_err());
+    }
+
+    #[test]
     fn ingested_lamport_advances_local_clock() {
         let (db_a, alice) = setup();
         let created = create_group(&db_a, &alice, "G", 0).unwrap();
         let mut op = created.op.clone();
-        // Simule un pair très en avance.
-        op.op_id = new_id16();
+        // Simule un pair très en avance : `op_id` recalculé sur le contenu
+        // modifié (invariant op_id = hash du contenu), puis re-signé.
         op.lamport = 5_000;
+        op.op_id = op_content_id(&op);
         op.sig = alice.sign(&op.signable_bytes());
 
         let db_b = Db::open_in_memory(&[9u8; 32]).unwrap();
