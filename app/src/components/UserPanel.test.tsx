@@ -128,6 +128,7 @@ describe('UserPanel — menu utilisateur rapide', () => {
     expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(useUi.getState().profile?.pubkey).toBe('moi');
+    expect(useUi.getState().profile?.surface).toBe('user-menu');
   });
 
   it('referme le panneau au second clic sur son déclencheur', () => {

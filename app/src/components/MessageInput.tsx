@@ -615,13 +615,6 @@ export function MessageInput({
   // action possible, le clic ouvre directement le sélecteur de fichiers.
   const hasCreateMenu = groupId !== null && channelId !== null;
 
-  /**
-   * Clic sur « + » : en salon, ouvre le menu de création (joindre un fichier,
-   * créer un sondage) via le menu contextuel générique, ancré au coin haut-
-   * gauche du bouton (le rendu se borne au viewport, donc il remonte au-
-   * dessus du composeur). En MP — ou hors salon — le sélecteur de fichiers
-   * s'ouvre directement, comme le trombone d'avant (D-048).
-   */
   const ouvrirMenuAjout = (): void => {
     if (sending) return;
     const gid = groupId;
@@ -630,19 +623,35 @@ export function MessageInput({
       void choisirFichiers();
       return;
     }
-    const rect = plusRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
-    openMenu(rect.left, rect.top, [
+    const trigger = plusRef.current;
+    if (trigger === null) return;
+    const rect = trigger.getBoundingClientRect();
+    openMenu(
+      rect.left,
+      rect.top,
+      [
+        {
+          label: t.fichiers.joindre,
+          icon: <TromboneMenuIcon />,
+          onClick: () => void choisirFichiers(),
+        },
+        {
+          label: t.groups.pollNew,
+          icon: <SondageMenuIcon />,
+          onClick: () => openModal({ kind: 'createPoll', groupId: gid, channelId: cid }),
+        },
+      ],
       {
-        label: t.fichiers.joindre,
-        icon: <TromboneMenuIcon />,
-        onClick: () => void choisirFichiers(),
+        anchor: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        },
+        preferredSide: 'top',
+        gap: 8,
       },
-      {
-        label: t.groups.pollNew,
-        icon: <SondageMenuIcon />,
-        onClick: () => openModal({ kind: 'createPoll', groupId: gid, channelId: cid }),
-      },
-    ]);
+    );
   };
 
   const selfMember =
@@ -669,7 +678,7 @@ export function MessageInput({
 
   if (notice !== null) {
     return (
-      <div className="px-4 pb-3">
+      <div className="px-4 pb-1">
         <div
           role="status"
           className="flex items-center gap-2.5 rounded-xl bg-input px-4 py-3 text-sm text-muted"
@@ -699,7 +708,7 @@ export function MessageInput({
     (text.trim() !== '' || pieces.length > 0) && !sending && !slowmodeActive;
 
   return (
-    <div className="px-4 pb-3">
+    <div className="px-4 pb-1">
       {pieces.length > 0 && (
         <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto overscroll-contain rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-3 py-2.5">
           {pieces.map((piece) => {
@@ -748,7 +757,7 @@ export function MessageInput({
                   title={interpolate(t.fichiers.retirerPiece, { name: nom })}
                   disabled={sending}
                   onClick={() => retirer(piece.id)}
-                  className="shrink-0 rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
                 >
                   <CloseIcon size={14} />
                 </button>
@@ -1002,7 +1011,7 @@ export function MessageInput({
                   void submit();
                 }
               }}
-              className="max-h-48 min-h-[36px] min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
+              className="max-h-48 min-h-[36px] min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none focus-visible:outline-none"
             />
             {slowmodeActive && (
               <span

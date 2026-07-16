@@ -10,7 +10,7 @@ import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
-import { useUi, type AncrePopover } from '../stores/ui';
+import { useUi, type AncrePopover, type ProfileSurface } from '../stores/ui';
 import { ProfilePopover } from './ProfilePopover';
 
 const ANCRE: AncrePopover = { top: 0, left: 0, bottom: 0, right: 0 };
@@ -62,8 +62,12 @@ function serverState(): GroupStateJson {
   };
 }
 
-function openFor(pubkey: string, groupId: string | null = null): void {
-  useUi.setState({ profile: { pubkey, ancre: ANCRE, groupId } });
+function openFor(
+  pubkey: string,
+  groupId: string | null = null,
+  surface: ProfileSurface = 'profile-card',
+): void {
+  useUi.setState({ profile: { pubkey, ancre: ANCRE, groupId, surface } });
 }
 
 beforeEach(() => {
@@ -177,6 +181,24 @@ describe('ProfilePopover — actions', () => {
 
     expect(useUi.getState().profile).toBeNull();
   });
+
+  it('piège le focus et le rend au déclencheur', () => {
+    const trigger = document.createElement('button');
+    document.body.append(trigger);
+    trigger.focus();
+    openFor('moi');
+    render(<ProfilePopover />);
+
+    const dialog = screen.getByRole('dialog', { name: 'Profil' });
+    expect(dialog).toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(screen.getByRole('button', { name: 'Modifier mon profil' })).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(trigger).toHaveFocus();
+    trigger.remove();
+  });
 });
 
 describe('ProfilePopover — pseudos de serveur', () => {
@@ -197,15 +219,29 @@ describe('ProfilePopover — pseudos de serveur', () => {
     expect(screen.queryByText('Alice')).not.toBeInTheDocument();
   });
 
-  it('utilise le menu utilisateur unifié pour son propre profil en groupe', () => {
+  it('affiche sa carte publique propre dans la liste des membres', () => {
     useGroups.setState({
       states: { g1: stateWith([{ pubkey: 'moi', roles: [], nickname: 'MoiServeur' }]) },
     });
     openFor('moi', 'g1');
     render(<ProfilePopover />);
 
-    expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Profil' })).toBeInTheDocument();
+    expect(screen.getByText('MoiServeur')).toBeInTheDocument();
     expect(screen.queryByLabelText('Pseudo de serveur')).not.toBeInTheDocument();
+    expect(screen.queryByText('Changer de compte')).not.toBeInTheDocument();
+    expect(screen.queryByText('Se déconnecter')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Définir le statut/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Modifier mon profil' }),
+    ).toBeInTheDocument();
+  });
+
+  it('conserve le menu utilisateur sur son panneau local', () => {
+    openFor('moi', null, 'user-menu');
+    render(<ProfilePopover />);
+
+    expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
   });
 
   it('ne montre pas le champ de pseudo hors contexte de serveur', () => {
@@ -322,7 +358,7 @@ describe('ProfilePopover — personnalisation', () => {
       self: {
         ...MOI,
         avatar_decoration: 'aurora_ring',
-        profile_effect: 'starfield',
+        profile_effect: 'lumen_bloom',
       },
     });
     openFor('moi');
@@ -330,6 +366,7 @@ describe('ProfilePopover — personnalisation', () => {
 
     expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
     expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
+    expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
   });
 
   it("rend la décoration et l'effet annoncés par un ami", () => {

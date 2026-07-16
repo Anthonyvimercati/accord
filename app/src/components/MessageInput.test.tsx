@@ -401,7 +401,7 @@ describe('MessageInput — composeur en lecture seule', () => {
       { members: [{ pubkey: 'moi', roles: [], timeout_until_ms: Date.now() + 60_000 }] },
       'text',
     );
-    render(
+    const { container } = render(
       <MessageInput
         placeholder="Écrire dans #salon"
         onSend={vi.fn()}
@@ -412,6 +412,7 @@ describe('MessageInput — composeur en lecture seule', () => {
 
     expect(screen.getByRole('status').textContent).toMatch(/sourdine/);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass('pb-1');
   });
 
   it('passe un salon d’annonces en lecture seule sans MANAGE_CHANNELS', () => {
@@ -636,9 +637,21 @@ describe('MessageInput — bouton « + » (pièces jointes et sondage)', () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getByLabelText('Joindre des fichiers', { selector: 'button' }),
-    );
+    const trigger = screen.getByLabelText('Joindre des fichiers', {
+      selector: 'button',
+    });
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      x: 343,
+      y: 646,
+      left: 343,
+      top: 646,
+      right: 379,
+      bottom: 682,
+      width: 36,
+      height: 36,
+      toJSON: () => ({}),
+    });
+    fireEvent.click(trigger);
 
     const menu = useContextMenu.getState().menu;
     expect(menu).not.toBeNull();
@@ -646,6 +659,13 @@ describe('MessageInput — bouton « + » (pièces jointes et sondage)', () => {
       'Joindre des fichiers',
       'Créer un sondage',
     ]);
+    expect(menu).toMatchObject({
+      x: 343,
+      y: 646,
+      anchor: { left: 343, top: 646, right: 379, bottom: 682 },
+      preferredSide: 'top',
+      gap: 8,
+    });
   });
 
   it('l’entrée « joindre » du menu « + » ouvre le sélecteur de fichiers', () => {
@@ -909,6 +929,8 @@ describe('MessageInput — focus demandé par le parent (focusKey)', () => {
     );
     const champ = screen.getByPlaceholderText('p');
     expect(champ).not.toHaveFocus();
+    expect(champ).toHaveClass('focus-visible:outline-none');
+    expect(champ.parentElement).toHaveClass('focus-within:border-blurple/50');
 
     rerender(<MessageInput placeholder="p" onSend={vi.fn()} focusKey="m1" />);
     await waitFor(() => expect(champ).toHaveFocus());

@@ -71,6 +71,7 @@ export function ProfilePersonalization() {
       >
         <div className="mb-4 personalization-preview">
           {selectedEffect?.render()}
+          {selectedEffect?.renderFrame?.()}
           <span className="personalization-preview__scrim" aria-hidden />
           <div className="personalization-preview__content">
             <Avatar
@@ -175,7 +176,10 @@ export function ProfilePersonalization() {
               onClick={() => pickEffect(effect.id)}
               className="personalization-choice"
             >
-              <span className="personalization-choice__effect">{effect.render()}</span>
+              <span className="personalization-choice__effect">
+                {effect.render()}
+                {effect.renderFrame?.()}
+              </span>
               <span className="personalization-choice__label">{effect.label[lang]}</span>
               <SelectedMark />
             </button>

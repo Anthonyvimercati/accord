@@ -114,6 +114,15 @@ describe('Pièces jointes — vignette d’image', () => {
     expect(await screen.findByText('Image indisponible')).toBeInTheDocument();
   });
 
+  it('signale une image illisible après son chargement', async () => {
+    lireMock.mockResolvedValueOnce('blob:image-invalide');
+    render(<MessageList messages={[message([piece()])]} />);
+
+    fireEvent.error(await screen.findByAltText('photo.png'));
+
+    expect(await screen.findByText('Image indisponible')).toBeInTheDocument();
+  });
+
   it('rend un message sans texte (pièces jointes seules)', async () => {
     lireMock.mockResolvedValueOnce('blob:image');
     render(<MessageList messages={[message([piece()], '')]} />);

@@ -11,7 +11,7 @@ import type { PresenceStatus } from '../lib/api';
 import { profileCardGradient, profileColorCss } from '../lib/color';
 import { effectById } from '../lib/decorations';
 import { copyToClipboard } from '../lib/clipboard';
-import { bouclerTab } from '../lib/focus';
+import { bouclerTab, focusables } from '../lib/focus';
 import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
 import {
   nicknameOf,
@@ -23,7 +23,6 @@ import {
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { api } from '../lib/client';
-import { AvatarCropper } from './AvatarCropper';
 import { Avatar } from './Avatar';
 import { CopyMenuIcon, EnvelopeMenuIcon } from './ContextMenu';
 import { MarkdownText } from './MarkdownText';
@@ -35,6 +34,7 @@ import { UserMenu } from './UserMenu';
 const CARD_WIDTH = 340;
 /** Marge minimale au bord du viewport (px). */
 const MARGE = 8;
+const FRAME_OVERFLOW = 30;
 
 /** Icône « retirer cet ami » (voir ICON SPEC, styles/global.css). */
 function RemoveFriendIcon() {
@@ -85,12 +85,21 @@ function calculerPosition(
 ): { left: number; top: number } {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const left = Math.max(MARGE, Math.min(ancre.left, vw - largeur - MARGE));
+  const gutter = vw >= largeur + (FRAME_OVERFLOW + MARGE) * 2 ? FRAME_OVERFLOW : 0;
+  const bord = MARGE + gutter;
+  const droite = ancre.right + MARGE;
+  const gauche = ancre.left - MARGE - largeur;
+  const left =
+    droite + largeur <= vw - bord
+      ? droite
+      : gauche >= bord
+        ? gauche
+        : Math.max(bord, Math.min(ancre.left, vw - largeur - bord));
   // Sous l'ancre si la place le permet, au-dessus sinon.
-  const enDessous = ancre.bottom + MARGE + hauteur <= vh;
+  const enDessous = ancre.bottom + MARGE + hauteur <= vh - bord;
   const top = enDessous
     ? ancre.bottom + MARGE
-    : Math.max(MARGE, ancre.top - MARGE - hauteur);
+    : Math.max(bord, ancre.top - MARGE - hauteur);
   return { left, top };
 }
 
@@ -112,24 +121,17 @@ export function ProfilePopover() {
   /** Note privée locale du contact (chargée à l'ouverture, jamais émise). */
   const [note, setNote] = useState('');
   const [noteLoaded, setNoteLoaded] = useState(false);
-  /** Brouillon du pseudo de serveur (édition de son propre pseudo). */
-  const [nick, setNick] = useState('');
   const self = useSession((s) => s.self);
   const state = useGroups((s) =>
     profile?.groupId != null ? s.states[profile.groupId] : undefined,
   );
-  const setNickname = useGroups((s) => s.setNickname);
-  const setMemberAvatar = useGroups((s) => s.setMemberAvatar);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  /** Image en cours de recadrage pour l'avatar de serveur (ouvert tant que non nulle). */
-  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
-  const [avatarBusy, setAvatarBusy] = useState(false);
-  const avatarFileRef = useRef<HTMLInputElement>(null);
   const ownTarget = profile !== null && self !== null && profile.pubkey === self.pubkey;
+  const userMenuTarget = ownTarget && profile?.surface === 'user-menu';
 
   useLayoutEffect(() => {
-    if (profile === null || ownTarget || ref.current === null) return undefined;
+    if (profile === null || userMenuTarget || ref.current === null) return undefined;
     const card = ref.current;
     const update = (): void =>
       setPos(calculerPosition(profile.ancre, card.offsetWidth, card.offsetHeight));
@@ -142,24 +144,12 @@ export function ProfilePopover() {
       observer?.disconnect();
       window.removeEventListener('resize', update);
     };
-  }, [ownTarget, profile]);
+  }, [profile, userMenuTarget]);
 
   // Nouvelle cible : la confirmation de retrait en cours est abandonnée.
   useEffect(() => {
     setConfirmRemove(false);
   }, [profile]);
-
-  // Brouillon du pseudo de serveur initialisé sur le pseudo courant du membre
-  // (source de vérité : `groups.state`), réinitialisé à chaque changement de
-  // cible ou d'état de groupe.
-  useEffect(() => {
-    if (profile === null) {
-      setNick('');
-      return;
-    }
-    const member = state?.members.find((m) => m.pubkey === profile.pubkey);
-    setNick(member?.nickname ?? '');
-  }, [profile, state]);
 
   // Charge la note privée locale du contact à l'ouverture (source de vérité :
   // le nœud). Purement locale — jamais envoyée au pair.
@@ -187,7 +177,7 @@ export function ProfilePopover() {
   }, [profile, self]);
 
   useEffect(() => {
-    if (profile === null || ownTarget) return undefined;
+    if (profile === null || userMenuTarget) return undefined;
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') closeProfile();
     };
@@ -219,25 +209,27 @@ export function ProfilePopover() {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('scroll', onScroll, true);
     };
-  }, [profile, closeProfile, ownTarget]);
+  }, [profile, closeProfile, userMenuTarget]);
 
   // Focus pris par la carte à l'ouverture (piège Tab sur le conteneur), rendu
   // au déclencheur (avatar/pseudo cliqué) à la fermeture s'il existe encore.
   useEffect(() => {
-    if (profile === null || ownTarget) return undefined;
+    if (profile === null || userMenuTarget) return undefined;
     const declencheur =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     ref.current?.focus();
     return () => {
       if (declencheur !== null && declencheur.isConnected) declencheur.focus();
     };
-  }, [profile, ownTarget]);
+  }, [profile, userMenuTarget]);
 
   if (profile === null) return null;
 
   const pubkey = profile.pubkey;
   const isSelf = self !== null && pubkey === self.pubkey;
-  if (isSelf) return <UserMenu onClose={closeProfile} anchor={profile.ancre} />;
+  if (isSelf && profile.surface === 'user-menu') {
+    return <UserMenu onClose={closeProfile} anchor={profile.ancre} />;
+  }
   const contact = contacts.find((c) => c.pubkey === pubkey);
   // Pseudo de serveur prioritaire (contexte de groupe), sinon pseudo global.
   const name =
@@ -327,64 +319,38 @@ export function ProfilePopover() {
       .catch(() => toast('error', t.errors.actionFailed));
   };
 
-  /** Enregistre son propre pseudo de serveur (au blur/Entrée) s'il a changé. */
-  const enregistrerNick = (): void => {
-    const groupId = profile.groupId;
-    if (groupId == null || state === undefined) return;
-    const trimmed = nick.trim();
-    const current = (member?.nickname ?? '').trim();
-    if (trimmed === current) return;
-    setNickname(groupId, trimmed).catch(() => toast('error', t.errors.actionFailed));
-  };
-
-  /** Publie l'avatar de serveur recadré (self-service, `groups.set_member_avatar`). */
-  const enregistrerAvatarServeur = async (
-    dataB64: string,
-    mime: string,
-  ): Promise<void> => {
-    const groupId = profile.groupId;
-    if (groupId == null) return;
-    setAvatarBusy(true);
-    try {
-      await setMemberAvatar(groupId, { dataB64, mime });
-    } catch {
-      toast('error', t.errors.actionFailed);
-    } finally {
-      setAvatarBusy(false);
-      setAvatarCropFile(null);
-    }
-  };
-
-  /** Efface l'avatar de serveur (self-service). */
-  const effacerAvatarServeur = (): void => {
-    const groupId = profile.groupId;
-    if (groupId == null) return;
-    setAvatarBusy(true);
-    setMemberAvatar(groupId)
-      .catch(() => toast('error', t.errors.actionFailed))
-      .finally(() => setAvatarBusy(false));
-  };
-
   const canNote = !isSelf && contact !== undefined;
 
   return (
-    <>
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label={t.profil.title}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === 'Tab' && document.activeElement === ref.current) {
+          const targets = focusables(ref.current);
+          const target = e.shiftKey ? targets.at(-1) : targets[0];
+          if (target !== undefined) {
+            e.preventDefault();
+            target.focus();
+          }
+        } else bouclerTab(e, ref.current);
+      }}
+      style={{
+        position: 'fixed',
+        left: pos?.left ?? profile.ancre.left,
+        top: pos?.top ?? profile.ancre.bottom,
+        width: CARD_WIDTH,
+        maxWidth: 'calc(100vw - 16px)',
+        visibility: pos === null ? 'hidden' : 'visible',
+      }}
+      className="profile-card-shell popover-enter z-50 origin-top focus:outline-none"
+    >
+      {effect?.renderFrame?.()}
       <div
-        ref={ref}
-        role="dialog"
-        aria-label={t.profil.title}
-        tabIndex={-1}
-        onKeyDown={(e) => bouclerTab(e, ref.current)}
-        style={{
-          position: 'fixed',
-          left: pos?.left ?? profile.ancre.left,
-          top: pos?.top ?? profile.ancre.bottom,
-          width: CARD_WIDTH,
-          maxWidth: 'calc(100vw - 16px)',
-          maxHeight: 'calc(100vh - 16px)',
-          visibility: pos === null ? 'hidden' : 'visible',
-        }}
-        className="profile-card-canvas glass-strong popover-enter z-50 origin-top overflow-y-auto overscroll-contain rounded-xl focus:outline-none"
+        style={{ maxHeight: 'calc(100vh - 72px)' }}
+        className="profile-card-canvas profile-card-shell__surface glass-strong overflow-y-auto overscroll-contain rounded-xl"
       >
         {effect?.render()}
         {cardGradient !== null && (
@@ -460,7 +426,7 @@ export function ProfilePopover() {
                           () => toast('error', t.errors.actionFailed),
                         )
                       }
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
                     >
                       <CopyMenuIcon />
                     </button>
@@ -502,69 +468,6 @@ export function ProfilePopover() {
                           </span>
                         );
                       })}
-                    </div>
-                  </>
-                )}
-
-                {isSelf && state !== undefined && (
-                  <>
-                    <div className="mt-3 h-px bg-input/60" role="separator" />
-                    <label
-                      htmlFor="profil-nickname"
-                      className="mt-2 block text-xs font-medium uppercase tracking-wide text-faint"
-                    >
-                      {t.profil.nicknameLabel}
-                    </label>
-                    <input
-                      id="profil-nickname"
-                      value={nick}
-                      onChange={(e) => setNick(e.target.value)}
-                      onBlur={enregistrerNick}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      maxLength={32}
-                      placeholder={t.profil.nicknamePlaceholder}
-                      className="mt-1 w-full rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint outline-none transition-colors duration-fast focus:border-blurple/50"
-                    />
-
-                    <label className="mt-3 block text-xs font-medium uppercase tracking-wide text-faint">
-                      {t.profil.serverAvatarLabel}
-                    </label>
-                    <div className="mt-1 flex items-center gap-2">
-                      <input
-                        ref={avatarFileRef}
-                        type="file"
-                        accept="image/*"
-                        aria-label={t.profil.serverAvatarChoose}
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          e.target.value = '';
-                          if (file !== undefined) setAvatarCropFile(file);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        disabled={avatarBusy}
-                        onClick={() => avatarFileRef.current?.click()}
-                        className="rounded-md bg-rail px-2.5 py-1.5 text-xs font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
-                      >
-                        {t.profil.serverAvatarChoose}
-                      </button>
-                      {(member?.avatar ?? null) !== null && (
-                        <button
-                          type="button"
-                          disabled={avatarBusy}
-                          onClick={effacerAvatarServeur}
-                          className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
-                        >
-                          {t.profil.serverAvatarClear}
-                        </button>
-                      )}
                     </div>
                   </>
                 )}
@@ -672,14 +575,6 @@ export function ProfilePopover() {
           </div>
         </div>
       </div>
-      {avatarCropFile !== null && (
-        <AvatarCropper
-          fichier={avatarCropFile}
-          forme="cercle"
-          onAnnuler={() => setAvatarCropFile(null)}
-          onValider={(r) => enregistrerAvatarServeur(r.dataB64, r.mime)}
-        />
-      )}
-    </>
+    </div>
   );
 }

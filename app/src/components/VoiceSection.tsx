@@ -177,7 +177,7 @@ function ParticipantRow({
             aria-expanded={showVolume}
             aria-label={interpolate(t.voice.adjustVolumeOf, { name })}
             onClick={() => setShowVolume((v) => !v)}
-            className={`shrink-0 rounded-xs px-1 text-xs text-faint transition-opacity duration-150 hover:text-norm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar group-hover:opacity-100 ${
+            className={`flex h-8 min-w-12 shrink-0 items-center justify-center rounded-xs px-2 text-xs text-faint transition-opacity duration-150 hover:text-norm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar group-hover:opacity-100 ${
               showVolume ? 'opacity-100 text-norm' : 'opacity-0'
             }`}
           >
@@ -195,7 +195,7 @@ function ParticipantRow({
             value={state.volume}
             aria-label={interpolate(t.voice.volumeOf, { name })}
             onChange={(e) => onVolume(Number(e.target.value))}
-            className="h-1 w-full accent-blurple"
+            className="h-5 w-full accent-blurple"
           />
           <span className="w-10 shrink-0 text-right text-xs tabular-nums text-faint">
             {state.volume}%

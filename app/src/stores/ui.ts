@@ -56,10 +56,13 @@ export interface AncrePopover {
   right: number;
 }
 
+export type ProfileSurface = 'profile-card' | 'user-menu';
+
 /** Cible d'affichage de la carte de profil (clic sur pseudo/avatar). */
 export interface CibleProfil {
   pubkey: string;
   ancre: AncrePopover;
+  surface: ProfileSurface;
   /** Contexte serveur (rôles colorés) ; `null` en MP ou vue Amis. */
   groupId: string | null;
 }
@@ -484,7 +487,12 @@ interface UiState {
   openModal: (modal: Exclude<Modal, null>) => void;
   closeModal: () => void;
   /** Ouvre la carte de profil d'un pair, ancrée près du clic. */
-  openProfile: (pubkey: string, ancre: AncrePopover, groupId?: string | null) => void;
+  openProfile: (
+    pubkey: string,
+    ancre: AncrePopover,
+    groupId?: string | null,
+    surface?: ProfileSurface,
+  ) => void;
   closeProfile: () => void;
   /** Demande l'insertion de `@name` dans le composeur actif (voir `mentionInsert`). */
   requestMentionInsert: (name: string) => void;
@@ -618,11 +626,11 @@ export const useUi = create<UiState>((set) => {
     clearJump: () => set({ jump: null }),
     openModal: (modal) => set({ modal }),
     closeModal: () => set({ modal: null }),
-    openProfile: (pubkey, ancre, groupId = null) =>
+    openProfile: (pubkey, ancre, groupId = null, surface = 'profile-card') =>
       set((s) =>
-        s.profile?.pubkey === pubkey
+        s.profile?.pubkey === pubkey && s.profile.surface === surface
           ? { profile: null }
-          : { profile: { pubkey, ancre, groupId } },
+          : { profile: { pubkey, ancre, groupId, surface } },
       ),
     closeProfile: () => set({ profile: null }),
     requestMentionInsert: (name) =>

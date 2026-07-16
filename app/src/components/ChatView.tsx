@@ -477,6 +477,7 @@ function MemberList({ groupId, fill = false }: { groupId: string; fill?: boolean
   const ownStatusText = useFriends((s) => s.ownStatusText);
   const state = useGroups((s) => s.states[groupId]);
   const openProfile = useUi((s) => s.openProfile);
+  const activeProfile = useUi((s) => s.profile);
   const requestMentionInsert = useUi((s) => s.requestMentionInsert);
   const toast = useUi((s) => s.toast);
   const membersWidth = useUi((s) => s.membersWidth);
@@ -662,6 +663,11 @@ function MemberList({ groupId, fill = false }: { groupId: string; fill?: boolean
                 aria-label={interpolate(t.profil.openProfile, {
                   name: nameOf(member.pubkey),
                 })}
+                aria-haspopup="dialog"
+                aria-expanded={
+                  activeProfile?.pubkey === member.pubkey &&
+                  activeProfile.surface === 'profile-card'
+                }
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
                   openProfile(
@@ -1314,7 +1320,7 @@ export function GroupView({
             </>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            <span className="lg:hidden">
+            <span className="group-chat-members-toggle">
               <HeaderIconButton
                 label={t.groups.members}
                 active={membersOpen}
@@ -1344,7 +1350,10 @@ export function GroupView({
               label={t.threads.threadsList}
               active={threadsListOpen}
               ariaExpanded={threadsListOpen}
-              onClick={() => setThreadsListOpen((open) => !open)}
+              onClick={() => {
+                setPinsOpen(false);
+                setThreadsListOpen((open) => !open);
+              }}
             >
               <svg
                 width="18"
@@ -1364,7 +1373,10 @@ export function GroupView({
               label={t.serveur.pinnedTitle}
               active={pinsOpen}
               ariaExpanded={pinsOpen}
-              onClick={() => setPinsOpen((open) => !open)}
+              onClick={() => {
+                setThreadsListOpen(false);
+                setPinsOpen((open) => !open);
+              }}
             >
               <svg
                 width="18"
@@ -1500,7 +1512,7 @@ export function GroupView({
             setReplyTo(null);
           }}
         />
-        <TypingIndicator typingKey={groupTypingKey(groupId, channelId)} />
+        <TypingIndicator typingKey={groupTypingKey(groupId, channelId)} nameOf={nameOf} />
       </div>
       {openThread !== null && (
         <ThreadPanel
@@ -1517,7 +1529,7 @@ export function GroupView({
           onClose={() => setOpenThreadId(null)}
         />
       )}
-      <div className="group-chat-members hidden min-w-0 shrink-0 lg:flex">
+      <div className="group-chat-members min-w-0 shrink-0">
         <ResizeHandle
           value={membersWidth}
           min={MEMBERS_WIDTH_MIN}
@@ -1531,7 +1543,7 @@ export function GroupView({
         <MemberList groupId={groupId} />
       </div>
       {membersOpen && (
-        <div className="absolute inset-0 z-30 lg:hidden">
+        <div className="group-chat-members-overlay absolute inset-0 z-30">
           <button
             type="button"
             tabIndex={-1}

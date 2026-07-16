@@ -12,10 +12,10 @@ export const DECORATION_UI_TEXT = {
     fr: 'Une signature visuelle visible partout où ton avatar apparaît.',
     en: 'A visual signature shown everywhere your avatar appears.',
   },
-  effectTitle: { fr: 'Effet de profil', en: 'Profile effect' },
+  effectTitle: { fr: 'Effet et cadre de profil', en: 'Profile effect and frame' },
   effectHint: {
-    fr: 'Une atmosphère animée pour ta carte de profil.',
-    en: 'An animated atmosphere for your profile card.',
+    fr: 'Une atmosphère et un cadre animés pour ta carte de profil.',
+    en: 'An animated atmosphere and frame for your profile card.',
   },
   preview: { fr: 'Aperçu en direct', en: 'Live preview' },
   signature: { fr: 'Signature Accord', en: 'Accord signature' },
@@ -33,6 +33,7 @@ export interface ProfileEffect {
   id: string;
   label: DecorationLabel;
   render: () => ReactNode;
+  renderFrame?: () => ReactNode;
 }
 
 function DecorationLayer({
@@ -366,7 +367,148 @@ function EmbersEffect() {
   );
 }
 
+function FrameLayer({ className, children }: { className: string; children: ReactNode }) {
+  return (
+    <span
+      aria-hidden
+      data-testid="profile-frame"
+      className={`profile-frame ${className}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+const LUMEN_BLOOMS = [
+  { x: 42, y: 77, scale: 0.72, rotate: -14 },
+  { x: 83, y: 48, scale: 0.9, rotate: 8 },
+  { x: 132, y: 31, scale: 0.66, rotate: -10 },
+  { x: 200, y: 24, scale: 1.08, rotate: 0 },
+  { x: 268, y: 31, scale: 0.66, rotate: 10 },
+  { x: 317, y: 48, scale: 0.9, rotate: -8 },
+  { x: 358, y: 77, scale: 0.72, rotate: 14 },
+] as const;
+
+function LumenBloom({
+  x,
+  y,
+  scale,
+  rotate,
+}: {
+  x: number;
+  y: number;
+  scale: number;
+  rotate: number;
+}) {
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${rotate}) scale(${scale})`}>
+      {[0, 60, 120, 180, 240, 300].map((angle) => (
+        <ellipse
+          key={angle}
+          className="lumen-frame__petal"
+          cy="-9"
+          rx="4.8"
+          ry="10"
+          transform={`rotate(${angle})`}
+        />
+      ))}
+      <circle className="lumen-frame__core" r="4.5" />
+    </g>
+  );
+}
+
+function LumenBloomEffect() {
+  return (
+    <EffectLayer className="profile-effect--lumen-bloom">
+      <span className="lumen-effect__veil lumen-effect__veil--one" />
+      <span className="lumen-effect__veil lumen-effect__veil--two" />
+      <span className="lumen-effect__beam lumen-effect__beam--one" />
+      <span className="lumen-effect__beam lumen-effect__beam--two" />
+      {Array.from({ length: 10 }, (_, index) => (
+        <span
+          key={index}
+          className={`lumen-effect__mote lumen-effect__mote--${index + 1}`}
+        />
+      ))}
+    </EffectLayer>
+  );
+}
+
+function LumenBloomFrame() {
+  return (
+    <FrameLayer className="profile-frame--lumen-bloom">
+      <span className="lumen-frame__aura" />
+      <span className="lumen-frame__rail lumen-frame__rail--left" />
+      <span className="lumen-frame__rail lumen-frame__rail--right" />
+      <svg
+        viewBox="0 0 400 112"
+        preserveAspectRatio="none"
+        className="lumen-frame__crown lumen-frame__crown--top"
+      >
+        <path
+          className="lumen-frame__vine lumen-frame__vine--echo"
+          d="M8 94C54 93 67 53 106 48c42-6 54-31 94-31s52 25 94 31c39 5 52 45 98 46"
+        />
+        <path
+          className="lumen-frame__vine"
+          d="M8 94C54 93 67 53 106 48c42-6 54-31 94-31s52 25 94 31c39 5 52 45 98 46"
+        />
+        <path
+          className="lumen-frame__filament"
+          d="M26 96c20-18 26-40 36-69M374 96c-20-18-26-40-36-69M142 38c13-14 24-22 31-32M258 38c-13-14-24-22-31-32"
+        />
+        {LUMEN_BLOOMS.map((bloom) => (
+          <LumenBloom key={bloom.x} {...bloom} />
+        ))}
+        <path className="lumen-frame__gem" d="m200 2 9 15-9 14-9-14Z" />
+        <path
+          className="lumen-frame__gem lumen-frame__gem--soft"
+          d="m24 79 6 9-6 9-6-9Z"
+        />
+        <path
+          className="lumen-frame__gem lumen-frame__gem--soft"
+          d="m376 79 6 9-6 9-6-9Z"
+        />
+      </svg>
+      <svg
+        viewBox="0 0 400 92"
+        preserveAspectRatio="none"
+        className="lumen-frame__crown lumen-frame__crown--bottom"
+      >
+        <path
+          className="lumen-frame__vine lumen-frame__vine--echo"
+          d="M6 14c50 0 63 39 110 39 34 0 49 26 84 26s50-26 84-26c47 0 60-39 110-39"
+        />
+        <path
+          className="lumen-frame__vine"
+          d="M6 14c50 0 63 39 110 39 34 0 49 26 84 26s50-26 84-26c47 0 60-39 110-39"
+        />
+        <path
+          className="lumen-frame__filament"
+          d="M42 19c10 27 30 44 55 53M358 19c-10 27-30 44-55 53M171 69l29 20 29-20"
+        />
+        <g transform="translate(74 39) scale(.68)">
+          <LumenBloom x={0} y={0} scale={1} rotate={-10} />
+        </g>
+        <g transform="translate(326 39) scale(.68)">
+          <LumenBloom x={0} y={0} scale={1} rotate={10} />
+        </g>
+        <path className="lumen-frame__gem" d="m200 63 10 14-10 13-10-13Z" />
+      </svg>
+      {Array.from({ length: 8 }, (_, index) => (
+        <i key={index} className={`lumen-frame__mote lumen-frame__mote--${index + 1}`} />
+      ))}
+    </FrameLayer>
+  );
+}
+
 export const PROFILE_EFFECTS: readonly ProfileEffect[] = [
+  {
+    id: 'lumen_bloom',
+    label: { fr: 'Jardin de lumière', en: 'Lumen Garden' },
+    render: () => <LumenBloomEffect />,
+    renderFrame: () => <LumenBloomFrame />,
+  },
   { id: 'aurora', label: { fr: 'Aurore', en: 'Aurora' }, render: () => <AuroraEffect /> },
   {
     id: 'starfield',
