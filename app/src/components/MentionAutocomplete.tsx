@@ -9,7 +9,10 @@ import { useT } from '../stores/ui';
 import type { MentionCandidate } from '../lib/mentions';
 
 /** Short descriptor shown at the trailing edge of a suggestion. */
-function describe(candidate: MentionCandidate, t: ReturnType<typeof useT>): string | null {
+function describe(
+  candidate: MentionCandidate,
+  t: ReturnType<typeof useT>,
+): string | null {
   switch (candidate.kind) {
     case 'everyone':
       return t.mentions.everyone;
@@ -104,9 +107,7 @@ export function MentionAutocomplete({
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
               {candidate.label}
             </span>
-            {desc !== null && (
-              <span className="shrink-0 text-xs text-faint">{desc}</span>
-            )}
+            {desc !== null && <span className="shrink-0 text-xs text-faint">{desc}</span>}
           </button>
         );
       })}

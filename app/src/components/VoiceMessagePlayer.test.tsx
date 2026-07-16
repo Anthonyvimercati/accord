@@ -78,9 +78,7 @@ describe('VoiceMessagePlayer — chargement', () => {
     lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');
     render(<VoiceMessagePlayer piece={piece()} />);
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Réessayer la lecture' }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Réessayer la lecture' }));
 
     expect(
       await screen.findByRole('button', { name: 'Lire le message vocal' }),
@@ -179,7 +177,9 @@ describe('VoiceMessagePlayer — lecture', () => {
         <VoiceMessagePlayer piece={piece({ merkle_root: 'bb'.repeat(32) })} />
       </>,
     );
-    const boutons = await screen.findAllByRole('button', { name: 'Lire le message vocal' });
+    const boutons = await screen.findAllByRole('button', {
+      name: 'Lire le message vocal',
+    });
     expect(boutons).toHaveLength(2);
     const audios = container.querySelectorAll('audio');
     expect(audios).toHaveLength(2);

@@ -187,7 +187,10 @@ export class VoiceRecorder {
     const mime = pickAudioMimeType();
     let recorder: MediaRecorder;
     try {
-      recorder = mime !== '' ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      recorder =
+        mime !== ''
+          ? new MediaRecorder(stream, { mimeType: mime })
+          : new MediaRecorder(stream);
     } catch {
       this.stopTracks(stream);
       this.callbacks.onError('unsupported');

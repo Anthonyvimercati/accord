@@ -36,7 +36,7 @@ describe('applySlashCommand — /me', () => {
     expect(applySlashCommand('/me observe au loin')).toBe('*observe au loin*');
   });
 
-  it('sans texte : italique vide plutôt qu\'un rejet', () => {
+  it("sans texte : italique vide plutôt qu'un rejet", () => {
     expect(applySlashCommand('/me')).toBe('**');
   });
 });
@@ -69,7 +69,9 @@ describe('applySlashCommand — passthrough', () => {
   });
 
   it('préfixe partiel qui ne matche aucun mot connu (mot-collé) : inchangé', () => {
-    expect(applySlashCommand('/shrugging n\'importe quoi')).toBe('/shrugging n\'importe quoi');
+    expect(applySlashCommand("/shrugging n'importe quoi")).toBe(
+      "/shrugging n'importe quoi",
+    );
   });
 
   it('espace en tête avant la commande : pas « exactement » en tête, inchangé', () => {

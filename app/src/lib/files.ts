@@ -64,8 +64,7 @@ function waitForDownload(merkleRoot: string, hint?: string): Promise<void> {
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(onExpire, ms);
     };
-    const expire = (): void =>
-      finish(new Error('téléchargement du fichier interrompu'));
+    const expire = (): void => finish(new Error('téléchargement du fichier interrompu'));
     /** Échec de l'attente en cours : reprise avec backoff, ou rejet. */
     const attemptFailed = (): void => {
       if (retriesLeft === 0) {

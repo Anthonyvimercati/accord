@@ -10,11 +10,7 @@ import type { Dict } from '../../i18n';
 import { api } from '../../lib/client';
 import type { AuditEntry, GroupStateJson } from '../../lib/api';
 import { formatTimestamp, shortId } from '../../lib/format';
-import {
-  avatarDecorationOf,
-  displayNameOf,
-  useFriends,
-} from '../../stores/friends';
+import { avatarDecorationOf, displayNameOf, useFriends } from '../../stores/friends';
 import { useGroups } from '../../stores/groups';
 import { selfDisplayName, useSession } from '../../stores/session';
 import { useUi, useT } from '../../stores/ui';

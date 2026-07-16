@@ -34,11 +34,15 @@ function invite(): PendingInvite {
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
   useFriends.setState({
-    contacts: [{ pubkey: 'pk_bob', display_name: 'Bob', state: 'friend' }] as unknown as Contact[],
+    contacts: [
+      { pubkey: 'pk_bob', display_name: 'Bob', state: 'friend' },
+    ] as unknown as Contact[],
   });
   useGroups.setState({
     pendingInvites: [invite()],
-    acceptInvite: acceptInvite as unknown as ReturnType<typeof useGroups.getState>['acceptInvite'],
+    acceptInvite: acceptInvite as unknown as ReturnType<
+      typeof useGroups.getState
+    >['acceptInvite'],
     declineInvite: declineInvite as unknown as ReturnType<
       typeof useGroups.getState
     >['declineInvite'],

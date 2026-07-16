@@ -38,6 +38,7 @@ export function estOptionSondageValide(option: string): boolean {
 
 /** Vrai si `options` respecte les bornes du contrat (2-10 entrées, chacune valide). */
 export function estOptionsSondageValides(options: readonly string[]): boolean {
-  if (options.length < POLL_MIN_OPTIONS || options.length > POLL_MAX_OPTIONS) return false;
+  if (options.length < POLL_MIN_OPTIONS || options.length > POLL_MAX_OPTIONS)
+    return false;
   return options.every(estOptionSondageValide);
 }

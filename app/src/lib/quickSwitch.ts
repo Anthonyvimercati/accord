@@ -68,10 +68,7 @@ export interface ServerSwitchItem {
 }
 
 export type QuickSwitchItem =
-  | FriendsSwitchItem
-  | DmSwitchItem
-  | ChannelSwitchItem
-  | ServerSwitchItem;
+  FriendsSwitchItem | DmSwitchItem | ChannelSwitchItem | ServerSwitchItem;
 
 /**
  * Construit l'ensemble des destinations proposées par le sélecteur : la vue
@@ -88,7 +85,12 @@ export function buildQuickSwitchItems(params: {
   selfPubkey: string | null;
 }): QuickSwitchItem[] {
   const items: QuickSwitchItem[] = [
-    { id: 'friends', kind: 'friends', label: params.friendsLabel, view: { kind: 'friends' } },
+    {
+      id: 'friends',
+      kind: 'friends',
+      label: params.friendsLabel,
+      view: { kind: 'friends' },
+    },
   ];
 
   for (const contact of params.contacts) {
@@ -96,7 +98,8 @@ export function buildQuickSwitchItems(params: {
     items.push({
       id: dmItemId(contact.pubkey),
       kind: 'dm',
-      label: contact.display_name.trim() !== '' ? contact.display_name : contact.friend_code,
+      label:
+        contact.display_name.trim() !== '' ? contact.display_name : contact.friend_code,
       pubkey: contact.pubkey,
       avatarHash: contact.avatar,
       avatarDecoration: contact.avatar_decoration ?? null,
@@ -229,8 +232,12 @@ export function visibleNavigableChannels(
   >,
   selfPubkey: string | null,
 ): GroupChannel[] {
-  const visible = state.channels.filter((c) => isChannelVisible(state, c.channel_id, selfPubkey));
-  return channelsByCategory(visible, state.categories).flatMap((section) => section.channels);
+  const visible = state.channels.filter((c) =>
+    isChannelVisible(state, c.channel_id, selfPubkey),
+  );
+  return channelsByCategory(visible, state.categories).flatMap(
+    (section) => section.channels,
+  );
 }
 
 /**

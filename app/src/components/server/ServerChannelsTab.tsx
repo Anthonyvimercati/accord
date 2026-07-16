@@ -8,7 +8,12 @@
 
 import { useState } from 'react';
 import { interpolate } from '../../i18n';
-import type { GroupCategory, GroupChannel, GroupChannelKind, GroupStateJson } from '../../lib/api';
+import type {
+  GroupCategory,
+  GroupChannel,
+  GroupChannelKind,
+  GroupStateJson,
+} from '../../lib/api';
 import {
   useGroups,
   channelsByCategory,
@@ -103,10 +108,7 @@ function ChannelPermsEditor({
             </div>
             <div className="flex flex-wrap gap-2">
               {OVERRIDE_BITS.map(({ bit, label }) => (
-                <label
-                  key={bit}
-                  className="flex items-center gap-1.5 text-xs text-norm"
-                >
+                <label key={bit} className="flex items-center gap-1.5 text-xs text-norm">
                   {label(t)}
                   <select
                     aria-label={`${role.name} — ${label(t)}`}

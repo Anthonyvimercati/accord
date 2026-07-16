@@ -68,9 +68,9 @@ describe('estOptionSondageValide', () => {
 describe('estOptionsSondageValides', () => {
   it('accepte entre 2 et 10 options valides', () => {
     expect(estOptionsSondageValides(['Pizza', 'Sushis'])).toBe(true);
-    expect(estOptionsSondageValides(Array.from({ length: POLL_MAX_OPTIONS }, () => 'x'))).toBe(
-      true,
-    );
+    expect(
+      estOptionsSondageValides(Array.from({ length: POLL_MAX_OPTIONS }, () => 'x')),
+    ).toBe(true);
   });
 
   it('rejette moins de 2 options', () => {

@@ -223,9 +223,7 @@ export function buildMessageItems(
   const canEdit =
     actions !== undefined && !message.deleted && isOwn && message.body.type === 'text';
   const canDelete =
-    actions !== undefined &&
-    !message.deleted &&
-    (isOwn || actions.canModerate === true);
+    actions !== undefined && !message.deleted && (isOwn || actions.canModerate === true);
   const items: ContextMenuItem[] = [];
   if (text !== null && text !== '') {
     items.push({

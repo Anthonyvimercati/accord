@@ -41,7 +41,13 @@ const playClipMock = playClip as unknown as Mock;
 
 /** Événement typique reçu d'un pair. */
 function evt(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return { group_id: 'g1', channel_id: 'g1', sound: 'deadbeef', from: 'peer', ...overrides };
+  return {
+    group_id: 'g1',
+    channel_id: 'g1',
+    sound: 'deadbeef',
+    from: 'peer',
+    ...overrides,
+  };
 }
 
 describe('playSound', () => {

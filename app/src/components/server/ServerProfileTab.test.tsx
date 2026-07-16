@@ -96,7 +96,8 @@ describe('ServerProfileTab — bannière du serveur', () => {
         useUi
           .getState()
           .toasts.some(
-            (t) => t.kind === 'error' && t.text === 'Image trop lourde (512 Kio maximum).',
+            (t) =>
+              t.kind === 'error' && t.text === 'Image trop lourde (512 Kio maximum).',
           ),
       ).toBe(true);
     });
@@ -112,7 +113,9 @@ describe('ServerProfileTab — bannière du serveur', () => {
     chooseFile(new File(['abc'], 'banniere.png', { type: 'image/png' }));
 
     // Assert — « abc » encodé en base64 = « YWJj ».
-    await waitFor(() => expect(setBanner).toHaveBeenCalledWith('g1', 'YWJj', 'image/png'));
+    await waitFor(() =>
+      expect(setBanner).toHaveBeenCalledWith('g1', 'YWJj', 'image/png'),
+    );
     await waitFor(() => {
       expect(
         useUi

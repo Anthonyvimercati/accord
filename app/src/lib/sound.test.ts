@@ -10,7 +10,13 @@ import {
 
 describe('estMimeSonValide', () => {
   it('accepte les types audio du contrat', () => {
-    for (const mime of ['audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm', 'audio/wav']) {
+    for (const mime of [
+      'audio/ogg',
+      'audio/mpeg',
+      'audio/mp4',
+      'audio/webm',
+      'audio/wav',
+    ]) {
       expect(estMimeSonValide(mime)).toBe(true);
     }
   });

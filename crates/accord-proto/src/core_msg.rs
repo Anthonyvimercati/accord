@@ -402,6 +402,27 @@ impl GroupOp {
         w.put_lbytes(&self.body);
         w.into_bytes()
     }
+
+    /// Octets identifiant le CONTENU de l'opération (tout sauf `op_id` et
+    /// `sig`). L'`op_id` DOIT être le hash tronqué de ces octets (calculé côté
+    /// `accord-core`, qui a le hachage) : deux opérations de contenu différent
+    /// obtiennent ainsi des `op_id` distincts. Provoquer une collision d'`op_id`
+    /// (base d'une divergence d'état) exige alors une recherche de collision
+    /// sur un id de 128 bits (≈ 2^64, borne des anniversaires) — infaisable
+    /// dans le modèle de menace visé (membres d'un cercle restreint), sans être
+    /// « impossible » au sens fort. Élargir l'id à 32 octets (SHA-256 complet,
+    /// ≈ 2^128) est une option si le format filaire est de toute façon rompu.
+    pub fn content_bytes(&self) -> Vec<u8> {
+        let mut w = Writer::with_capacity(self.body.len() + 80);
+        w.put_raw(b"accord-groupop-id-v1");
+        w.put_arr(&self.group_id);
+        w.put_u64(self.lamport);
+        w.put_u64(self.wall_ms);
+        w.put_arr(&self.author);
+        w.put_u8(self.kind);
+        w.put_lbytes(&self.body);
+        w.into_bytes()
+    }
 }
 
 impl WireEncode for GroupOp {
@@ -953,10 +974,16 @@ pub enum GroupOpBody {
 }
 
 impl GroupOpBody {
+    /// Discriminant filaire de l'op CREATE (SPEC §6.2) — exposé car la racine
+    /// du log a un rôle spécial : elle fonde le groupe et détermine le régime
+    /// de validation des `op_id` (contenu-adressé ou hérité, voir
+    /// `accord-core::group::ingest_op`).
+    pub const CREATE_KIND: u8 = 0x01;
+
     /// Discriminant filaire de l'opération.
     pub fn kind(&self) -> u8 {
         match self {
-            Self::Create { .. } => 0x01,
+            Self::Create { .. } => Self::CREATE_KIND,
             Self::SetMeta { .. } => 0x02,
             Self::AddChannel { .. } => 0x03,
             Self::EditChannel { .. } => 0x04,

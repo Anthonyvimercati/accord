@@ -76,10 +76,7 @@ export function pointAncrageMenu(el: HTMLElement): { x: number; y: number } {
  * (nav d'onglets des réglages…) : déplace le focus vers le voisin, borné aux
  * extrémités (pas de bouclage — on n'est pas dans un `role="menu"`).
  */
-export function deplacerFocusVertical(
-  e: EvenementTab,
-  racine: HTMLElement | null,
-): void {
+export function deplacerFocusVertical(e: EvenementTab, racine: HTMLElement | null): void {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
   const cibles = focusables(racine);
   if (cibles.length === 0) return;

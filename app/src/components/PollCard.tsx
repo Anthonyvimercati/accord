@@ -99,7 +99,9 @@ export function PollCard({
           )}
         </div>
       ) : (
-        <p className="mt-2.5 text-xs italic text-faint">{t.groups.pollResultsUnavailable}</p>
+        <p className="mt-2.5 text-xs italic text-faint">
+          {t.groups.pollResultsUnavailable}
+        </p>
       )}
     </div>
   );

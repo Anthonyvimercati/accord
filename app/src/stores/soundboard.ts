@@ -84,7 +84,11 @@ export function handleSoundboardEvent(method: string, params: unknown): void {
     return;
   }
   const active = useVoice.getState().active;
-  if (active === null || active.groupId !== p.group_id || active.channelId !== p.channel_id) {
+  if (
+    active === null ||
+    active.groupId !== p.group_id ||
+    active.channelId !== p.channel_id
+  ) {
     return;
   }
   const self = useSession.getState().self;

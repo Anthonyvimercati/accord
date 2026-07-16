@@ -265,7 +265,9 @@ export function VoiceTab() {
           hint={t.settings.noiseSuppressionHint}
           checked={dsp.noiseSuppression}
           onChange={(enabled) => {
-            setNoiseSuppression(enabled).catch(() => toast('error', t.errors.actionFailed));
+            setNoiseSuppression(enabled).catch(() =>
+              toast('error', t.errors.actionFailed),
+            );
           }}
         />
         <ToggleRow

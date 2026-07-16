@@ -26,9 +26,7 @@ describe('PresenceDot', () => {
 
   it('est décorative sans libellé, image nommée avec', () => {
     const decorative = render(<PresenceDot status="online" />);
-    expect(
-      decorative.container.querySelector('[aria-hidden="true"]'),
-    ).not.toBeNull();
+    expect(decorative.container.querySelector('[aria-hidden="true"]')).not.toBeNull();
     decorative.unmount();
 
     const labelled = render(<PresenceDot status="dnd" label="Ne pas déranger" />);

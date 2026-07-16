@@ -19,7 +19,11 @@ import {
   visibleNavigableChannels,
 } from './quickSwitch';
 
-function contact(pubkey: string, displayName: string, state: Contact['state'] = 'friend'): Contact {
+function contact(
+  pubkey: string,
+  displayName: string,
+  state: Contact['state'] = 'friend',
+): Contact {
   return {
     node_id: `n-${pubkey}`,
     pubkey,
@@ -98,12 +102,19 @@ describe('rankQuickSwitchItems', () => {
 
     const ranked = rankQuickSwitchItems(items, 'gen');
 
-    expect(ranked.map((i) => i.label)).toEqual(['General', 'Off Topic General', 'Legend']);
+    expect(ranked.map((i) => i.label)).toEqual([
+      'General',
+      'Off Topic General',
+      'Legend',
+    ]);
   });
 
   it('départage à égalité de score par ordre alphabétique', () => {
     const items = [{ label: 'Zebra' }, { label: 'Alpha' }];
-    expect(rankQuickSwitchItems(items, 'a').map((i) => i.label)).toEqual(['Alpha', 'Zebra']);
+    expect(rankQuickSwitchItems(items, 'a').map((i) => i.label)).toEqual([
+      'Alpha',
+      'Zebra',
+    ]);
   });
 
   it('retourne une liste vide sans correspondance', () => {
@@ -174,7 +185,9 @@ describe('buildQuickSwitchItems', () => {
       groupStates: {},
       selfPubkey: null,
     });
-    expect(items.filter((i) => i.kind === 'dm').map((i) => i.id)).toEqual([dmItemId('a')]);
+    expect(items.filter((i) => i.kind === 'dm').map((i) => i.id)).toEqual([
+      dmItemId('a'),
+    ]);
   });
 
   it('replie sur le code ami quand le pseudo est vide', () => {
@@ -191,9 +204,30 @@ describe('buildQuickSwitchItems', () => {
   it('inclut les salons visibles de chaque serveur rejoint, tous genres confondus', () => {
     const state = groupState({
       channels: [
-        { channel_id: 'c1', name: 'général', kind: 'text', category: null, position: 0, topic: '' },
-        { channel_id: 'c2', name: 'annonces', kind: 'announcement', category: null, position: 1, topic: '' },
-        { channel_id: 'c3', name: 'vocal', kind: 'voice', category: null, position: 2, topic: '' },
+        {
+          channel_id: 'c1',
+          name: 'général',
+          kind: 'text',
+          category: null,
+          position: 0,
+          topic: '',
+        },
+        {
+          channel_id: 'c2',
+          name: 'annonces',
+          kind: 'announcement',
+          category: null,
+          position: 1,
+          topic: '',
+        },
+        {
+          channel_id: 'c3',
+          name: 'vocal',
+          kind: 'voice',
+          category: null,
+          position: 2,
+          topic: '',
+        },
       ],
     });
     const items = buildQuickSwitchItems({
@@ -209,15 +243,32 @@ describe('buildQuickSwitchItems', () => {
       channelItemId('g1', 'c2'),
       channelItemId('g1', 'c3'),
     ]);
-    expect(channelItems.every((i) => i.kind === 'channel' && i.subtitle === 'Guilde')).toBe(true);
+    expect(
+      channelItems.every((i) => i.kind === 'channel' && i.subtitle === 'Guilde'),
+    ).toBe(true);
   });
 
   it('exclut un salon dont VIEW est refusé par override de rôle', () => {
     const state = groupState({
       my_permissions: 0,
-      members: [{ pubkey: 'moi', roles: ['r1'], nickname: null, avatar: null, timeout_until_ms: 0 }],
+      members: [
+        {
+          pubkey: 'moi',
+          roles: ['r1'],
+          nickname: null,
+          avatar: null,
+          timeout_until_ms: 0,
+        },
+      ],
       channels: [
-        { channel_id: 'c1', name: 'secret', kind: 'text', category: null, position: 0, topic: '' },
+        {
+          channel_id: 'c1',
+          name: 'secret',
+          kind: 'text',
+          category: null,
+          position: 0,
+          topic: '',
+        },
       ],
       overrides: [{ channel_id: 'c1', role_id: 'r1', allow: 0, deny: 0x1 }],
     });
@@ -242,14 +293,28 @@ describe('buildRecentItems', () => {
         g1: groupState({
           group_id: 'g1',
           channels: [
-            { channel_id: 'c1', name: 'général', kind: 'text', category: null, position: 0, topic: '' },
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
           ],
         }),
         g2: groupState({
           group_id: 'g2',
           name: 'Autre',
           channels: [
-            { channel_id: 'c2', name: 'accueil', kind: 'text', category: null, position: 0, topic: '' },
+            {
+              channel_id: 'c2',
+              name: 'accueil',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
           ],
         }),
       },
@@ -293,8 +358,22 @@ describe('visibleNavigableChannels', () => {
     const state = groupState({
       categories: [{ category_id: 'cat1', name: 'Cat', position: 0 }],
       channels: [
-        { channel_id: 'c2', name: 'dans-categorie', kind: 'text', category: 'cat1', position: 0, topic: '' },
-        { channel_id: 'c1', name: 'sans-categorie', kind: 'text', category: null, position: 0, topic: '' },
+        {
+          channel_id: 'c2',
+          name: 'dans-categorie',
+          kind: 'text',
+          category: 'cat1',
+          position: 0,
+          topic: '',
+        },
+        {
+          channel_id: 'c1',
+          name: 'sans-categorie',
+          kind: 'text',
+          category: null,
+          position: 0,
+          topic: '',
+        },
       ],
     });
     const ordered = visibleNavigableChannels(state, null);
@@ -304,9 +383,30 @@ describe('visibleNavigableChannels', () => {
 
 describe('cycleChannel', () => {
   const channels = [
-    { channel_id: 't1', name: 'texte-1', kind: 'text' as const, category: null, position: 0, topic: '' },
-    { channel_id: 'v1', name: 'vocal-1', kind: 'voice' as const, category: null, position: 1, topic: '' },
-    { channel_id: 't2', name: 'texte-2', kind: 'text' as const, category: null, position: 2, topic: '' },
+    {
+      channel_id: 't1',
+      name: 'texte-1',
+      kind: 'text' as const,
+      category: null,
+      position: 0,
+      topic: '',
+    },
+    {
+      channel_id: 'v1',
+      name: 'vocal-1',
+      kind: 'voice' as const,
+      category: null,
+      position: 1,
+      topic: '',
+    },
+    {
+      channel_id: 't2',
+      name: 'texte-2',
+      kind: 'text' as const,
+      category: null,
+      position: 2,
+      topic: '',
+    },
   ];
 
   it('avance au salon textuel suivant, en ignorant le vocal', () => {
@@ -328,7 +428,14 @@ describe('cycleChannel', () => {
 
   it('retourne null sans aucun salon navigable', () => {
     const onlyVoice = [
-      { channel_id: 'v1', name: 'vocal', kind: 'voice' as const, category: null, position: 0, topic: '' },
+      {
+        channel_id: 'v1',
+        name: 'vocal',
+        kind: 'voice' as const,
+        category: null,
+        position: 0,
+        topic: '',
+      },
     ];
     expect(cycleChannel(onlyVoice, null, 1)).toBeNull();
   });

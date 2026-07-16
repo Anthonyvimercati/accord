@@ -78,9 +78,7 @@ export function filterMentions(
 ): MentionCandidate[] {
   const q = query.toLowerCase();
   return candidates
-    .filter(
-      (c) => c.value.toLowerCase().includes(q) || c.label.toLowerCase().includes(q),
-    )
+    .filter((c) => c.value.toLowerCase().includes(q) || c.label.toLowerCase().includes(q))
     .map((c, i) => ({ c, i }))
     .sort((a, b) => rank(a.c, q) - rank(b.c, q) || a.i - b.i)
     .slice(0, limit)

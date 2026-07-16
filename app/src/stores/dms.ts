@@ -193,9 +193,7 @@ export const useDms = create<DmsState>((set, get) => ({
         hasMore: {
           ...s.hasMore,
           [peer]:
-            knownHasMore === undefined
-              ? res.messages.length >= PAGE_SIZE
-              : knownHasMore,
+            knownHasMore === undefined ? res.messages.length >= PAGE_SIZE : knownHasMore,
         },
       };
     });

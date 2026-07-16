@@ -260,7 +260,11 @@ function useGlobalShortcuts(): void {
           const channels = visibleNavigableChannels(state, self?.pubkey ?? null);
           const nextChannelId = cycleChannel(channels, view.channelId, direction);
           if (nextChannelId !== null) {
-            useUi.getState().setView({ kind: 'group', groupId: view.groupId, channelId: nextChannelId });
+            useUi.getState().setView({
+              kind: 'group',
+              groupId: view.groupId,
+              channelId: nextChannelId,
+            });
           }
           return;
         }

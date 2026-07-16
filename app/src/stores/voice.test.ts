@@ -387,9 +387,7 @@ describe('événements voice_*', () => {
   it('voice_mute applique micro/deafen d’un participant connu', () => {
     seedActive('g1', [['alice', { speaking: true, volume: 80 }]]);
 
-    useVoice
-      .getState()
-      .applyMuteState({ pubkey: 'alice', muted: true, deafened: true });
+    useVoice.getState().applyMuteState({ pubkey: 'alice', muted: true, deafened: true });
 
     expect(useVoice.getState().participants.get('alice')).toEqual(
       idle({ speaking: true, muted: true, deafened: true, volume: 80 }),
@@ -403,9 +401,7 @@ describe('événements voice_*', () => {
     useVoice
       .getState()
       .applyMuteState({ pubkey: 'fantôme', muted: true, deafened: false });
-    useVoice
-      .getState()
-      .applyMuteState({ pubkey: 'moi', muted: false, deafened: false });
+    useVoice.getState().applyMuteState({ pubkey: 'moi', muted: false, deafened: false });
 
     // Aucun changement : la référence de la table est conservée.
     expect(useVoice.getState().participants).toBe(before);
