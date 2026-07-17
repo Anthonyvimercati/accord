@@ -15,6 +15,7 @@ import {
   useSession,
 } from '../../stores/session';
 import { useUi, useT } from '../../stores/ui';
+import { backupExport, backupImport } from '../../lib/bridge';
 import { lireFichier } from '../../lib/files';
 import { AvatarCropper } from '../AvatarCropper';
 import { Avatar } from '../Avatar';
@@ -454,6 +455,91 @@ function ColorsSection() {
 }
 
 /**
+ * Section Sauvegarde : export du profil complet dans une archive
+ * `.accordbackup` (fichiers chiffrés copiés tels quels — coffre scellé, base
+ * SQLCipher, blobs) et import d'une archive comme compte NEUF, jamais sur le
+ * profil actif.
+ *
+ * L'export arrête le nœud pour copier la base FERMÉE (invariant de
+ * `accord_node::backup`) : la session se verrouille. L'avertissement est
+ * affiché en permanence et le sélecteur natif « Enregistrer sous » sert de
+ * confirmation — l'annuler n'invoque jamais la commande, rien ne se
+ * verrouille. Après un export réussi, la modale est fermée puis `lock()`
+ * aligne l'UI sur l'écran de déverrouillage (idempotent côté hôte : le nœud
+ * est déjà arrêté). En cas d'échec après l'arrêt du nœud, aucune archive
+ * tronquée n'existe (écriture atomique) et le bandeau hors-ligne guide vers
+ * une nouvelle tentative ou une déconnexion manuelle.
+ */
+function BackupSection() {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+  const closeModal = useUi((s) => s.closeModal);
+  const lock = useSession((s) => s.lock);
+  const [busy, setBusy] = useState(false);
+
+  const doExport = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const statut = await backupExport();
+      // Sélecteur annulé : la commande n'a pas été invoquée, rien ne change.
+      if (statut === null) return;
+      toast('info', t.settings.backupExportDone);
+      // Le nœud est déjà arrêté côté hôte : ferme la modale (l'écran de
+      // déverrouillage ne doit jamais rester sous une modale) puis aligne
+      // l'état de session comme une déconnexion volontaire.
+      closeModal();
+      await lock();
+    } catch {
+      toast('error', t.errors.actionFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doImport = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const compte = await backupImport();
+      // Sélecteur annulé : aucun compte créé.
+      if (compte === null) return;
+      toast('info', t.settings.backupImportDone);
+    } catch {
+      toast('error', t.errors.actionFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsSection title={t.settings.backupTitle} hint={t.settings.backupHint}>
+      <div className="rounded-lg bg-sidebar p-4">
+        <p className="mb-4 rounded-md border-l-4 border-yellow bg-rail/60 px-3 py-2 text-sm leading-relaxed text-muted">
+          {t.settings.backupExportWarning}
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void doExport()}
+            className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+          >
+            {t.settings.backupExport}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void doImport()}
+            className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+          >
+            {t.settings.backupImport}
+          </button>
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}
+
+/**
  * Danger zone: logs out without quitting the app. Locking drops the node's
  * in-memory keys host-side and lands on the unlock screen, exactly like a
  * fresh launch — hence the inline confirmation before anything happens.
@@ -623,6 +709,8 @@ export function AccountTab() {
           {t.settings.recoveryNote}
         </p>
       </SettingsSection>
+
+      <BackupSection />
 
       <LogoutSection />
     </div>

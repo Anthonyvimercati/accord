@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod backup;
 pub mod error;
 pub mod hex;
 pub mod identity;

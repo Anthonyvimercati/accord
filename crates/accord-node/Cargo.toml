@@ -31,6 +31,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 igd-next = { version = "0.17", default-features = false, features = ["aio_tokio"] }
 natpmp = "0.5"
 mdns-sd = "0.20"
+# Sauvegarde complète du profil (export/import `.accordbackup`) : archive zip
+# des fichiers chiffrés tels quels — deflate seul, aucun autre format requis.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]
 default = []

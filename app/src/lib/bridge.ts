@@ -189,6 +189,51 @@ export async function sessionClose(): Promise<VaultStatus> {
   return invoke<VaultStatus>('session_close');
 }
 
+/** Filtre du sélecteur natif pour les archives de sauvegarde Accord. */
+const BACKUP_DIALOG_FILTER = { name: 'Sauvegarde Accord', extensions: ['accordbackup'] };
+
+/**
+ * Exporte le profil ACTIF dans une archive `.accordbackup` choisie via le
+ * sélecteur natif « Enregistrer sous ». L'hôte arrête le nœud AVANT la copie
+ * (cohérence de la base chiffrée) : la session se verrouille — l'appelant
+ * l'annonce à l'avance et aligne ensuite l'UI sur l'écran de déverrouillage
+ * (voir `AccountTab`). Rend le statut de coffre frais, ou `null` si le
+ * sélecteur a été annulé (la commande n'est alors jamais invoquée : rien ne
+ * se verrouille).
+ */
+export async function backupExport(): Promise<VaultStatus | null> {
+  if (!isTauri()) {
+    throw new Error('sauvegarde indisponible hors Tauri (mode développement)');
+  }
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  const chemin = await save({
+    defaultPath: `accord-${new Date().toISOString().slice(0, 10)}.accordbackup`,
+    filters: [BACKUP_DIALOG_FILTER],
+  });
+  if (chemin === null) return null;
+  return invoke<VaultStatus>('backup_export', { chemin });
+}
+
+/**
+ * Importe une archive `.accordbackup` (sélecteur natif d'ouverture) comme
+ * compte NEUF — jamais sur le profil actif : le compte apparaît ensuite dans
+ * le sélecteur de comptes et se déverrouille par la phrase de passe du
+ * profil sauvegardé. Rend les métadonnées du compte importé, ou `null` si le
+ * sélecteur a été annulé.
+ */
+export async function backupImport(): Promise<AccountMeta | null> {
+  if (!isTauri()) {
+    throw new Error('import de sauvegarde indisponible hors Tauri (mode développement)');
+  }
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const chemin: string | null = await open({
+    multiple: false,
+    filters: [BACKUP_DIALOG_FILTER],
+  });
+  if (chemin === null) return null;
+  return invoke<AccountMeta>('backup_import', { chemin });
+}
+
 /**
  * Lancement au démarrage : état géré par l'OS (Registre Windows /
  * LaunchAgent macOS / fichier .desktop Linux) via `tauri-plugin-autostart`,

@@ -5,6 +5,8 @@
 //! asynchrones et délèguent ce travail à un fil bloquant pour ne jamais
 //! geler le fil principal de la fenêtre.
 
+use std::path::Path;
+
 use accord_node::{identity, NodeConfig, Unlocked};
 use tauri::State;
 
@@ -21,6 +23,11 @@ const POW_BITS: u32 = accord_proto::limits::IDENTITY_POW_BITS;
 /// déverrouillage qui suit sa définition (voir
 /// `EtatHote::rafraichir_compte_actif`).
 const NOUVEAU_COMPTE_NOM_PROVISOIRE: &str = "Nouveau compte";
+
+/// Nom provisoire d'un compte importé depuis une sauvegarde, avant son
+/// premier déverrouillage (qui rafraîchit le vrai pseudo via
+/// `EtatHote::rafraichir_compte_actif`, comme pour tout compte).
+const COMPTE_IMPORTE_NOM_PROVISOIRE: &str = "Compte importé";
 
 /// Statut du coffre d'identité : `'absent'` ou `'locked'`.
 #[tauri::command]
@@ -206,6 +213,45 @@ pub async fn session_close(etat: State<'_, EtatHote>) -> Result<StatutCoffre, Er
 pub async fn lock(etat: State<'_, EtatHote>) -> Result<StatutCoffre, ErreurHote> {
     etat.arreter_noeud();
     Ok(etat.statut_coffre())
+}
+
+/// Exporte le profil ACTIF dans une archive de sauvegarde `.accordbackup` :
+/// coffre scellé + base SQLCipher + blobs, copiés TELS QUELS (rien n'est
+/// déchiffré — l'archive est aussi protégée que le profil sur disque). Le
+/// nœud est arrêté AVANT la copie : la base doit être fermée pour une copie
+/// cohérente (invariant de `accord_node::backup::export_backup`), donc la
+/// session se verrouille — l'UI l'annonce à l'avance et retombe sur l'écran
+/// de déverrouillage avec le statut de coffre rendu, exactement comme `lock`.
+#[tauri::command]
+pub async fn backup_export(
+    etat: State<'_, EtatHote>,
+    chemin: String,
+) -> Result<StatutCoffre, ErreurHote> {
+    let chemins = etat.chemins();
+    etat.arreter_noeud();
+    en_arriere_plan(move || accord_node::backup::export_backup(&chemins, Path::new(&chemin)))
+        .await?;
+    Ok(etat.statut_coffre())
+}
+
+/// Importe une archive de sauvegarde comme compte **neuf** : nouvelle entrée
+/// de registre (répertoire de profil dédié, jamais le profil actif),
+/// extraction dedans (zip-slip rejeté, destination vide exigée, coffre
+/// d'identité exigé — voir `accord_node::backup::import_backup`), puis
+/// enregistrement. Même discipline d'enregistrement tardif que
+/// `account_create` : le registre ne référence jamais un répertoire à moitié
+/// extrait. Ne démarre RIEN : le compte apparaît dans le sélecteur et se
+/// déverrouille normalement par la phrase de passe du profil sauvegardé.
+#[tauri::command]
+pub async fn backup_import(
+    etat: State<'_, EtatHote>,
+    chemin: String,
+) -> Result<CompteMeta, ErreurHote> {
+    let (brouillon, chemins) = etat.registre().new_entry(COMPTE_IMPORTE_NOM_PROVISOIRE);
+    en_arriere_plan(move || accord_node::backup::import_backup(Path::new(&chemin), &chemins.root))
+        .await?;
+    etat.registre().register(brouillon.clone())?;
+    Ok(CompteMeta::from(brouillon))
 }
 
 /// État de l'autorisation micro : `granted` / `denied` / `undetermined` /

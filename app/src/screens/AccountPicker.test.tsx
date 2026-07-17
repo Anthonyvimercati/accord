@@ -5,11 +5,18 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
-import type { AccountMeta } from '../lib/bridge';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { backupImport, type AccountMeta } from '../lib/bridge';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 import { AccountPicker } from './AccountPicker';
+
+// Sauvegarde : seul l'import est simulé (sélecteur natif + commande hôte
+// indisponibles sous vitest), le reste du pont reste intact pour le store.
+vi.mock('../lib/bridge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/bridge')>()),
+  backupImport: vi.fn(async () => null),
+}));
 
 const accounts: AccountMeta[] = [
   {
@@ -31,13 +38,14 @@ const accounts: AccountMeta[] = [
 ];
 
 beforeEach(() => {
-  useUi.setState({ lang: 'fr' });
+  useUi.setState({ lang: 'fr', toasts: [] });
   useSession.setState({
     accounts,
     error: null,
     unlockAccount: vi.fn(async () => {}),
     createAccount: vi.fn(async () => {}),
     restoreAccount: vi.fn(async () => {}),
+    loadAccounts: vi.fn(async () => {}),
   });
 });
 
@@ -124,5 +132,80 @@ describe('AccountPicker — ajout / import', () => {
     expect(
       screen.getByRole('button', { name: 'Retour à la liste des comptes' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('AccountPicker — import de sauvegarde', () => {
+  it('propose « Importer une sauvegarde » sur la liste des comptes', () => {
+    // Arrange / Act
+    render(<AccountPicker />);
+
+    // Assert
+    expect(screen.getByRole('button', { name: 'Importer une sauvegarde' })).toBeEnabled();
+  });
+
+  it('importe l’archive puis recharge la liste et confirme par un toast', async () => {
+    // Arrange : l'hôte rend les métadonnées du compte fraîchement importé.
+    vi.mocked(backupImport).mockResolvedValueOnce({
+      id: 'importe-1',
+      name: 'Compte importé',
+      created_ms: 3,
+      last_used_ms: 0,
+      is_legacy: false,
+      pubkey_short: null,
+    });
+    const loadAccounts = vi.fn(async () => {});
+    useSession.setState({ loadAccounts });
+    render(<AccountPicker />);
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+
+    // Assert : liste rechargée (le compte apparaît) et toast d'orientation
+    // vers le déverrouillage normal par phrase de passe.
+    await waitFor(() => expect(loadAccounts).toHaveBeenCalledTimes(1));
+    expect(
+      useUi
+        .getState()
+        .toasts.some((t) => t.kind === 'info' && /phrase de passe/.test(t.text)),
+    ).toBe(true);
+  });
+
+  it('ne recharge rien quand le sélecteur est annulé', async () => {
+    // Arrange : sélecteur natif annulé — le pont rend null sans commande hôte.
+    vi.mocked(backupImport).mockResolvedValueOnce(null);
+    const loadAccounts = vi.fn(async () => {});
+    useSession.setState({ loadAccounts });
+    render(<AccountPicker />);
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+
+    // Assert : bouton de nouveau actif, ni rechargement ni toast.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Importer une sauvegarde' }),
+      ).toBeEnabled(),
+    );
+    expect(loadAccounts).not.toHaveBeenCalled();
+    expect(useUi.getState().toasts).toHaveLength(0);
+  });
+
+  it('affiche le message d’erreur hôte en toast quand l’import échoue', async () => {
+    // Arrange : archive rejetée (zip-slip, coffre absent…) — message hôte lisible.
+    vi.mocked(backupImport).mockRejectedValueOnce(
+      new Error('entrée invalide : archive sans coffre d’identité (identity.vault)'),
+    );
+    render(<AccountPicker />);
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+
+    // Assert
+    await waitFor(() => {
+      expect(
+        useUi.getState().toasts.some((t) => t.kind === 'error' && /coffre/.test(t.text)),
+      ).toBe(true);
+    });
   });
 });
