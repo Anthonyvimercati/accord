@@ -2,6 +2,45 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.7.0] — 2026-07-18
+
+### Added
+
+- **Right-click, everywhere**: context menus now cover the private-conversation
+  list, the Friends rows, the DM header and your own user panel — profile,
+  message, call, mark as read, accept/decline a request, copy friend code,
+  remove, block, and presence status — mirroring the actions already wired
+  elsewhere, Discord-style.
+- **Command palette (Ctrl/Cmd+K)**: run actions alongside navigation — open
+  settings, create a server, add a friend, change presence status.
+- **Unread badge on the dock / taskbar icon**: reflects unread DMs and server
+  mentions; clears when nothing is pending.
+- **Recovery-phrase safeguard**: the one-time recovery screen now has a Copy
+  button and requires retyping a challenge word before confirming — a
+  distracted click can no longer discard the only way to recover the account.
+- Active empty-Friends state with an "Add a friend" call-to-action on first
+  launch.
+
+### Changed
+
+- **Reconnection is legible**: a distinct amber "reconnecting automatically"
+  banner with a Retry button (forces an immediate reconnect), separate from the
+  red "offline" state.
+- **Faster chat rendering**: markdown parsing is memoized and unchanged messages
+  keep their identity across refreshes, so a new message no longer re-parses the
+  whole thread.
+- **File serving off the network loop**: manifests and blocks are served via a
+  blocking pool (`spawn_blocking`) instead of stalling the P2P event loop.
+- **Smaller initial load**: the bundle is split (React and `qrcode` isolated)
+  and the friend QR code is lazy-loaded out of the initial payload.
+
+### Internal
+
+- CI gate runs unit tests only (`--lib`); the networked e2e suite stays in local
+  `ci.sh`. Fixed a TCP hole-punch test that hung the Linux runner, and stopped
+  `cargo deny` from failing on transitive unmaintained/yanked crates (real
+  vulnerabilities still block).
+
 ## [1.6.0] — 2026-07-17
 
 ### Added
