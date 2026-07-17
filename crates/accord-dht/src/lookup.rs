@@ -8,7 +8,26 @@ use crate::store::{RecordStore, MAX_CLOCK_SKEW_MS};
 use accord_proto::dht_msg::DhtBody;
 use accord_proto::limits::{DHT_ALPHA, DHT_K};
 use accord_proto::types::{DhtRecord, NodeId, NodeInfo};
+use futures_util::future::join_all;
 use std::collections::{HashMap, HashSet};
+
+/// Envoie le même type de requête aux `α` pairs du lot EN PARALLÈLE et rend
+/// `(node_id, réponse)` dans l'ordre du lot. Sérialiser ces envois faisait
+/// payer les timeouts en cascade (un pair mort ≈ 2 s bloquait les suivants) ;
+/// ici la latence d'un tour vaut le max du lot, pas la somme. La shortlist
+/// n'est mutée qu'APRÈS le tour complet — même sémantique itérative qu'avant
+/// (`next_to_query` n'était de toute façon rappelé qu'après le lot entier).
+async fn query_batch<R: DhtRpc>(
+    rpc: &R,
+    batch: &[NodeInfo],
+    body: impl Fn() -> DhtBody,
+) -> Vec<(NodeId, Option<DhtBody>)> {
+    join_all(batch.iter().map(|peer| {
+        let body = body();
+        async move { (peer.node_id, rpc.send_rpc(peer, body).await) }
+    }))
+    .await
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PeerState {
@@ -96,20 +115,19 @@ pub async fn find_node<R: DhtRpc>(
         if batch.is_empty() || sl.converged(DHT_K) {
             break;
         }
-        for peer in batch {
-            match rpc
-                .send_rpc(&peer, DhtBody::FindNode { target: target.0 })
-                .await
-            {
+        for (peer_id, resp) in
+            query_batch(rpc, &batch, || DhtBody::FindNode { target: target.0 }).await
+        {
+            match resp {
                 Some(DhtBody::FoundNodes { nodes }) => {
-                    sl.mark(peer.node_id, PeerState::Queried);
+                    sl.mark(peer_id, PeerState::Queried);
                     for n in filter_valid(nodes, pow_bits) {
                         if n.node_id != local {
                             sl.add(n);
                         }
                     }
                 }
-                _ => sl.mark(peer.node_id, PeerState::Failed),
+                _ => sl.mark(peer_id, PeerState::Failed),
             }
         }
     }
@@ -146,10 +164,10 @@ async fn find_value_path<R: DhtRpc>(
         if batch.is_empty() || sl.converged(DHT_K) {
             break;
         }
-        for peer in batch {
-            match rpc.send_rpc(&peer, DhtBody::FindValue { key }).await {
+        for (peer_id, resp) in query_batch(rpc, &batch, || DhtBody::FindValue { key }).await {
+            match resp {
                 Some(DhtBody::FoundValue { value, nodes }) => {
-                    sl.mark(peer.node_id, PeerState::Queried);
+                    sl.mark(peer_id, PeerState::Queried);
                     if let Some(rec) = value {
                         // Ignore un horodatage au-delà de la borne (record du
                         // futur, potentiellement gonflé par un pair malveillant).
@@ -173,7 +191,7 @@ async fn find_value_path<R: DhtRpc>(
                         }
                     }
                 }
-                _ => sl.mark(peer.node_id, PeerState::Failed),
+                _ => sl.mark(peer_id, PeerState::Failed),
             }
         }
     }
@@ -389,6 +407,50 @@ mod tests {
             ValueResult::Found(rec) => assert_eq!(rec, bon, "le consensus de chemins doit primer"),
             ValueResult::NotFound(_) => panic!("record introuvable"),
         }
+    }
+
+    /// RPC simulé où chaque pair met `delay_ms` à répondre (pair mort dont le
+    /// timeout court, p. ex.).
+    struct SlowRpc {
+        local: NodeId,
+        delay_ms: u64,
+    }
+
+    #[async_trait]
+    impl DhtRpc for SlowRpc {
+        async fn send_rpc(&self, _to: &NodeInfo, _body: DhtBody) -> Option<DhtBody> {
+            tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
+            Some(DhtBody::FoundNodes { nodes: Vec::new() })
+        }
+
+        fn local_id(&self) -> NodeId {
+            self.local
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn un_pair_lent_ne_serialise_pas_le_lot() {
+        // Trois seeds répondant chacun en 2 s (l'ordre de grandeur d'un
+        // timeout de pair mort) : le lot α=3 doit partir en parallèle, donc
+        // le tour coûte ~2 s — la version sérialisée coûtait ~6 s. L'horloge
+        // tokio pausée rend la mesure déterministe.
+        let local = Identity::generate_with_pow_bits(1);
+        let s0 = Identity::generate_with_pow_bits(1);
+        let s1 = Identity::generate_with_pow_bits(1);
+        let s2 = Identity::generate_with_pow_bits(1);
+        let rpc = SlowRpc {
+            local: local.node_id(),
+            delay_ms: 2_000,
+        };
+        let seeds = vec![node_info(&s0, 1), node_info(&s1, 2), node_info(&s2, 3)];
+
+        let debut = tokio::time::Instant::now();
+        find_node(&rpc, NodeId([9u8; 32]), seeds, 1).await;
+        let ecoule = debut.elapsed();
+        assert!(
+            ecoule < std::time::Duration::from_millis(4_000),
+            "lot sérialisé : {ecoule:?} (attendu ~2 s)"
+        );
     }
 
     #[tokio::test]
