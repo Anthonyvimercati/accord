@@ -744,6 +744,62 @@ describe('MessageList — état de livraison', () => {
     expect(screen.getByText('envoi…')).toBeInTheDocument();
   });
 
+  /** Contact ami avec présence explicite, pour les libellés de livraison MP. */
+  function contactPresence(pubkey: string, online: boolean): Contact {
+    return {
+      node_id: 'noeud-pair',
+      pubkey,
+      friend_code: 'accord-pair',
+      display_name: 'Alice',
+      bio: null,
+      avatar: null,
+      banner: null,
+      state: 'friend',
+      last_seen_ms: 0,
+      online,
+    };
+  }
+
+  it('affiche le dépôt en boîte chiffrée pour un pending vers un pair hors ligne', () => {
+    // Arrange : MP ouvert sur un pair hors ligne, message local encore pending.
+    useSession.setState({ self: SELF });
+    useUi.setState({ view: { kind: 'dm', peer: 'aabbccddee' } });
+    useFriends.setState({ contacts: [contactPresence('aabbccddee', false)] });
+    const message = textMsg('m1', BASE_MS, 'en vol', {
+      author: SELF.pubkey,
+      delivery: 'pending',
+    });
+
+    // Act
+    render(<MessageList messages={[message]} actions={makeActions()} />);
+
+    // Assert : le libellé boîte chiffrée remplace « envoi… ».
+    expect(
+      screen.getByText(
+        'Déposé dans sa boîte chiffrée — livré à son retour (expire sous 7 j)',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('envoi…')).not.toBeInTheDocument();
+  });
+
+  it('conserve « envoi… » pour un pending vers un pair en ligne', () => {
+    // Arrange : même MP mais le pair est en ligne — comportement historique.
+    useSession.setState({ self: SELF });
+    useUi.setState({ view: { kind: 'dm', peer: 'aabbccddee' } });
+    useFriends.setState({ contacts: [contactPresence('aabbccddee', true)] });
+    const message = textMsg('m1', BASE_MS, 'en vol', {
+      author: SELF.pubkey,
+      delivery: 'pending',
+    });
+
+    // Act
+    render(<MessageList messages={[message]} actions={makeActions()} />);
+
+    // Assert
+    expect(screen.getByText('envoi…')).toBeInTheDocument();
+    expect(screen.queryByText(/boîte chiffrée/)).not.toBeInTheDocument();
+  });
+
   it('n’affiche aucune relance pour un message livré', () => {
     useSession.setState({ self: SELF });
     const message = textMsg('m1', BASE_MS, 'ok', {

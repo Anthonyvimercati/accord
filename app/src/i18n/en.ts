@@ -114,6 +114,10 @@ export const en: Dict = {
     unsupported: 'Unsupported message',
     edited: '(edited)',
     pending: 'sending…',
+    mailboxPending:
+      'Dropped in their encrypted mailbox — delivered when they return (expires in 7 days)',
+    mailboxBanner:
+      '{name} is offline — your messages await them in their encrypted mailbox (7 days max).',
     addReaction: 'Add reaction',
     reactWith: 'React with {emoji}',
     whoReacted: 'Reacted with {emoji}',

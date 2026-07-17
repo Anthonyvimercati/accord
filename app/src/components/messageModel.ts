@@ -53,6 +53,18 @@ export function displayText(message: DisplayMessage): string | null {
 }
 
 /**
+ * État de livraison effectif : le champ explicite prime, l'ack le complète.
+ * Partagé entre le fil (`MessageList`, libellés pending/failed) et la vue MP
+ * (`DmView`, bandeau « boîte chiffrée » quand le pair est hors ligne).
+ */
+export function deliveryOf(
+  message: Pick<DisplayMessage, 'delivery' | 'acked'>,
+): DeliveryState {
+  if (message.delivery !== undefined) return message.delivery;
+  return message.acked === false ? 'pending' : 'sent';
+}
+
+/**
  * Index du premier message « non lu » à afficher sous le séparateur
  * « nouveaux messages », ou `-1` s'il n'y en a pas. Un message compte comme
  * non lu s'il dépasse la position lue capturée à l'ouverture

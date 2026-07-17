@@ -6,7 +6,7 @@
  * serveur en MP).
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
@@ -33,7 +33,13 @@ vi.mock('../lib/files', () => ({
 }));
 
 import { api, rpc } from '../lib/client';
-import type { Contact, DmMessage, GroupStateJson } from '../lib/api';
+import type {
+  Contact,
+  DeliveryState,
+  DmMessage,
+  GroupStateJson,
+  SelfProfile,
+} from '../lib/api';
 import { useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
@@ -249,6 +255,84 @@ describe('DmView — indicateur de frappe', () => {
     // Assert
     expect(screen.getByText('Alice est en train d’écrire…')).toBeInTheDocument();
     await waitFor(() => expect(callMock).toHaveBeenCalled());
+  });
+});
+
+describe('DmView — bandeau boîte chiffrée (pair hors ligne)', () => {
+  const SELF_DM: SelfProfile = {
+    node_id: 'nm',
+    pubkey: 'moi',
+    friend_code: 'accord-moi',
+    name: 'Moi',
+    bio: null,
+    avatar: null,
+    banner: null,
+    pronouns: null,
+    accent_color: null,
+    banner_color: null,
+    avatar_decoration: null,
+    profile_effect: null,
+    profile_frame: null,
+  };
+
+  const BANNIERE =
+    'Alice est hors ligne — vos messages l’attendent dans sa boîte chiffrée (7 j max).';
+
+  /** Message local (soi-même) avec état de livraison explicite. */
+  function ownDmMsg(id: string, lamport: number, delivery: DeliveryState): DmMessage {
+    return { ...dmMsg(id, lamport), author: SELF_DM.pubkey, delivery };
+  }
+
+  beforeEach(() => {
+    useSession.setState({ self: SELF_DM });
+  });
+
+  afterEach(() => {
+    useSession.setState({ self: null });
+  });
+
+  it('affiche le bandeau : pair hors ligne et message local pending', async () => {
+    // Arrange : le pair est hors ligne, un envoi local attend dans sa boîte.
+    const horsLigne = { ...contact(PEER, 'Alice'), online: false };
+    useFriends.setState({ contacts: [horsLigne] });
+    friendsListMock.mockResolvedValue({ contacts: [horsLigne] });
+    callMock.mockResolvedValue({ messages: [ownDmMsg('a', 5, 'pending')] });
+
+    // Act
+    render(<DmView peer={PEER} />);
+
+    // Assert
+    expect(await screen.findByText(BANNIERE)).toBeInTheDocument();
+  });
+
+  it('masque le bandeau : pair en ligne malgré un message pending', async () => {
+    // Arrange : même envoi pending mais le pair est en ligne.
+    const enLigne = { ...contact(PEER, 'Alice'), online: true };
+    useFriends.setState({ contacts: [enLigne] });
+    friendsListMock.mockResolvedValue({ contacts: [enLigne] });
+    callMock.mockResolvedValue({ messages: [ownDmMsg('a', 5, 'pending')] });
+
+    // Act
+    render(<DmView peer={PEER} />);
+
+    // Assert : le message pending garde « envoi… », aucun bandeau.
+    expect(await screen.findByText('envoi…')).toBeInTheDocument();
+    expect(screen.queryByText(BANNIERE)).not.toBeInTheDocument();
+  });
+
+  it('masque le bandeau : pair hors ligne mais aucun envoi en attente', async () => {
+    // Arrange : pair hors ligne, tous les messages locaux sont livrés.
+    const horsLigne = { ...contact(PEER, 'Alice'), online: false };
+    useFriends.setState({ contacts: [horsLigne] });
+    friendsListMock.mockResolvedValue({ contacts: [horsLigne] });
+    callMock.mockResolvedValue({ messages: [ownDmMsg('a', 5, 'sent')] });
+
+    // Act
+    render(<DmView peer={PEER} />);
+
+    // Assert
+    expect(await screen.findByText('message a')).toBeInTheDocument();
+    expect(screen.queryByText(BANNIERE)).not.toBeInTheDocument();
   });
 });
 
