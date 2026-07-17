@@ -58,6 +58,8 @@
 }
 .more-galaxy-twinkle {
   fill: #ddd6fe;
+  transform-box: fill-box;
+  transform-origin: center;
   animation: more-twinkle 3.2s ease-in-out infinite;
 }
 .more-galaxy-twinkle--2 {
@@ -514,7 +516,7 @@
 .more-heart--2 {
   left: 20%;
   animation-delay: -3.1s;
-  transform: scale(0.7);
+  scale: 0.7;
 }
 .more-heart--3 {
   left: 33%;
@@ -523,12 +525,12 @@
 .more-heart--4 {
   left: 46%;
   animation-delay: -4.4s;
-  transform: scale(1.15);
+  scale: 1.15;
 }
 .more-heart--5 {
   left: 58%;
   animation-delay: -2.4s;
-  transform: scale(0.8);
+  scale: 0.8;
 }
 .more-heart--6 {
   left: 70%;
@@ -537,7 +539,7 @@
 .more-heart--7 {
   left: 82%;
   animation-delay: -0.4s;
-  transform: scale(0.65);
+  scale: 0.65;
 }
 .more-heart--8 {
   left: 92%;
@@ -598,8 +600,11 @@
   height: 58px;
 }
 .more-frame__mote {
+  position: absolute;
+  display: block;
   width: 4px;
   height: 4px;
+  pointer-events: none;
   border-radius: 50%;
   background: var(--mf-stroke);
   box-shadow: 0 0 7px 1px var(--mf-soft);
@@ -798,6 +803,8 @@
 }
 .more-ivy__bud {
   fill: #fefce8;
+  transform-box: fill-box;
+  transform-origin: center;
   animation: more-twinkle 3.8s ease-in-out infinite;
 }
 
@@ -903,9 +910,10 @@
     transform: translate3d(-8%, 10%, 0) scale(1.18);
   }
 }
+/* ≥ (100 % + 46 %) / hauteur mini (30 %) : chaque colonne sort avant la boucle. */
 @keyframes more-code-fall {
   to {
-    transform: translate3d(0, 340%, 0);
+    transform: translate3d(0, 520%, 0);
   }
 }
 @keyframes more-confetti-fall {
@@ -918,7 +926,7 @@
   }
   100% {
     opacity: 0.9;
-    transform: translate3d(-14px, 4600%, 0) rotate(560deg);
+    transform: translate3d(-14px, 6200%, 0) rotate(560deg);
   }
 }
 @keyframes more-heart-rise {
@@ -969,4 +977,218 @@
   50% {
     transform: rotate(6deg);
   }
+}
+
+/* ─── Thèmes clairs : lavis et traits recalibrés (mêmes surfaces que les
+ * vagues précédentes — voir profile-personalization-extra.css). ─── */
+
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .profile-effect--thunderstorm {
+  background: linear-gradient(180deg, rgb(148 163 184 / 0.4), transparent 55%);
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-storm-cloud {
+  background: radial-gradient(closest-side, rgb(100 116 139 / 0.55), transparent);
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-storm-drop {
+  background: linear-gradient(180deg, transparent, rgb(59 108 181 / 0.7));
+}
+
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .profile-effect--lava-flow {
+  background: linear-gradient(200deg, rgb(254 215 170 / 0.5), transparent 60%);
+}
+
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .profile-effect--code-rain {
+  background: linear-gradient(
+    180deg,
+    rgb(209 250 229 / 0.55),
+    rgb(236 253 245 / 0.3) 60%
+  );
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-code {
+  background: repeating-linear-gradient(
+    180deg,
+    rgb(5 150 105 / 0.75) 0 5px,
+    transparent 5px 9px
+  );
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-code:nth-child(even) {
+  background: repeating-linear-gradient(
+    180deg,
+    rgb(13 148 136 / 0.65) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .profile-effect--light-beams {
+  background: radial-gradient(ellipse at 50% 8%, rgb(99 102 241 / 0.16), transparent 55%);
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-beam-wheel {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgb(99 102 241 / 0.24) 14deg,
+    transparent 30deg 118deg,
+    rgb(8 145 178 / 0.2) 132deg,
+    transparent 148deg 244deg,
+    rgb(192 38 211 / 0.18) 258deg,
+    transparent 274deg
+  );
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-beam-core {
+  background: #6366f1;
+  box-shadow: 0 0 14px 5px rgb(99 102 241 / 0.45);
+}
+
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .profile-effect--confetti {
+  background: linear-gradient(180deg, rgb(221 214 254 / 0.4), transparent 45%);
+}
+
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .profile-effect--hearts {
+  background: linear-gradient(180deg, rgb(252 231 243 / 0.55), transparent 50%);
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-heart {
+  background: rgb(219 39 119 / 0.75);
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-heart:nth-child(3n) {
+  background: rgb(225 29 72 / 0.7);
+}
+
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .profile-frame--frost-veil {
+  --mf-stroke: #3b82c4;
+  --mf-soft: rgb(37 99 235 / 0.28);
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-frost__branch {
+  stroke: rgb(37 99 195 / 0.8);
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-frost__flake {
+  stroke: #2d7fb8;
+}
+:is(
+    [data-theme='light'],
+    [data-theme='paper'],
+    [data-theme='sakura'],
+    [data-theme='frost'],
+    [data-theme='dream']
+  )
+  .more-frost__shard {
+  fill: rgb(96 165 250 / 0.4);
+  stroke: rgb(37 99 195 / 0.7);
 }

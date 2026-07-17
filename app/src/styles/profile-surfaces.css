@@ -843,7 +843,8 @@
     .lumen-frame__crown--top,
     .crystal-frame__crown--top,
     .celestial-frame__crown--top,
-    .tech-frame__circuit--top
+    .tech-frame__circuit--top,
+    .more-frame__crown--top
   ) {
   height: 28px;
 }
@@ -854,7 +855,8 @@
     .lumen-frame__crown--bottom,
     .crystal-frame__crown--bottom,
     .celestial-frame__crown--bottom,
-    .tech-frame__circuit--bottom
+    .tech-frame__circuit--bottom,
+    .more-frame__crown--bottom
   ) {
   height: 24px;
 }
@@ -865,7 +867,8 @@
     .lumen-frame__rail,
     .crystal-frame__rail,
     .celestial-frame__rail,
-    .tech-frame__rail
+    .tech-frame__rail,
+    .more-frame__rail
   ) {
   top: 25px;
   bottom: 22px;
@@ -1188,6 +1191,6 @@
   }
 
   .personalization-card-stage {
-    padding: 34px 16px 24px;
+    padding: 34px 30px 30px;
   }
 }
