@@ -6,7 +6,7 @@
 > surfaced by an internal adversarial review before public distribution.
 > For each one: the risk, why it is acceptable in v0, and the hardening
 > path. Every claim below is grounded in the current code (file references
-> given). Last reviewed: 2026-07-16. No external audit has been performed.
+> given). Last reviewed: 2026-07-17. No external audit has been performed.
 
 ## 1. Trust architecture (recap)
 
@@ -221,16 +221,22 @@ no longer sign two different, individually valid ops sharing one `op_id`
 (the historical silent-divergence attack: peers folding different ops kept
 divergent state while computing identical reconciliation digests).
 
+**Since 1.6.0 the `group_id` is root-committed**: a new group derives its
+`group_id` from the CREATE op's own content (SPEC §6.2,
+`create_root_bytes`). No distinct CREATE can target that `group_id` without
+a SHA-256 collision: once the committed root is known, other CREATEs are
+rejected at ingest, and the fold applies the committed root first whatever
+the canonical order — the former "concurrent CREATE preceding the genuine
+root" takeover is **closed** for committed groups.
+
 **Residual risk — grandfathered groups.** A group whose canonical-first
 CREATE op carries a pre-1.3.0 random `op_id` stays in the *legacy regime*:
 free-id ops remain accepted there, so joins, backup restores and
 anti-entropy catch-up of existing groups keep working — and the historical
 collision weakness remains, unchanged, **inside those groups only**.
-Recreating the server moves it to the enforced regime. CREATE ops
-themselves are always ingestible (they establish the regime); a concurrent
-CREATE is ignored at fold unless it precedes the genuine root in canonical
-order — a pre-existing insider vector that content-addressing neither
-opens nor closes.
+Similarly, a group with a pre-1.6.0 random `group_id` keeps the
+root-takeover vector above. Recreating the server moves it to both
+enforced regimes.
 
 **Residual risk — mixed-version fleets.** A pre-1.3.0 client writing into
 a group created under 1.3.0+ produces free-id ops that up-to-date peers

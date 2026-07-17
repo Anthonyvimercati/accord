@@ -20,8 +20,14 @@ const IDENTITY_VALUE_LEN: usize = FRIENDCODE_PAYLOAD_LEN + 32;
 /// Longueur maximale d'un pseudo affiché, en octets : couvre un pseudo de
 /// profil de 32 caractères × 4 octets UTF-8 (D-027).
 const MAX_DISPLAY_NAME: usize = 128;
-/// Durée de vie d'un record d'identité publié (1 h, republication continue).
-const IDENTITY_EXPIRY_S: u32 = 3600;
+/// Durée de vie d'un record d'identité publié : le plafond DHT (7 j).
+/// La liaison code ami → clé publique est signée et STABLE — il n'y a aucune
+/// raison de fraîcheur, et une heure (l'ancienne valeur) rendait un code
+/// irrésoluble dès que son propriétaire fermait son laptop : le scénario
+/// « je te passe mon code, ajoute-moi ce soir » échouait. La republication
+/// périodique (nœud vivant : 30 min ; porteurs : boucle `dht_republish`)
+/// entretient le record pendant toute l'absence.
+const IDENTITY_EXPIRY_S: u32 = accord_proto::limits::DHT_MAX_EXPIRY_S;
 
 /// Plafond dur de demandes d'ami entrantes en attente : au-delà, la plus
 /// ancienne est évincée. Empêche un flot d'inconnus (Sybil, un PoW chacun,

@@ -404,7 +404,7 @@ impl Node {
                 if let Ok(CoreMsg::DirectMsg { msg_id, .. }) =
                     crate::maintenance::decode_core(&item.payload)
                 {
-                    map.insert(msg_id, (item.attempts, item.mailboxed));
+                    map.insert(msg_id, (item.attempts, item.mailboxed_day > 0));
                 }
             }
             Ok(map)

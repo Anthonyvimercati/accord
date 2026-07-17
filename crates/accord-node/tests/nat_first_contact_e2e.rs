@@ -28,6 +28,7 @@ const PASSPHRASE: &str = "phrase-de-passe-test";
 /// Intervalles raccourcis (mêmes ordres de grandeur que `maintenance_e2e`).
 fn fast_maintenance() -> MaintenanceConfig {
     MaintenanceConfig {
+        dht_republish: Duration::from_secs(3600),
         enabled: true,
         identity_republish: Duration::from_millis(500),
         presence_publish: Duration::from_millis(200),

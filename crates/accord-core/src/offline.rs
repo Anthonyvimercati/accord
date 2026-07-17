@@ -8,11 +8,12 @@
 //! récents du même publieur). Le contenu est signé PUIS scellé : seul le
 //! destinataire peut l'ouvrir, et il authentifie l'expéditeur à l'intérieur.
 //!
-//! Le destinataire interroge, pour chaque contact, les jours {courant, veille}
-//! et les fragments croissants ; le fragment 0 annonce le total.
+//! Le destinataire interroge, pour chaque contact, toute la fenêtre de vie
+//! d'un dépôt ([`poll_days`]) et les fragments croissants ; le fragment 0
+//! annonce le total.
 
 use accord_crypto::{node_id_of, sealed, verify_signature, CryptoError, Identity};
-use accord_proto::limits::MAX_DHT_VALUE;
+use accord_proto::limits::{DHT_MAX_EXPIRY_S, MAX_DHT_VALUE};
 use accord_proto::types::{DhtRecord, RecordKind};
 use sha2::{Digest, Sha256};
 
@@ -26,8 +27,14 @@ const ENVELOPE_VERSION: u8 = 1;
 const FRAG_HEADER: usize = 2;
 /// Charge utile scellée maximale par fragment DHT.
 const FRAG_CHUNK: usize = MAX_DHT_VALUE - FRAG_HEADER;
-/// Durée de vie d'un dépôt : 2 jours (le destinataire sonde jour + veille).
-const DEPOSIT_EXPIRY_S: u32 = 2 * 86_400;
+/// Durée de vie d'un dépôt : le plafond DHT (7 jours), la fenêtre promise
+/// par le README. L'ancienne valeur (2 jours) combinée à une sonde limitée à
+/// {jour, veille} perdait silencieusement tout message dont le destinataire
+/// revenait au-delà de ~36 h.
+const DEPOSIT_EXPIRY_S: u32 = DHT_MAX_EXPIRY_S;
+/// Fenêtre de sonde côté destinataire : tout jour où un dépôt encore vivant
+/// a pu être fait (aujourd'hui + les 7 jours de vie d'un dépôt).
+const POLL_WINDOW_DAYS: usize = 8;
 /// Nombre maximal de fragments par dépôt (512 KiB scellés, largement au-delà
 /// d'une file de messages texte).
 pub const MAX_FRAGMENTS: u16 = 64;
@@ -37,10 +44,11 @@ pub fn day_of_ms(now_ms: u64) -> u64 {
     now_ms / 86_400_000
 }
 
-/// Jours à sonder côté destinataire : courant puis veille.
-pub fn poll_days(now_ms: u64) -> [u64; 2] {
+/// Jours à sonder côté destinataire : toute la fenêtre de vie d'un dépôt,
+/// du jour courant au plus ancien jour dont un dépôt peut encore être vivant.
+pub fn poll_days(now_ms: u64) -> [u64; POLL_WINDOW_DAYS] {
     let day = day_of_ms(now_ms);
-    [day, day.saturating_sub(1)]
+    core::array::from_fn(|i| day.saturating_sub(i as u64))
 }
 
 /// Clé DHT d'un fragment de boîte aux lettres (D-016).
@@ -315,8 +323,12 @@ mod tests {
     }
 
     #[test]
-    fn poll_days_covers_today_and_yesterday() {
-        assert_eq!(poll_days(86_400_000 * 5 + 12), [5, 4]);
-        assert_eq!(poll_days(0), [0, 0]);
+    fn poll_days_couvre_toute_la_fenetre_de_vie_d_un_depot() {
+        assert_eq!(poll_days(86_400_000 * 9 + 12), [9, 8, 7, 6, 5, 4, 3, 2]);
+        assert_eq!(poll_days(0), [0; 8]);
+        assert_eq!(
+            u64::from(DEPOSIT_EXPIRY_S) / 86_400 + 1,
+            POLL_WINDOW_DAYS as u64
+        );
     }
 }

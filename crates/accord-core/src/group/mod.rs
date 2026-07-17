@@ -78,16 +78,30 @@ pub fn new_id16() -> [u8; 16] {
     id
 }
 
-/// État matérialisé d'un groupe depuis le log persistant.
+/// État matérialisé d'un groupe depuis le log persistant, via le cache de
+/// [`Db`] (invalidé à chaque insertion réelle d'op — le repli est
+/// déterministe, l'état en cache reste exact tant que le log ne bouge pas).
 pub fn group_state(db: &Db, group_id: &[u8; 16]) -> Result<GroupState, CoreError> {
+    if let Some(state) = db.group_cache_state(group_id) {
+        return Ok((*state).clone());
+    }
     let ops = db.group_ops(group_id)?;
     if ops.is_empty() {
         return Err(CoreError::NotFound("groupe inconnu"));
     }
-    Ok(GroupState::fold(&ops))
+    let state = GroupState::fold(&ops);
+    db.group_cache_put_state(*group_id, std::sync::Arc::new(state.clone()));
+    Ok(state)
 }
 
 /// Crée un groupe : op CREATE signée + clé de groupe epoch 1 persistée.
+///
+/// Le `group_id` n'est plus aléatoire : il DÉRIVE de l'op CREATE elle-même
+/// (`group_id = SHA-256(create_root_bytes)[..16]`, voir [`create_root_id`]).
+/// Le groupe est ainsi « commis à sa racine » : aucune CREATE concurrente ne
+/// peut viser ce `group_id`, quelle que soit sa position dans l'ordre
+/// canonique — l'unicité (`lamport`, `wall_ms`, auteur, nom) rend deux
+/// créations distinctes du même auteur distinctes aussi.
 pub fn create_group(
     db: &Db,
     identity: &Identity,
@@ -97,11 +111,23 @@ pub fn create_group(
     if name.is_empty() || name.len() > 100 {
         return Err(CoreError::Invalid("nom de groupe vide ou trop long"));
     }
-    let group_id = new_id16();
     let body = GroupOpBody::Create {
         name: name.to_string(),
     };
-    let op = sign_op(db, identity, &group_id, &body, now_ms)?;
+    let mut op = GroupOp {
+        op_id: [0u8; 16],
+        group_id: [0u8; 16],
+        lamport: db.bump_lamport(0)?,
+        wall_ms: now_ms,
+        author: identity.public_key(),
+        kind: body.kind(),
+        body: body.encode_body(),
+        sig: [0u8; 64],
+    };
+    op.group_id = create_root_id(&op);
+    op.op_id = op_content_id(&op);
+    op.sig = identity.sign(&op.signable_bytes());
+    let group_id = op.group_id;
     db.insert_group_op(&op)?;
     db.put_group_key(&group_id, 1, &crypt::generate_group_key())?;
     Ok(CreatedGroup {
@@ -155,6 +181,31 @@ fn op_content_id(op: &GroupOp) -> [u8; 16] {
     id
 }
 
+/// `group_id` canonique dérivé d'une op CREATE (contenu SAUF `group_id`,
+/// voir [`GroupOp::create_root_bytes`]).
+fn create_root_id(op: &GroupOp) -> [u8; 16] {
+    let digest = Sha256::digest(op.create_root_bytes());
+    let mut id = [0u8; 16];
+    id.copy_from_slice(&digest[..16]);
+    id
+}
+
+/// Vrai si `op` est une CREATE « commise » : son `group_id` dérive de son
+/// propre contenu. Une telle racine est unique par construction pour son
+/// groupe (une CREATE concurrente visant le même `group_id` exigerait une
+/// collision SHA-256) — base de la fermeture du takeover THREAT-MODEL §6.
+pub(crate) fn is_committed_create(op: &GroupOp) -> bool {
+    op.kind == GroupOpBody::CREATE_KIND && op.group_id == create_root_id(op)
+}
+
+/// Vrai si le groupe est « commis à sa racine » : une CREATE commise existe
+/// dans le log local. Dans ce régime, toute autre CREATE est un rogue rejeté
+/// à l'ingestion, et le repli ignore celles déjà insérées (arrivées avant que
+/// le régime soit connu) — voir [`GroupState::fold`].
+fn group_is_root_committed(db: &Db, group_id: &[u8; 16]) -> Result<bool, CoreError> {
+    Ok(db.group_ops(group_id)?.iter().any(is_committed_create))
+}
+
 /// Vrai si le groupe est « hérité » (créé avant l'`op_id` contenu-adressé) :
 /// son op CREATE canonique — la première au sens de [`sort_canonical`], celle
 /// que [`GroupState::fold`] applique — porte un `op_id` aléatoire d'époque.
@@ -184,15 +235,19 @@ pub fn ingest_op(db: &Db, op: &GroupOp) -> Result<IngestOutcome, CoreError> {
     // Intégrité (SPEC §6.2) : l'`op_id` DOIT être le hash du contenu — sauf
     // régime hérité. Une op CREATE à id libre est toujours ingérable (c'est
     // elle qui établit le régime du groupe ; la refuser rendrait tout groupe
-    // pré-1.3 injoignable). L'accepter n'ouvre rien de neuf : une CREATE
-    // concurrente injectée par un membre malveillant — héritée OU
-    // contenu-adressée, l'invariant ne discrimine pas — est ignorée au repli
-    // (« groupe déjà créé ») à moins de précéder la vraie racine dans l'ordre
-    // canonique, vecteur préexistant et orthogonal à cet invariant.
-    if op.op_id != op_content_id(op)
-        && op.kind != GroupOpBody::CREATE_KIND
-        && !group_is_legacy(db, &op.group_id)?
-    {
+    // pré-1.3 injoignable)… à une exception près : dans un groupe COMMIS À SA
+    // RACINE (CREATE commise déjà connue), toute autre CREATE est un rogue —
+    // seule une collision SHA-256 permettrait à une CREATE distincte de viser
+    // ce `group_id`. Une CREATE rogue arrivée AVANT la racine (régime encore
+    // inconnu) est insérée mais neutralisée au repli, qui préfère la racine
+    // commise quel que soit l'ordre canonique — voir [`GroupState::fold`].
+    if op.kind == GroupOpBody::CREATE_KIND {
+        if !is_committed_create(op) && group_is_root_committed(db, &op.group_id)? {
+            return Err(CoreError::Invalid(
+                "CREATE concurrente d'un groupe commis à sa racine",
+            ));
+        }
+    } else if op.op_id != op_content_id(op) && !group_is_legacy(db, &op.group_id)? {
         return Err(CoreError::Invalid("op_id incohérent avec le contenu"));
     }
     // Le corps doit être décodable : une op indéchiffrable ne sert à rien
@@ -207,8 +262,13 @@ pub fn ingest_op(db: &Db, op: &GroupOp) -> Result<IngestOutcome, CoreError> {
     Ok(IngestOutcome::Inserted)
 }
 
-/// Offre de synchronisation anti-entropie pour un groupe (SPEC §6.3).
+/// Offre de synchronisation anti-entropie pour un groupe (SPEC §6.3), via le
+/// cache de [`Db`] — recharger + trier + hacher tout le log à chaque tick de
+/// 5 min et à chaque offre reçue coûtait O(ops) sans lui.
 pub fn sync_offer(db: &Db, group_id: &[u8; 16]) -> Result<SyncOffer, CoreError> {
+    if let Some(offer) = db.group_cache_offer(group_id) {
+        return Ok(offer);
+    }
     let mut ops = db.group_ops(group_id)?;
     sort_canonical(&mut ops);
     let mut hasher = Sha256::new();
@@ -216,12 +276,14 @@ pub fn sync_offer(db: &Db, group_id: &[u8; 16]) -> Result<SyncOffer, CoreError> 
         hasher.update(op.op_id);
     }
     let max_lamport = ops.iter().map(|o| o.lamport).max().unwrap_or(0);
-    Ok(SyncOffer {
+    let offer = SyncOffer {
         group_id: *group_id,
         max_lamport,
         op_count: ops.len() as u64,
         digest: hasher.finalize().into(),
-    })
+    };
+    db.group_cache_put_offer(*group_id, offer);
+    Ok(offer)
 }
 
 /// Décide de la borne d'un `GroupSyncPull` après réception d'une offre.
@@ -604,6 +666,52 @@ mod tests {
     }
 
     #[test]
+    fn create_group_commet_le_group_id_a_sa_racine() {
+        let (db, alice) = setup();
+        let created = create_group(&db, &alice, "G", 7).unwrap();
+        assert!(is_committed_create(&created.op));
+        assert_eq!(created.group_id, created.op.group_id);
+        assert_eq!(created.op.op_id, op_content_id(&created.op));
+    }
+
+    #[test]
+    fn racine_commise_gagne_le_repli_meme_contre_un_rogue_arrive_avant() {
+        let (db_a, alice) = setup();
+        let mallory = Identity::generate_with_pow_bits(1);
+        let created = create_group(&db_a, &alice, "G", 0).unwrap();
+        // Chez un pair vierge, un rogue à lamport 0 arrive AVANT la racine :
+        // le régime est encore inconnu, il est inséré.
+        let rogue = craft_free_id_op(
+            &mallory,
+            &created.group_id,
+            &GroupOpBody::Create {
+                name: "usurpé".into(),
+            },
+            0,
+            new_id16(),
+        );
+        let db_b = Db::open_in_memory(&[5u8; 32]).unwrap();
+        assert_eq!(ingest_op(&db_b, &rogue).unwrap(), IngestOutcome::Inserted);
+        // La racine commise arrive ensuite : le repli la préfère quel que
+        // soit l'ordre canonique — le takeover est neutralisé, et tout
+        // nouveau rogue est désormais rejeté à l'ingestion.
+        ingest_op(&db_b, &created.op).unwrap();
+        let state = group_state(&db_b, &created.group_id).unwrap();
+        assert_eq!(state.founder, Some(alice.public_key()));
+        assert_eq!(state.name, "G");
+        let rogue2 = craft_free_id_op(
+            &mallory,
+            &created.group_id,
+            &GroupOpBody::Create {
+                name: "encore".into(),
+            },
+            0,
+            new_id16(),
+        );
+        assert!(ingest_op(&db_b, &rogue2).is_err());
+    }
+
+    #[test]
     fn pull_repart_de_zero_quand_le_create_manque_au_log_local() {
         // Réplique complète d'un groupe hérité chez A : CREATE(1) et une op
         // d'époque (2), puis une op contenu-adressée d'un membre à jour (3)
@@ -660,10 +768,9 @@ mod tests {
         let (db, alice) = setup();
         let mallory = Identity::generate_with_pow_bits(1);
         let created = create_group(&db, &alice, "G", 0).unwrap();
-        // Une CREATE concurrente à id libre reste ingérable (elle pourrait
-        // fonder un groupe hérité légitime) mais, arrivant APRÈS la racine
-        // dans l'ordre canonique, elle est ignorée au repli et ne change pas
-        // le régime : le groupe reste contenu-adressé.
+        // Le groupe est commis à sa racine (group_id dérivé de la CREATE) :
+        // toute CREATE concurrente — quel que soit son lamport — est rejetée
+        // à l'ingestion, le takeover par racine usurpée est fermé.
         let rogue_create = craft_free_id_op(
             &mallory,
             &created.group_id,
@@ -673,10 +780,7 @@ mod tests {
             created.op.lamport + 1,
             new_id16(),
         );
-        assert_eq!(
-            ingest_op(&db, &rogue_create).unwrap(),
-            IngestOutcome::Inserted
-        );
+        assert!(ingest_op(&db, &rogue_create).is_err());
         let state = group_state(&db, &created.group_id).unwrap();
         assert_eq!(state.founder, Some(alice.public_key()));
         assert_eq!(state.name, "G");
@@ -699,9 +803,22 @@ mod tests {
     fn ingested_lamport_advances_local_clock() {
         let (db_a, alice) = setup();
         let created = create_group(&db_a, &alice, "G", 0).unwrap();
+        // Simule un pair très en avance : op NON-CREATE (une CREATE modifiée
+        // ne dériverait plus le group_id commis), `op_id` recalculé puis
+        // re-signée.
         let mut op = created.op.clone();
-        // Simule un pair très en avance : `op_id` recalculé sur le contenu
-        // modifié (invariant op_id = hash du contenu), puis re-signé.
+        op.kind = GroupOpBody::SetMeta {
+            name: "G+".into(),
+            icon: None,
+            banner_color: None,
+        }
+        .kind();
+        op.body = GroupOpBody::SetMeta {
+            name: "G+".into(),
+            icon: None,
+            banner_color: None,
+        }
+        .encode_body();
         op.lamport = 5_000;
         op.op_id = op_content_id(&op);
         op.sig = alice.sign(&op.signable_bytes());

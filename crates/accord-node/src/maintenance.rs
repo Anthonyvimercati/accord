@@ -78,6 +78,10 @@ pub struct MaintenanceConfig {
     pub event_check: Duration,
     /// Intervalle de reconnexion aux pairs d'amorçage (base du backoff, B2).
     pub bootstrap_reconnect: Duration,
+    /// Intervalle de republication des records DHT détenus pour autrui
+    /// (résilience au churn : sans elle, un record ne survit que sur les
+    /// k nœuds du put initial et disparaît quand ils s'éteignent).
+    pub dht_republish: Duration,
     /// Amplitude de jitter relative (0.2 ⇒ ±10 % autour de l'intervalle).
     pub jitter: f64,
     /// Nombre maximal d'éléments d'outbox traités par passe.
@@ -102,6 +106,7 @@ impl Default for MaintenanceConfig {
             // time without being wasteful (pure local computation, no I/O).
             event_check: Duration::from_secs(60),
             bootstrap_reconnect: Duration::from_secs(60),
+            dht_republish: Duration::from_secs(60 * 60),
             jitter: 0.2,
             outbox_batch: 64,
             contacts_per_tick: 32,
@@ -165,9 +170,12 @@ pub fn is_queueable_offline(msg: &CoreMsg) -> bool {
 }
 
 /// Vrai si un élément d'outbox doit (re)déclencher un dépôt en boîte aux
-/// lettres DHT : jamais encore déposé et assez de tentatives directes.
-pub fn should_deposit(attempts: u32, mailboxed: bool, after_attempts: u32) -> bool {
-    !mailboxed && attempts >= after_attempts
+/// lettres DHT : assez de tentatives directes ET pas encore déposé CE JOUR.
+/// Le re-dépôt quotidien (clés DHT par jour, remplacement idempotent le même
+/// jour) entretient la fenêtre de 7 jours pour un destinataire longuement
+/// absent, au lieu de la laisser expirer après l'unique dépôt initial.
+pub fn should_deposit(attempts: u32, mailboxed_day: u64, today: u64, after_attempts: u32) -> bool {
+    attempts >= after_attempts && mailboxed_day < today.max(1)
 }
 
 /// Délai de reconnexion d'un pair d'amorçage après `fails` échecs consécutifs :
@@ -392,6 +400,13 @@ pub(crate) fn spawn_loops(rt: &Arc<Runtime>) {
     spawn_periodic(Arc::clone(rt), cfg.group_sync, |r, c| {
         Box::pin(group_sync_tick(r, c))
     });
+    // Republication Kademlia des records détenus POUR AUTRUI (identités,
+    // présences, boîtes aux lettres déposées chez nous) : sans elle, un
+    // record ne vit que sur les k nœuds du put initial et le churn du soir
+    // efface silencieusement codes amis et dépôts des pairs éteints.
+    spawn_periodic(Arc::clone(rt), cfg.dht_republish, |r, c| {
+        Box::pin(dht_republish_tick(r, c))
+    });
     // Signale localement les événements planifiés dont l'heure de début est
     // atteinte (D-047) : calcul pur, sans I/O réseau ; câblé comme une boucle
     // de maintenance à part entière pour hériter du jitter/arrêt propre.
@@ -430,6 +445,18 @@ async fn identity_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     let replicas = rt.dht().put(rt.dht_rpc(), record, now).await;
     let expires = rt.dht().expire_records(now);
     tracing::debug!(replicas, expires, "identité : record republié");
+}
+
+/// Republie vers leurs k plus proches les records DHT que ce nœud détient
+/// (les siens ET ceux stockés pour autrui) — la boucle de maintenance
+/// Kademlia canonique, jusqu'ici jamais câblée : `KademliaNode::republish`
+/// existait sans appelant, donc tout record mourait avec ses porteurs
+/// initiaux (churn du soir d'un réseau de desktops).
+async fn dht_republish_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
+    let now = now_ms();
+    let replicas = rt.dht().republish(rt.dht_rpc(), now).await;
+    let expires = rt.dht().expire_records(now);
+    tracing::debug!(replicas, expires, "dht : records republiés");
 }
 
 /// Nombre de pairs sollicités pour une observation d'adresse (SPEC §11.1 :
@@ -681,7 +708,7 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
             };
             // Un DirectMsg n'est retiré que sur accusé applicatif (MsgAck) ;
             // les autres natures sont retirées dès l'envoi transport réussi.
-            let await_ack = matches!(msg, CoreMsg::DirectMsg { .. });
+            let await_ack = matches!(msg, CoreMsg::DirectMsg { .. } | CoreMsg::GroupMsg { .. });
             // Meilleur lien : session directe liée à l'identité, sinon circuit
             // relais (SPEC §11.3 — indispensable au premier contact : une
             // session relayée a pour adresse celle du relais et l'envoi par
@@ -693,7 +720,12 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
                 if let Err(e) = node.outbox_reschedule(item.id, now) {
                     tracing::debug!(erreur = %e, "outbox : replanification impossible");
                 }
-                if should_deposit(item.attempts, item.mailboxed, cfg.mailbox_after_attempts) {
+                if should_deposit(
+                    item.attempts,
+                    item.mailboxed_day,
+                    offline::day_of_ms(now),
+                    cfg.mailbox_after_attempts,
+                ) {
                     want_deposit = true;
                 }
             }
@@ -710,7 +742,7 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
                     replicas += rt.dht().put(rt.dht_rpc(), record, now).await;
                 }
                 for id in ids {
-                    let _ = node.outbox_mark_mailboxed(id);
+                    let _ = node.outbox_mark_mailboxed(id, offline::day_of_ms(now));
                 }
                 tracing::debug!(fragments, replicas, "outbox : dépôt hors-ligne publié");
             }
@@ -743,7 +775,7 @@ pub(crate) async fn flush_peer(rt: &Runtime, peer: &[u8; 32], _addr: SocketAddr)
             let _ = rt.node().outbox_remove(item.id);
             continue;
         };
-        let await_ack = matches!(msg, CoreMsg::DirectMsg { .. });
+        let await_ack = matches!(msg, CoreMsg::DirectMsg { .. } | CoreMsg::GroupMsg { .. });
         if rt.send_via_best_link(peer, &ChannelMsg::Core(msg)).await {
             pushed += 1;
             if await_ack {
@@ -1115,11 +1147,19 @@ mod tests {
 
     #[test]
     fn seuil_de_depot_en_boite() {
-        assert!(!should_deposit(0, false, 2));
-        assert!(!should_deposit(1, false, 2));
-        assert!(should_deposit(2, false, 2));
-        assert!(!should_deposit(5, true, 2), "déjà déposé");
-        assert!(should_deposit(0, false, 0), "dépôt immédiat configurable");
+        assert!(!should_deposit(0, 0, 100, 2));
+        assert!(!should_deposit(1, 0, 100, 2));
+        assert!(should_deposit(2, 0, 100, 2));
+        assert!(!should_deposit(5, 100, 100, 2), "déjà déposé aujourd'hui");
+        assert!(should_deposit(0, 0, 100, 0), "dépôt immédiat configurable");
+        assert!(
+            should_deposit(5, 99, 100, 2),
+            "re-dépôt quotidien : entretient la fenêtre de 7 jours"
+        );
+        assert!(
+            should_deposit(2, 0, 0, 2),
+            "jour 0 (horloge de test) : le tout premier dépôt doit passer"
+        );
     }
 
     #[test]

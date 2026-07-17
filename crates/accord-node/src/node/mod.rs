@@ -788,7 +788,27 @@ impl Node {
                         );
                     }
                 }
-                Ok(vec![])
+                // Accusé applicatif (même mécanique que les MP) : le transport
+                // ne retransmet pas les trames DATA, donc sans accusé une
+                // seule perte UDP creusait un trou PERMANENT d'historique chez
+                // ce membre (l'anti-entropie GroupSync ne couvre que l'op-log
+                // administratif, pas le contenu). Les doublons sont acquittés
+                // aussi (l'émetteur doit cesser de réémettre) ; `Typing` est
+                // éphémère et `Ignored` (clé d'epoch absente, droit manquant)
+                // ne l'est PAS : la réémission avec backoff laisse à la
+                // `GroupKey` en route le temps d'arriver.
+                let ack = matches!(
+                    event,
+                    group::GroupMsgEvent::Stored
+                        | group::GroupMsgEvent::Edited
+                        | group::GroupMsgEvent::Deleted
+                        | group::GroupMsgEvent::Reacted
+                        | group::GroupMsgEvent::Duplicate
+                );
+                Ok(ack
+                    .then_some(CoreMsg::MsgAck { msg_id })
+                    .into_iter()
+                    .collect())
             }
             CoreMsg::GroupKey {
                 group_id,
@@ -1045,8 +1065,8 @@ impl Node {
     }
 
     /// Marque un élément d'outbox comme déposé en boîte aux lettres DHT.
-    pub fn outbox_mark_mailboxed(&self, id: i64) -> Result<(), NodeError> {
-        self.with_db(|db| Ok(db.outbox_mark_mailboxed(id)?))
+    pub fn outbox_mark_mailboxed(&self, id: i64, day: u64) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(db.outbox_mark_mailboxed(id, day)?))
     }
 
     /// Retire un élément d'outbox livré.
@@ -1059,19 +1079,20 @@ impl Node {
         self.with_db(|db| Ok(db.outbox_purge_expired(now_ms)?))
     }
 
-    /// Solde les `DirectMsg` en file pour `dest` acquittés par `msg_id` ;
-    /// rend le nombre d'éléments retirés.
+    /// Solde les messages en file pour `dest` (MP comme salons) acquittés
+    /// par `msg_id` ; rend le nombre d'éléments retirés.
     pub fn outbox_ack(&self, dest: &[u8; 32], msg_id: &[u8; 16]) -> Result<usize, NodeError> {
         self.with_db(|db| {
             let mut removed = 0usize;
             for item in db.outbox_for(dest)? {
-                if let Ok(CoreMsg::DirectMsg { msg_id: mid, .. }) =
-                    crate::maintenance::decode_core(&item.payload)
-                {
-                    if mid == *msg_id {
-                        db.outbox_remove(item.id)?;
-                        removed += 1;
-                    }
+                let acked = match crate::maintenance::decode_core(&item.payload) {
+                    Ok(CoreMsg::DirectMsg { msg_id: mid, .. })
+                    | Ok(CoreMsg::GroupMsg { msg_id: mid, .. }) => mid == *msg_id,
+                    _ => false,
+                };
+                if acked {
+                    db.outbox_remove(item.id)?;
+                    removed += 1;
                 }
             }
             Ok(removed)

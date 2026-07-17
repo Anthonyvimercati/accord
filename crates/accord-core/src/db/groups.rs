@@ -72,6 +72,9 @@ impl Db {
                 op.sig
             ],
         )?;
+        if n > 0 {
+            self.group_cache_invalidate(&op.group_id);
+        }
         Ok(n > 0)
     }
 

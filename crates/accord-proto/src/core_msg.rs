@@ -423,6 +423,24 @@ impl GroupOp {
         w.put_lbytes(&self.body);
         w.into_bytes()
     }
+
+    /// Octets de dérivation du `group_id` d'une op CREATE : tout le contenu
+    /// SAUF `group_id` (qui en dérive — l'inclure serait circulaire) et
+    /// `op_id`/`sig`. Un `group_id` égal au hash tronqué de ces octets lie le
+    /// groupe à son op fondatrice : aucune CREATE concurrente ne peut viser le
+    /// même groupe sans une collision SHA-256 — le vecteur de « takeover par
+    /// CREATE précédant la racine dans l'ordre canonique » (THREAT-MODEL §6)
+    /// est fermé par construction pour les groupes ainsi commis.
+    pub fn create_root_bytes(&self) -> Vec<u8> {
+        let mut w = Writer::with_capacity(self.body.len() + 64);
+        w.put_raw(b"accord-groupid-v1");
+        w.put_u64(self.lamport);
+        w.put_u64(self.wall_ms);
+        w.put_arr(&self.author);
+        w.put_u8(self.kind);
+        w.put_lbytes(&self.body);
+        w.into_bytes()
+    }
 }
 
 impl WireEncode for GroupOp {

@@ -32,8 +32,12 @@ pub struct OutboxItem {
     pub created_ms: u64,
     /// Tentatives déjà effectuées.
     pub attempts: u32,
-    /// Déjà déposé en boîte aux lettres DHT.
-    pub mailboxed: bool,
+    /// Jour Unix du dernier dépôt en boîte aux lettres DHT (0 = jamais).
+    /// Un dépôt par jour et par destinataire : les clés DHT sont par jour et
+    /// un nouveau dépôt du même jour remplace le précédent — re-déposer
+    /// chaque jour entretient la fenêtre de 7 jours au lieu de la laisser
+    /// expirer après l'unique dépôt initial.
+    pub mailboxed_day: u64,
 }
 
 impl Db {
@@ -50,7 +54,7 @@ impl Db {
     /// Éléments dus (prochaine tentative atteinte), plus anciens d'abord.
     pub fn outbox_due(&self, now_ms: u64, limit: usize) -> Result<Vec<OutboxItem>, CoreError> {
         let mut stmt = self.conn().prepare(
-            "SELECT id, dest, payload, created_ms, attempts, mailboxed
+            "SELECT id, dest, payload, created_ms, attempts, mailboxed_day
              FROM outbox WHERE next_attempt_ms <= ?1
              ORDER BY created_ms ASC LIMIT ?2",
         )?;
@@ -62,7 +66,7 @@ impl Db {
                     row.get::<_, Vec<u8>>(2)?,
                     row.get::<_, u64>(3)?,
                     row.get::<_, u32>(4)?,
-                    row.get::<_, bool>(5)?,
+                    row.get::<_, u64>(5)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -74,7 +78,7 @@ impl Db {
                     payload: r.2,
                     created_ms: r.3,
                     attempts: r.4,
-                    mailboxed: r.5,
+                    mailboxed_day: r.5,
                 })
             })
             .collect()
@@ -83,7 +87,7 @@ impl Db {
     /// Tous les éléments en file pour un destinataire (reconnexion du pair).
     pub fn outbox_for(&self, dest: &[u8; 32]) -> Result<Vec<OutboxItem>, CoreError> {
         let mut stmt = self.conn().prepare(
-            "SELECT id, dest, payload, created_ms, attempts, mailboxed
+            "SELECT id, dest, payload, created_ms, attempts, mailboxed_day
              FROM outbox WHERE dest = ?1 ORDER BY created_ms ASC",
         )?;
         let raws = stmt
@@ -94,7 +98,7 @@ impl Db {
                     row.get::<_, Vec<u8>>(2)?,
                     row.get::<_, u64>(3)?,
                     row.get::<_, u32>(4)?,
-                    row.get::<_, bool>(5)?,
+                    row.get::<_, u64>(5)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -106,7 +110,7 @@ impl Db {
                     payload: r.2,
                     created_ms: r.3,
                     attempts: r.4,
-                    mailboxed: r.5,
+                    mailboxed_day: r.5,
                 })
             })
             .collect()
@@ -148,10 +152,12 @@ impl Db {
             })?)
     }
 
-    /// Marque un élément comme déposé en boîte aux lettres.
-    pub fn outbox_mark_mailboxed(&self, id: i64) -> Result<(), CoreError> {
-        self.conn()
-            .execute("UPDATE outbox SET mailboxed = 1 WHERE id = ?1", [id])?;
+    /// Marque un élément comme déposé en boîte aux lettres le jour `day`.
+    pub fn outbox_mark_mailboxed(&self, id: i64, day: u64) -> Result<(), CoreError> {
+        self.conn().execute(
+            "UPDATE outbox SET mailboxed_day = ?2 WHERE id = ?1",
+            params![id, day],
+        )?;
         Ok(())
     }
 
@@ -202,8 +208,8 @@ mod tests {
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].attempts, 1);
 
-        db.outbox_mark_mailboxed(id).unwrap();
-        assert!(db.outbox_for(&[7; 32]).unwrap()[0].mailboxed);
+        db.outbox_mark_mailboxed(id, 42).unwrap();
+        assert_eq!(db.outbox_for(&[7; 32]).unwrap()[0].mailboxed_day, 42);
 
         db.outbox_remove(id).unwrap();
         assert!(db.outbox_for(&[7; 32]).unwrap().is_empty());

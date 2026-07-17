@@ -27,6 +27,7 @@ const PASSPHRASE: &str = "phrase-de-passe-test";
 /// Intervalles raccourcis pour observer plusieurs passes en quelques secondes.
 fn fast_maintenance() -> MaintenanceConfig {
     MaintenanceConfig {
+        dht_republish: Duration::from_secs(3600),
         enabled: true,
         identity_republish: Duration::from_millis(500),
         presence_publish: Duration::from_millis(150),

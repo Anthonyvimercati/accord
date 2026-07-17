@@ -466,8 +466,25 @@ impl GroupState {
     pub fn fold(ops: &[GroupOp]) -> Self {
         let mut sorted: Vec<&GroupOp> = ops.iter().collect();
         sorted.sort_by_key(|op| (op.lamport, node_id_of(&op.author), op.op_id));
+        // Racine commise (group_id dérivé du contenu de la CREATE) : elle est
+        // LA racine du groupe quel que soit l'ordre canonique. Une CREATE
+        // rogue glissée avant elle (lamport 0, insérée quand le régime était
+        // encore inconnu) ne peut plus voler le repli : la racine commise est
+        // appliquée d'abord et toute autre CREATE est ignorée. Déterministe :
+        // même jeu d'ops ⇒ même racine chez tous les pairs (deux CREATE
+        // commises distinctes pour un même group_id = collision SHA-256).
+        let committed_root = sorted
+            .iter()
+            .copied()
+            .find(|op| super::is_committed_create(op));
         let mut state = Self::default();
+        if let Some(root) = committed_root {
+            let _ = state.apply(root);
+        }
         for op in sorted {
+            if committed_root.is_some() && op.kind == GroupOpBody::CREATE_KIND {
+                continue;
+            }
             let _ = state.apply(op);
         }
         state

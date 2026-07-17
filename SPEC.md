@@ -383,10 +383,20 @@ Kinds: 0x01 CREATE, 0x02 SET_META, 0x03 ADD_CHANNEL, 0x04 EDIT_CHANNEL,
   non-content-addressed `op_id` (created pre-1.3.0) is *legacy* — free-`op_id`
   ops remain accepted there so joins, restores and anti-entropy catch-up of
   existing groups keep working (they keep the historical collision weakness,
-  unchanged). CREATE ops are always ingestible (they establish the regime); a
-  concurrent CREATE is ignored at fold unless it precedes the genuine root in
-  canonical order, a pre-existing vector orthogonal to this invariant. Writers
-  in a post-1.3.0 group must be updated (their legacy-form ops are rejected).
+  unchanged). Writers in a post-1.3.0 group must be updated (their legacy-form
+  ops are rejected).
+- **Root-committed `group_id`** (since 1.6.0): a group created under 1.6.0+
+  derives `group_id = SHA-256(create_root_bytes)[..16]`, where
+  `create_root_bytes` is the domain-separated encoding
+  (`accord-groupid-v1` prefix) of the CREATE op's content *excluding*
+  `group_id` (whose value it defines) and `op_id`/`sig`. Such a group is
+  *root-committed*: no distinct CREATE can target its `group_id` without a
+  SHA-256 collision. At ingest, once a committed root is known locally, any
+  other CREATE for that group is rejected; at fold, the committed root is
+  applied first regardless of canonical order and every other CREATE is
+  ignored — closing the pre-existing "concurrent CREATE preceding the genuine
+  root" takeover for committed groups. Legacy (random-`group_id`) groups are
+  grandfathered and keep the documented residual vector.
 - Permissions (u32 bitfield): VIEW=1, SEND=2, MANAGE_MESSAGES=4, MANAGE_CHANNELS=8,
   INVITE=16, KICK=32, BAN=64, MANAGE_ROLES=128, ADMIN=256 (implies everything),
   MANAGE_EMOJIS=512.

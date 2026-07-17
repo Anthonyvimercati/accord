@@ -20,6 +20,7 @@ pub use outbox::OutboxItem;
 
 use crate::error::CoreError;
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Version de schéma courante (migrations linéaires).
@@ -27,7 +28,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -48,6 +49,20 @@ fn hex_key(key: &[u8; 32]) -> String {
 /// paramétrées ; aucun contenu n'est journalisé.
 pub struct Db {
     conn: Connection,
+    /// Cache mémoire des états de groupe matérialisés et des offres de
+    /// synchronisation, invalidé à chaque insertion RÉELLE d'op. Sans lui,
+    /// chaque message composé/ingéré et chaque tick d'anti-entropie
+    /// rechargeait puis repliait TOUT l'op-log (O(ops), quadratique dans le
+    /// temps sur un serveur actif). Le repli étant déterministe, un cache
+    /// par groupe est exact tant que le log ne change pas.
+    group_cache: std::sync::Mutex<HashMap<[u8; 16], GroupCacheEntry>>,
+}
+
+/// Entrée de cache d'un groupe : état replié et/ou offre de synchronisation.
+#[derive(Default)]
+pub(crate) struct GroupCacheEntry {
+    pub(crate) state: Option<std::sync::Arc<crate::group::GroupState>>,
+    pub(crate) offer: Option<crate::group::SyncOffer>,
 }
 
 impl Db {
@@ -74,7 +89,10 @@ impl Db {
              PRAGMA foreign_keys = ON;
              PRAGMA busy_timeout = 5000;",
         )?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            group_cache: std::sync::Mutex::new(HashMap::new()),
+        };
         db.migrate()?;
         Ok(db)
     }
@@ -122,6 +140,16 @@ impl Db {
         {
             self.conn
                 .execute_batch("ALTER TABLE file_fetches ADD COLUMN media_cap INTEGER;")?;
+        }
+        // Migration v9 : re-dépôt quotidien des boîtes aux lettres. L'ancien
+        // booléen `mailboxed` (un seul dépôt à vie, la fenêtre de 7 jours
+        // expirait ensuite) devient `mailboxed_day` (jour Unix du dernier
+        // dépôt). Les lignes existantes repartent à 0 : un re-dépôt de plus,
+        // idempotent (remplacement du même jour côté DHT).
+        if self.has_column("outbox", "mailboxed")? && !self.has_column("outbox", "mailboxed_day")? {
+            self.conn.execute_batch(
+                "ALTER TABLE outbox ADD COLUMN mailboxed_day INTEGER NOT NULL DEFAULT 0;",
+            )?;
         }
         self.conn.execute_batch(
             "BEGIN;
@@ -209,7 +237,8 @@ impl Db {
                created_ms      INTEGER NOT NULL,
                next_attempt_ms INTEGER NOT NULL,
                attempts        INTEGER NOT NULL DEFAULT 0,
-               mailboxed       INTEGER NOT NULL DEFAULT 0
+               mailboxed       INTEGER NOT NULL DEFAULT 0,
+               mailboxed_day   INTEGER NOT NULL DEFAULT 0
              );
              CREATE INDEX IF NOT EXISTS outbox_due
                ON outbox(next_attempt_ms);
@@ -298,7 +327,7 @@ impl Db {
                last_ms    INTEGER NOT NULL,
                PRIMARY KEY (group_id, channel_id, author)
              );
-             PRAGMA user_version = 8;
+             PRAGMA user_version = 9;
              COMMIT;",
         )?;
         Ok(())
@@ -307,6 +336,48 @@ impl Db {
     /// Accès brut (réservé aux sous-modules du stockage).
     pub(crate) fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    /// État de groupe en cache, s'il est encore valide.
+    pub(crate) fn group_cache_state(
+        &self,
+        group_id: &[u8; 16],
+    ) -> Option<std::sync::Arc<crate::group::GroupState>> {
+        self.group_cache
+            .lock()
+            .ok()?
+            .get(group_id)
+            .and_then(|e| e.state.clone())
+    }
+
+    /// Mémorise l'état replié d'un groupe.
+    pub(crate) fn group_cache_put_state(
+        &self,
+        group_id: [u8; 16],
+        state: std::sync::Arc<crate::group::GroupState>,
+    ) {
+        if let Ok(mut cache) = self.group_cache.lock() {
+            cache.entry(group_id).or_default().state = Some(state);
+        }
+    }
+
+    /// Offre de synchronisation en cache, si elle est encore valide.
+    pub(crate) fn group_cache_offer(&self, group_id: &[u8; 16]) -> Option<crate::group::SyncOffer> {
+        self.group_cache.lock().ok()?.get(group_id)?.offer
+    }
+
+    /// Mémorise l'offre de synchronisation d'un groupe.
+    pub(crate) fn group_cache_put_offer(&self, group_id: [u8; 16], offer: crate::group::SyncOffer) {
+        if let Ok(mut cache) = self.group_cache.lock() {
+            cache.entry(group_id).or_default().offer = Some(offer);
+        }
+    }
+
+    /// Invalide le cache d'un groupe (log modifié).
+    pub(crate) fn group_cache_invalidate(&self, group_id: &[u8; 16]) {
+        if let Ok(mut cache) = self.group_cache.lock() {
+            cache.remove(group_id);
+        }
     }
 
     // ---- Métadonnées ----
