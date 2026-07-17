@@ -1,9 +1,9 @@
 //! Historique des messages directs et de groupe : insertion idempotente,
 //! éditions, tombstones, réactions, accusés de lecture.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-use super::{blob, Db};
+use super::{blob, sql_placeholders, Db, IN_CHUNK};
 use crate::error::CoreError;
 use accord_proto::core_msg::FileRef;
 use rusqlite::{params, ToSql};
@@ -405,6 +405,57 @@ impl Db {
             .collect()
     }
 
+    /// Pièces jointes d'un LOT de messages, groupées par message (même ordre
+    /// par `position` que [`Self::msg_attachments`]). Une requête par tranche
+    /// de [`IN_CHUNK`] identifiants au lieu d'une par message : le rendu d'une
+    /// page d'historique ne dépend plus du nombre de messages. Les messages
+    /// sans pièce jointe sont simplement absents de la carte ; les doublons
+    /// d'identifiants sont ignorés (un doublon à cheval sur deux tranches
+    /// dupliquerait sinon les lignes accumulées).
+    pub fn msg_attachments_for(
+        &self,
+        msg_ids: &[[u8; 16]],
+    ) -> Result<HashMap<[u8; 16], Vec<FileRef>>, CoreError> {
+        let mut vus = HashSet::new();
+        let ids: Vec<[u8; 16]> = msg_ids
+            .iter()
+            .copied()
+            .filter(|id| vus.insert(*id))
+            .collect();
+        let mut out: HashMap<[u8; 16], Vec<FileRef>> = HashMap::new();
+        for chunk in ids.chunks(IN_CHUNK) {
+            let sql = format!(
+                "SELECT msg_id, merkle_root, name, size, mime FROM msg_attachments
+                 WHERE msg_id IN ({}) ORDER BY msg_id, position ASC",
+                sql_placeholders(chunk.len())
+            );
+            let mut stmt = self.conn().prepare_cached(&sql)?;
+            let raws = stmt
+                .query_map(
+                    rusqlite::params_from_iter(chunk.iter().map(|id| id.as_slice())),
+                    |row| {
+                        Ok((
+                            row.get::<_, Vec<u8>>(0)?,
+                            row.get::<_, Vec<u8>>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, u64>(3)?,
+                            row.get::<_, String>(4)?,
+                        ))
+                    },
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (id, root, name, size, mime) in raws {
+                out.entry(blob(id)?).or_default().push(FileRef {
+                    merkle_root: blob(root)?,
+                    name,
+                    size,
+                    mime,
+                });
+            }
+        }
+        Ok(out)
+    }
+
     /// Efface les pièces jointes d'un message supprimé.
     fn delete_msg_attachments(&self, msg_id: &[u8; 16]) -> Result<(), CoreError> {
         self.conn().execute(
@@ -449,6 +500,52 @@ impl Db {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         raws.into_iter().map(|(e, a)| Ok((e, blob(a)?))).collect()
+    }
+
+    /// Réactions d'un LOT de messages, groupées par message (même ordre par
+    /// `emoji` que [`Self::reactions`]). Une requête par tranche de
+    /// [`IN_CHUNK`] identifiants au lieu d'une par message. Les messages sans
+    /// réaction sont simplement absents de la carte ; les doublons
+    /// d'identifiants sont ignorés (un doublon à cheval sur deux tranches
+    /// dupliquerait sinon les lignes accumulées).
+    #[allow(clippy::type_complexity)]
+    pub fn reactions_for(
+        &self,
+        msg_ids: &[[u8; 16]],
+    ) -> Result<HashMap<[u8; 16], Vec<(String, [u8; 32])>>, CoreError> {
+        let mut vus = HashSet::new();
+        let ids: Vec<[u8; 16]> = msg_ids
+            .iter()
+            .copied()
+            .filter(|id| vus.insert(*id))
+            .collect();
+        let mut out: HashMap<[u8; 16], Vec<(String, [u8; 32])>> = HashMap::new();
+        for chunk in ids.chunks(IN_CHUNK) {
+            let sql = format!(
+                "SELECT msg_id, emoji, author FROM reactions
+                 WHERE msg_id IN ({}) ORDER BY msg_id, emoji",
+                sql_placeholders(chunk.len())
+            );
+            let mut stmt = self.conn().prepare_cached(&sql)?;
+            let raws = stmt
+                .query_map(
+                    rusqlite::params_from_iter(chunk.iter().map(|id| id.as_slice())),
+                    |row| {
+                        Ok((
+                            row.get::<_, Vec<u8>>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Vec<u8>>(2)?,
+                        ))
+                    },
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (id, emoji, author) in raws {
+                out.entry(blob(id)?)
+                    .or_default()
+                    .push((emoji, blob(author)?));
+            }
+        }
+        Ok(out)
     }
 
     // ---- Accusés de lecture ----
@@ -815,6 +912,79 @@ mod tests {
         assert_eq!(h[0].edited, None);
         // Une édition post-suppression est refusée.
         assert!(!db.edit_dm(&[1; 16], &[2; 32], b"trop tard").unwrap());
+    }
+
+    #[test]
+    fn annotations_par_lot_egalent_les_acces_unitaires() {
+        // N messages, réactions et pièces jointes clairsemées : le chargement
+        // par lot doit rendre EXACTEMENT ce que rendent les accès unitaires
+        // (mêmes contenus, mêmes ordres emoji/position), messages sans
+        // annotation absents des cartes.
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let n = 20u8;
+        let ids: Vec<[u8; 16]> = (1..=n).map(|i| [i; 16]).collect();
+        for i in 1..=n {
+            db.insert_dm(&dm(i, i as u64)).unwrap();
+            if i % 2 == 0 {
+                db.set_reaction(&[i; 16], &[i; 32], "👍", true).unwrap();
+                db.set_reaction(&[i; 16], &[40 + i; 32], "🎉", true)
+                    .unwrap();
+            }
+            if i % 3 == 0 {
+                let atts = vec![
+                    FileRef {
+                        merkle_root: [i; 32],
+                        name: format!("a{i}"),
+                        size: 10,
+                        mime: "text/plain".into(),
+                    },
+                    FileRef {
+                        merkle_root: [80 + i; 32],
+                        name: format!("b{i}"),
+                        size: 20,
+                        mime: "image/png".into(),
+                    },
+                ];
+                db.put_msg_attachments(&[i; 16], &atts).unwrap();
+            }
+        }
+
+        let reactions = db.reactions_for(&ids).unwrap();
+        let attachments = db.msg_attachments_for(&ids).unwrap();
+        for id in &ids {
+            let unit = db.reactions(id).unwrap();
+            let batch = reactions.get(id).cloned().unwrap_or_default();
+            assert_eq!(batch, unit, "réactions divergentes pour {:?}", id[0]);
+            let unit = db.msg_attachments(id).unwrap();
+            let batch = attachments.get(id).cloned().unwrap_or_default();
+            assert_eq!(batch, unit, "pièces jointes divergentes pour {:?}", id[0]);
+        }
+        // Un identifiant inconnu n'apparaît nulle part.
+        assert!(!reactions.contains_key(&[99; 16]));
+        assert!(!attachments.contains_key(&[99; 16]));
+    }
+
+    #[test]
+    fn doublons_d_ids_a_cheval_sur_deux_tranches_ne_dupliquent_rien() {
+        // Le même id en tête ET au-delà de IN_CHUNK tombe dans deux requêtes
+        // distinctes : sans dédoublonnage, ses lignes seraient accumulées
+        // deux fois.
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.insert_dm(&dm(1, 1)).unwrap();
+        db.set_reaction(&[1; 16], &[2; 32], "👍", true).unwrap();
+        let atts = vec![FileRef {
+            merkle_root: [1; 32],
+            name: "a".into(),
+            size: 10,
+            mime: "text/plain".into(),
+        }];
+        db.put_msg_attachments(&[1; 16], &atts).unwrap();
+
+        let mut ids = vec![[1; 16]];
+        ids.extend(std::iter::repeat_n([50; 16], super::super::IN_CHUNK));
+        ids.push([1; 16]);
+        assert_eq!(db.reactions_for(&ids).unwrap()[&[1; 16]].len(), 1);
+        assert_eq!(db.msg_attachments_for(&ids).unwrap()[&[1; 16]], atts);
     }
 
     #[test]

@@ -116,6 +116,40 @@ pub fn now_ms() -> u64 {
 /// Rich presence announced by a friend: wire status (0-2) + custom text.
 type RichPresence = (u8, Option<String>);
 
+/// Annotations d'un lot de messages, chargées en une passe pour le rendu
+/// d'historique ([`Node::annotations_of`]). Un message absent d'une carte n'a
+/// simplement pas d'annotation de ce type.
+#[derive(Debug, Default)]
+pub struct MsgAnnotations {
+    /// Réactions par message, ordre `emoji` (identique à [`Node::reactions_of`]).
+    pub reactions: HashMap<[u8; 16], Vec<(String, [u8; 32])>>,
+    /// Pièces jointes par message, ordre `position` (identique à
+    /// [`Node::attachments_of`]).
+    pub attachments: HashMap<[u8; 16], Vec<accord_proto::core_msg::FileRef>>,
+    /// Messages portant une mention de l'utilisateur local.
+    pub mentions: HashSet<[u8; 16]>,
+}
+
+impl MsgAnnotations {
+    /// Réactions d'un message (vide si aucune).
+    pub fn reactions_of(&self, msg_id: &[u8; 16]) -> &[(String, [u8; 32])] {
+        self.reactions.get(msg_id).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Pièces jointes d'un message (vide si aucune).
+    pub fn attachments_of(&self, msg_id: &[u8; 16]) -> &[accord_proto::core_msg::FileRef] {
+        self.attachments
+            .get(msg_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Vrai si le message mentionne l'utilisateur local.
+    pub fn mentions_me(&self, msg_id: &[u8; 16]) -> bool {
+        self.mentions.contains(msg_id)
+    }
+}
+
 /// Décide si un [`CoreMsg::SoundboardPlay`] entrant est diffusable à l'UI :
 /// l'émetteur est membre du groupe, `channel_id` désigne un salon **vocal**
 /// existant, et `sound` correspond à la racine Merkle d'un son de serveur
@@ -1008,6 +1042,21 @@ impl Node {
     /// Réactions stockées pour un message (DM ou groupe) : `(emoji, auteur)`.
     pub fn reactions_of(&self, msg_id: &[u8; 16]) -> Result<Vec<(String, [u8; 32])>, NodeError> {
         self.with_db(|db| Ok(db.reactions(msg_id)?))
+    }
+
+    /// Annotations d'un LOT de messages (réactions, pièces jointes, mentions)
+    /// en trois requêtes et une seule prise du verrou base, au lieu de trois
+    /// requêtes PAR message : le rendu d'une page d'historique ne dépend plus
+    /// de `limit`. Contenu identique aux accès unitaires ([`Self::reactions_of`],
+    /// [`Self::attachments_of`], [`Self::msg_mentions_me`]).
+    pub fn annotations_of(&self, msg_ids: &[[u8; 16]]) -> Result<MsgAnnotations, NodeError> {
+        self.with_db(|db| {
+            Ok(MsgAnnotations {
+                reactions: db.reactions_for(msg_ids)?,
+                attachments: db.msg_attachments_for(msg_ids)?,
+                mentions: db.mentions_recorded_for(msg_ids)?,
+            })
+        })
     }
 
     // ---- Points d'accès des boucles de maintenance (D-024) ----

@@ -15,22 +15,26 @@ use super::helpers::{
 };
 
 /// Sérialise une tranche d'historique direct en annotant chaque message de son
-/// épingle et de son état de livraison (calculés une fois par appel).
+/// épingle et de son état de livraison (calculés une fois par appel). Les
+/// réactions, pièces jointes et mentions sont chargées en un LOT (trois
+/// requêtes par page, au lieu de trois par message).
 fn dm_messages_json(
     node: &Node,
     msgs: &[DmRecord],
     pinned: &BTreeSet<[u8; 16]>,
     outbox: &HashMap<[u8; 16], (u32, bool)>,
 ) -> Result<Vec<Value>, NodeError> {
+    let ids: Vec<[u8; 16]> = msgs.iter().map(|m| m.msg_id).collect();
+    let annotations = node.annotations_of(&ids)?;
     msgs.iter()
         .map(|m| {
             Ok(dm_json(
                 m,
-                &node.reactions_of(&m.msg_id)?,
-                &node.attachments_of(&m.msg_id)?,
+                annotations.reactions_of(&m.msg_id),
+                annotations.attachments_of(&m.msg_id),
                 pinned.contains(&m.msg_id),
                 node.dm_delivery(m, outbox),
-                node.msg_mentions_me(&m.msg_id)?,
+                annotations.mentions_me(&m.msg_id),
             ))
         })
         .collect()

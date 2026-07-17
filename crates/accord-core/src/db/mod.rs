@@ -36,6 +36,25 @@ pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
         .map_err(|_| CoreError::Invalid("taille de blob"))
 }
 
+/// Taille de tranche des requêtes `IN (…)` par lot : sous la limite SQLite de
+/// variables liées (999 par défaut), et bornée pour que `prepare_cached` ne
+/// garde qu'un petit nombre de formes de requête distinctes.
+pub(crate) const IN_CHUNK: usize = 256;
+
+/// Liste de `n` marqueurs `?` pour une clause `IN (…)` construite par lot.
+/// Aucune donnée n'est interpolée : uniquement des marqueurs, les valeurs
+/// restent liées par paramètres.
+pub(crate) fn sql_placeholders(n: usize) -> String {
+    let mut s = String::with_capacity(n * 2);
+    for i in 0..n {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push('?');
+    }
+    s
+}
+
 /// Encode une clé binaire en littéral hexadécimal SQLCipher `x'…'`.
 fn hex_key(key: &[u8; 32]) -> String {
     let mut s = String::with_capacity(64);
