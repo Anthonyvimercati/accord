@@ -2,6 +2,53 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.6.0] — 2026-07-17
+
+### Added
+
+- **Shareable friend link + QR code**: copy `accord://friend/<code>` or show
+  a scannable QR from "My friend code"; the add-friend field accepts pasted
+  links. First contact is now one click instead of dictating a code.
+- **Full encrypted backup**: export the active profile (sealed vault,
+  SQLCipher database, files) as a single `.accordbackup` archive from
+  Settings → Account, and import it as a new account from the account
+  picker. Losing a disk no longer means losing your history.
+- **Personalization, third wave**: live real-card preview in Settings
+  (layer-for-layer identical to the actual profile card), 6 new animated
+  avatar decorations, 6 new profile effects and 4 new frames — all
+  compositor-only and reduced-motion aware.
+- Explicit P2P delivery states in DMs: a pending message to an offline
+  friend now says it was dropped in their encrypted mailbox (with the 7-day
+  window), plus a discreet banner at the top of the conversation.
+- Real image thumbnails: attachments render a downscaled preview (full
+  resolution only in the lightbox) and file caches are bounded (LRU) — a
+  photo-heavy channel no longer accumulates hundreds of MB of memory.
+
+### Fixed
+
+- **Delivery reliability overhaul.** The DHT republish loop is now actually
+  wired (records — friend codes, mailboxes — previously died with the first
+  nodes to go offline); identity records live 7 days instead of 1 hour, so
+  a friend code resolves even when its owner's laptop is closed; offline
+  mailboxes honor the promised 7-day window (was ~2 days, with a poll that
+  missed most of it) and are re-deposited daily; group messages now carry
+  application acks — a single lost UDP packet no longer leaves a permanent,
+  per-member hole in channel history.
+- Group takeover hardening: new groups derive their `group_id` from their
+  founding CREATE op — a concurrent rogue CREATE can no longer steal the
+  fold, even if it arrives first (THREAT-MODEL §6 closed for new groups).
+- A theme scene layer could paint over the sidebar (offset band); fixed
+  with `overflow: clip`.
+
+### Changed
+
+- Group state is now cached in memory (invalidated on each new op) instead
+  of re-folding the whole op-log from SQLite on every message — the
+  per-message cost no longer grows with server history.
+- CI: a GitHub validation workflow (fmt, clippy, full Rust + frontend suite,
+  cargo-deny/audit) now runs on every push and pull request and gates
+  releases; a nightly `cargo-fuzz` job fuzzes the wire decoders.
+
 ## [1.5.0] — 2026-07-16
 
 ### Added
