@@ -1,9 +1,13 @@
 /**
  * Lecture de fichiers du magasin (`files.read`) : rend une URL `data:`
- * affichable, avec cache module-scope hash → URL. Les URL `blob:`
- * (`URL.createObjectURL`) ne sont pas rendues par la WKWebView de l'app
- * packagée (Tauri/macOS) — images cassées malgré une CSP `img-src blob:`
- * correcte ; les URL `data:` s'affichent partout.
+ * affichable, avec cache LRU borné hash → URL (les URL `data:` pèsent
+ * jusqu'à ~8 Mio de base64 : sans borne, la mémoire croîtrait sans limite).
+ * Les URL `blob:` (`URL.createObjectURL`) ne sont pas rendues par la
+ * WKWebView de l'app packagée (Tauri/macOS) — images cassées malgré une CSP
+ * `img-src blob:` correcte ; les URL `data:` s'affichent partout.
+ *
+ * `lireMiniature` produit une version réduite (WebP) pour les vignettes du
+ * fil : la pleine résolution reste servie par `lireFichier` (Lightbox).
  *
  * Si le contenu n'est pas complet en local, le nœud rend `{ pending: true }`
  * et lance le téléchargement : on attend alors `event.file_progress` avec
@@ -26,8 +30,46 @@ export const FILE_WAIT_TIMEOUT_MS = 30_000;
 /** Backoffs des reprises automatiques après un abandon signalé par le nœud. */
 export const FILE_RETRY_BACKOFF_MS = [2_000, 5_000] as const;
 
+/** Capacité des caches d'URL : borne la mémoire retenue par les `data:`. */
+export const FILE_CACHE_MAX = 64;
+
+/**
+ * Cache LRU borné. Invariant : une `Map` itère en ordre d'insertion, donc
+ * ré-insérer une entrée à chaque accès la marque « plus récente » ; quand la
+ * capacité est dépassée, l'éviction retire la première clé de l'itération —
+ * la moins récemment utilisée.
+ */
+class CacheLru<V> {
+  private readonly entrees = new Map<string, V>();
+
+  constructor(private readonly capacite: number) {}
+
+  get(cle: string): V | undefined {
+    const valeur = this.entrees.get(cle);
+    if (valeur === undefined) return undefined;
+    // Ré-insertion : l'entrée redevient la plus récente de l'ordre d'itération.
+    this.entrees.delete(cle);
+    this.entrees.set(cle, valeur);
+    return valeur;
+  }
+
+  set(cle: string, valeur: V): void {
+    this.entrees.delete(cle);
+    this.entrees.set(cle, valeur);
+    if (this.entrees.size > this.capacite) {
+      // Éviction de la plus ancienne : première clé de l'ordre d'insertion.
+      const plusAncienne = this.entrees.keys().next().value;
+      if (plusAncienne !== undefined) this.entrees.delete(plusAncienne);
+    }
+  }
+
+  delete(cle: string): void {
+    this.entrees.delete(cle);
+  }
+}
+
 /** Cache module-scope : la promesse est partagée entre appels concurrents. */
-const cache = new Map<string, Promise<string>>();
+const cache = new CacheLru<Promise<string>>(FILE_CACHE_MAX);
 
 /** Octets base64 → URL `data:` affichable (compatible WKWebView). */
 function toDataUrl(dataB64: string, mime: string): string {
@@ -135,6 +177,76 @@ export function lireFichier(merkleRoot: string, hint?: string): Promise<string> 
   // Échec : on libère l'entrée pour qu'une prochaine lecture retente.
   promise.catch(() => cache.delete(merkleRoot));
   return promise;
+}
+
+/** Bord maximal (px) des miniatures affichées dans le fil de messages. */
+export const MINIATURE_MAX_PX = 512;
+
+/** Qualité WebP des miniatures (compromis taille mémoire / netteté). */
+const MINIATURE_QUALITE = 0.82;
+
+/** Cache LRU des miniatures, séparé du cache pleine taille. Clé : `maxPx:hash`. */
+const cacheMiniatures = new CacheLru<Promise<string>>(FILE_CACHE_MAX);
+
+/**
+ * Réduit une image (URL `data:`) à `maxPx` de bord au plus, ré-encodée en
+ * WebP. Best effort : si l'API Image/canvas est indisponible (jsdom des
+ * tests, `getContext('2d')` rend null) ou si le décodage échoue, rend l'URL
+ * source telle quelle — l'appelant reste fonctionnel, seule l'économie
+ * mémoire est perdue. La promesse rendue ne rejette jamais.
+ */
+function reduireImage(url: string, maxPx: number): Promise<string> {
+  if (typeof Image === 'undefined' || typeof document === 'undefined') {
+    return Promise.resolve(url);
+  }
+  const canvas = document.createElement('canvas');
+  const contexte = canvas.getContext('2d');
+  if (contexte === null) return Promise.resolve(url);
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const bord = Math.max(image.naturalWidth, image.naturalHeight);
+      if (bord <= maxPx) {
+        // Déjà assez petite (ou dimensions inconnues) : rien à réduire.
+        resolve(url);
+        return;
+      }
+      try {
+        const facteur = maxPx / bord;
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * facteur));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * facteur));
+        contexte.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/webp', MINIATURE_QUALITE));
+      } catch {
+        // Encodage impossible : on retombe sur la pleine taille.
+        resolve(url);
+      }
+    };
+    // Décodage impossible : pleine taille (l'<img> aval signalera l'erreur).
+    image.onerror = () => resolve(url);
+    image.src = url;
+  });
+}
+
+/**
+ * Lit une image et rend une URL `data:` miniature (bord ≤ `maxPx`, WebP)
+ * pour l'affichage en vignette. La lecture source passe par `lireFichier`
+ * (téléchargement, attente, cache pleine taille partagés) ; la Lightbox
+ * garde `lireFichier` pour la pleine résolution.
+ */
+export function lireMiniature(
+  merkleRoot: string,
+  hint?: string,
+  maxPx: number = MINIATURE_MAX_PX,
+): Promise<string> {
+  const cle = `${maxPx}:${merkleRoot}`;
+  const cachee = cacheMiniatures.get(cle);
+  if (cachee !== undefined) return cachee;
+  const promesse = lireFichier(merkleRoot, hint).then((url) => reduireImage(url, maxPx));
+  cacheMiniatures.set(cle, promesse);
+  // Échec (lecture source) : on libère l'entrée pour qu'une lecture retente.
+  promesse.catch(() => cacheMiniatures.delete(cle));
+  return promesse;
 }
 
 /** Métadonnées et progression locales d'un fichier (`files.status`). */
