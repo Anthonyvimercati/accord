@@ -12,6 +12,7 @@ import {
   PENDING_NAVIGATION_TTL_MS,
   rememberNotifiedConversation,
   takePendingConversation,
+  unreadBadgeTotal,
   type ConversationRef,
   type NotifyPrefs,
   type SoundEligibilityOptions,
@@ -287,5 +288,19 @@ describe('notification click navigation (pending registry)', () => {
     clearPendingConversation();
 
     expect(takePendingConversation(1_500)).toBeNull();
+  });
+});
+
+describe('unreadBadgeTotal', () => {
+  it('additionne les MP non lus et les mentions de serveur', () => {
+    expect(unreadBadgeTotal(3, { g1: 2, g2: 1 })).toBe(6);
+  });
+
+  it('vaut zéro sans MP non lu ni mention (pastille effacée)', () => {
+    expect(unreadBadgeTotal(0, {})).toBe(0);
+  });
+
+  it('compte les MP non lus seuls quand aucun serveur ne mentionne', () => {
+    expect(unreadBadgeTotal(5, { g1: 0, g2: 0 })).toBe(5);
   });
 });

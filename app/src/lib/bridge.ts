@@ -46,6 +46,23 @@ export function isTauri(): boolean {
   return '__TAURI_INTERNALS__' in window;
 }
 
+/**
+ * Reflète le total de notifications en attente sur l'icône du dock (macOS) /
+ * de la barre des tâches. `0` (ou moins) efface la pastille. Best effort :
+ * sans effet hors Tauri ou si la plateforme ne gère pas la pastille.
+ */
+export function setAppBadge(count: number): void {
+  if (!isTauri()) return;
+  void (async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined);
+    } catch {
+      // Best effort : indisponible hors Tauri ou non pris en charge.
+    }
+  })();
+}
+
 const DEV_SESSION_KEY = 'accord.dev.session';
 
 function devSession(): SessionInfo | null {

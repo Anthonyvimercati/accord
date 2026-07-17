@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { dictionaries, interpolate } from '../i18n';
 import type { AccordEvent, CallEndedReason } from '../lib/api';
 import { callEndedToast } from '../lib/callToast';
+import { setAppBadge } from '../lib/bridge';
 import { rpc } from '../lib/client';
 import { eventStartedToast } from '../lib/eventToast';
 import {
@@ -12,6 +13,7 @@ import {
   rememberNotifiedConversation,
   sendNativeNotification,
   takePendingConversation,
+  unreadBadgeTotal,
   type ConversationRef,
 } from '../lib/notifications';
 import { playNotificationSound } from '../lib/notificationSound';
@@ -20,7 +22,7 @@ import { cycleChannel, cycleDm, visibleNavigableChannels } from '../lib/quickSwi
 import { useCalls } from '../stores/calls';
 import { isEditableTarget } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
-import { useFriends, displayNameOf } from '../stores/friends';
+import { useFriends, displayNameOf, totalDmUnread } from '../stores/friends';
 import { useGroups, channelKey } from '../stores/groups';
 import { isConversationSilenced } from '../stores/mute';
 import { useSession } from '../stores/session';
@@ -487,6 +489,19 @@ function useStartupPresence(): void {
   }, [phase, startupPresence]);
 }
 
+/**
+ * Pastille du dock / de la barre des tâches : reflète le total de messages
+ * privés non lus et de mentions de serveur. Recalculée à chaque changement des
+ * compteurs (contacts, mentions de groupe) et poussée à l'OS via l'hôte Tauri.
+ */
+function useUnreadBadge(): void {
+  const contacts = useFriends((s) => s.contacts);
+  const mentions = useGroups((s) => s.mentions);
+  useEffect(() => {
+    setAppBadge(unreadBadgeTotal(totalDmUnread(contacts), mentions));
+  }, [contacts, mentions]);
+}
+
 export function AppShell() {
   const t = useT();
   const view = useUi((s) => s.view);
@@ -501,6 +516,7 @@ export function AppShell() {
   useNotificationNavigation();
   useSuppressNativeContextMenu();
   useStartupPresence();
+  useUnreadBadge();
   useGlobalShortcuts();
 
   // Appui-pour-parler global : actif dès qu'un salon vocal est rejoint.

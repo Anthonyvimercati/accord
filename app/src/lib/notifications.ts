@@ -205,3 +205,16 @@ export function takePendingConversation(now = Date.now()): ConversationRef | nul
 export function clearPendingConversation(): void {
   pendingConversation = null;
 }
+
+/**
+ * Total pour la pastille du dock (macOS) / de la barre des tâches : messages
+ * privés non lus (toujours « pour soi ») plus mentions de serveur (les salons
+ * ne badgent que sur mention, comme la sourdine par défaut). Pur : testable
+ * sans la fenêtre Tauri.
+ */
+export function unreadBadgeTotal(
+  dmUnread: number,
+  groupMentions: Readonly<Record<string, number>>,
+): number {
+  return Object.values(groupMentions).reduce((sum, n) => sum + n, dmUnread);
+}
