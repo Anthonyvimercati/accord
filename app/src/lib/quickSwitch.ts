@@ -67,8 +67,27 @@ export interface ServerSwitchItem {
   groupId: string;
 }
 
+/**
+ * Commande d'action (paramètres, statut de présence, création de serveur…) :
+ * pas une destination de navigation. `run` est fourni par la vue
+ * (`QuickSwitcher`) pour garder cette logique pure sans accès aux stores.
+ */
+export interface CommandSwitchItem {
+  id: string;
+  kind: 'command';
+  label: string;
+  /** Sous-titre (catégorie de commande) affiché sous le libellé. */
+  subtitle: string;
+  /** Action exécutée à la sélection. */
+  run: () => void;
+}
+
 export type QuickSwitchItem =
-  FriendsSwitchItem | DmSwitchItem | ChannelSwitchItem | ServerSwitchItem;
+  | FriendsSwitchItem
+  | DmSwitchItem
+  | ChannelSwitchItem
+  | ServerSwitchItem
+  | CommandSwitchItem;
 
 /**
  * Construit l'ensemble des destinations proposées par le sélecteur : la vue

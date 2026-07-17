@@ -9,11 +9,13 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { OwnPresenceStatus } from '../lib/api';
 import { initials } from '../lib/format';
 import {
   buildQuickSwitchItems,
   buildRecentItems,
   rankQuickSwitchItems,
+  type CommandSwitchItem,
   type QuickSwitchItem,
 } from '../lib/quickSwitch';
 import { useFriends } from '../stores/friends';
@@ -43,6 +45,33 @@ function FriendsIcon() {
       <circle cx="9" cy="7" r="4" />
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+/** Icône « commande » (curseurs de réglage), pour les actions du sélecteur. */
+function CommandIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <line x1="4" x2="4" y1="21" y2="14" />
+      <line x1="4" x2="4" y1="10" y2="3" />
+      <line x1="12" x2="12" y1="21" y2="12" />
+      <line x1="12" x2="12" y1="8" y2="3" />
+      <line x1="20" x2="20" y1="21" y2="16" />
+      <line x1="20" x2="20" y1="12" y2="3" />
+      <line x1="2" x2="6" y1="14" y2="14" />
+      <line x1="10" x2="14" y1="8" y2="8" />
+      <line x1="18" x2="22" y1="16" y2="16" />
     </svg>
   );
 }
@@ -91,6 +120,13 @@ function ItemIcon({ item }: { item: QuickSwitchItem }) {
       </span>
     );
   }
+  if (item.kind === 'command') {
+    return (
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-input text-muted">
+        <CommandIcon />
+      </span>
+    );
+  }
   return (
     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-input text-faint">
       <ChannelIcon kind={item.channelKind} />
@@ -136,6 +172,9 @@ function ResultRow({
             {t.quickSwitch.serverHint}
           </span>
         )}
+        {item.kind === 'command' && (
+          <span className="block truncate text-xs text-faint">{item.subtitle}</span>
+        )}
         {item.kind === 'channel' && (
           <span className="flex items-center gap-1 truncate text-xs text-faint">
             <ServerInitialBadge name={item.subtitle} />
@@ -155,9 +194,11 @@ export function QuickSwitcher() {
   const open = useUi((s) => s.quickSwitcherOpen);
   const close = useUi((s) => s.closeQuickSwitcher);
   const setView = useUi((s) => s.setView);
+  const openModal = useUi((s) => s.openModal);
   const lastChannelByServer = useUi((s) => s.lastChannelByServer);
   const lastDmPeer = useUi((s) => s.lastDmPeer);
   const contacts = useFriends((s) => s.contacts);
+  const setOwnStatus = useFriends((s) => s.setOwnStatus);
   const groupIds = useGroups((s) => s.ids);
   const groupStates = useGroups((s) => s.states);
   const self = useSession((s) => s.self);
@@ -167,16 +208,57 @@ export function QuickSwitcher() {
   const inputRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
 
+  // Commandes d'action (paramètres, statut, création de serveur…) : proposées
+  // à la recherche seulement (jamais dans les récents), à côté des destinations.
+  const commandItems = useMemo<CommandSwitchItem[]>(() => {
+    const status = (kind: OwnPresenceStatus, label: string): CommandSwitchItem => ({
+      id: `command:status:${kind}`,
+      kind: 'command',
+      label,
+      subtitle: t.quickSwitch.commandStatus,
+      run: () => void setOwnStatus(kind).catch(() => undefined),
+    });
+    return [
+      {
+        id: 'command:settings',
+        kind: 'command',
+        label: t.quickSwitch.commandOpenSettings,
+        subtitle: t.quickSwitch.commandHint,
+        run: () => openModal({ kind: 'settings' }),
+      },
+      {
+        id: 'command:create-server',
+        kind: 'command',
+        label: t.quickSwitch.commandCreateServer,
+        subtitle: t.quickSwitch.commandHint,
+        run: () => openModal({ kind: 'createGroup' }),
+      },
+      {
+        id: 'command:add-friend',
+        kind: 'command',
+        label: t.quickSwitch.commandAddFriend,
+        subtitle: t.quickSwitch.commandHint,
+        run: () => setView({ kind: 'friends' }),
+      },
+      status('online', t.quickSwitch.commandStatusOnline),
+      status('idle', t.quickSwitch.commandStatusIdle),
+      status('dnd', t.quickSwitch.commandStatusDnd),
+      status('invisible', t.quickSwitch.commandStatusInvisible),
+    ];
+  }, [t, openModal, setView, setOwnStatus]);
+
   const items = useMemo(
-    () =>
-      buildQuickSwitchItems({
+    () => [
+      ...buildQuickSwitchItems({
         friendsLabel: t.friends.title,
         contacts,
         groupIds,
         groupStates,
         selfPubkey: self?.pubkey ?? null,
       }),
-    [t, contacts, groupIds, groupStates, self],
+      ...commandItems,
+    ],
+    [t, contacts, groupIds, groupStates, self, commandItems],
   );
 
   const trimmed = query.trim();
@@ -213,6 +295,11 @@ export function QuickSwitcher() {
   if (!open) return null;
 
   const select = (item: QuickSwitchItem): void => {
+    if (item.kind === 'command') {
+      item.run();
+      close();
+      return;
+    }
     if (
       item.kind === 'server' ||
       (item.kind === 'channel' && item.channelKind === 'voice')

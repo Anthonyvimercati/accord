@@ -4,7 +4,7 @@
  * destinations à requête vide et non-jonction d'un salon vocal sélectionné.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
 import { useFriends } from '../stores/friends';
@@ -215,6 +215,30 @@ describe('QuickSwitcher', () => {
       groupId: 'g1',
       channelId: 'c1',
     });
+    expect(useUi.getState().quickSwitcherOpen).toBe(false);
+  });
+
+  it('propose une commande à la recherche et l’exécute (ouvrir les paramètres)', () => {
+    useUi.setState({ quickSwitcherOpen: true, modal: null, lang: 'fr' });
+    render(<QuickSwitcher />);
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'paramètres' } });
+    fireEvent.click(screen.getByText('Ouvrir les paramètres'));
+
+    expect(useUi.getState().modal).toEqual({ kind: 'settings' });
+    expect(useUi.getState().quickSwitcherOpen).toBe(false);
+  });
+
+  it('exécute une commande de statut de présence puis referme', () => {
+    const setOwnStatus = vi.fn(async () => {});
+    useFriends.setState({ setOwnStatus });
+    useUi.setState({ quickSwitcherOpen: true, lang: 'fr' });
+    render(<QuickSwitcher />);
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'invisible' } });
+    fireEvent.click(screen.getByText('Se mettre invisible'));
+
+    expect(setOwnStatus).toHaveBeenCalledWith('invisible');
     expect(useUi.getState().quickSwitcherOpen).toBe(false);
   });
 
