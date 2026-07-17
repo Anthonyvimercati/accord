@@ -225,7 +225,12 @@ impl VoiceRoom {
         }
         let mut pcm = match playout {
             Playout::Frame(pkt) => peer.decoder.decode(Some(&pkt))?,
-            Playout::Conceal => peer.decoder.decode(None)?,
+            // Trou : si le paquet suivant est déjà en tampon, sa FEC in-band
+            // reconstruit la trame perdue ; sinon dissimulation (PLC).
+            Playout::Conceal => match peer.jitter.peek_next() {
+                Some(next) => peer.decoder.decode_fec(next)?,
+                None => peer.decoder.decode(None)?,
+            },
             Playout::Starved => return Ok(None),
         };
         gain::apply_gain(&mut pcm, peer.gain * master_gain * peer.duck);
@@ -367,6 +372,53 @@ mod tests {
             r.add_participant([200u8; 32]),
             Err(RoomError::Full)
         ));
+    }
+
+    /// Codec traçant la voie de décodage : PLC rend du silence, la
+    /// reconstruction FEC rend une trame marqueur (tous les échantillons à 7).
+    struct FecProbeCodec;
+
+    impl AudioCodec for FecProbeCodec {
+        fn encode(&mut self, pcm: &[i16]) -> Result<Vec<u8>, CodecError> {
+            PassthroughCodec.encode(pcm)
+        }
+
+        fn decode(&mut self, packet: Option<&[u8]>) -> Result<Vec<i16>, CodecError> {
+            PassthroughCodec.decode(packet)
+        }
+
+        fn decode_fec(&mut self, _next_packet: &[u8]) -> Result<Vec<i16>, CodecError> {
+            Ok(vec![7i16; FRAME_SAMPLES])
+        }
+    }
+
+    #[test]
+    fn un_trou_est_reconstruit_par_fec_quand_le_paquet_suivant_est_la() {
+        let mut r = VoiceRoom::new([7u8; 16], Box::new(|| Box::new(FecProbeCodec)));
+        let spk = [5u8; 32];
+        r.add_participant(spk).unwrap();
+        // Trames 0 et 2 reçues, la 1 perdue : après lecture de 0, le trou en
+        // 1 doit passer par la FEC (le paquet 2 est en tampon), puis 2 se
+        // joue normalement.
+        for seq in [0u16, 2] {
+            r.on_frame(
+                &spk,
+                VoiceMsg::AudioFrame {
+                    room: [7u8; 16],
+                    media_type: MEDIA_AUDIO_OPUS,
+                    seq,
+                    ts_ms: u32::from(seq) * 20,
+                    payload: PassthroughCodec.encode(&tone(15_000)).unwrap(),
+                },
+                u32::from(seq) * 20,
+            );
+        }
+        let f0 = r.play(&spk).unwrap().expect("trame 0");
+        assert_ne!(f0[0], 7, "trame 0 décodée normalement");
+        let trou = r.play(&spk).unwrap().expect("trou reconstruit");
+        assert_eq!(trou, vec![7i16; FRAME_SAMPLES], "voie FEC attendue");
+        let f2 = r.play(&spk).unwrap().expect("trame 2");
+        assert_ne!(f2[0], 7, "le paquet suivant reste joué normalement");
     }
 
     /// Codec that panics on decode: proves deafened playback never decodes.

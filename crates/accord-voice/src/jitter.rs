@@ -110,6 +110,16 @@ impl JitterBuffer {
         }
     }
 
+    /// Paquet de la PROCHAINE séquence à jouer, s'il est déjà en tampon.
+    /// Après un [`Playout::Conceal`] sur la trame `n`, c'est le paquet `n+1` :
+    /// sa FEC in-band permet de reconstruire la trame perdue (le paquet reste
+    /// en tampon et sera joué normalement au tour suivant).
+    pub fn peek_next(&self) -> Option<&[u8]> {
+        self.frames
+            .get(&self.next_seq?)
+            .map(|payload| payload.as_slice())
+    }
+
     /// Met à jour la profondeur cible d'après le p95 des inter-arrivées.
     fn update_target(&mut self, now_ms: u32) {
         if let Some(last) = self.last_arrival_ms {
@@ -170,6 +180,20 @@ mod tests {
         // seq 1 manquant → dissimulation.
         assert_eq!(jb.pop(), Playout::Conceal);
         assert_eq!(jb.pop(), Playout::Frame(pkt(2)));
+    }
+
+    #[test]
+    fn peek_next_rend_le_successeur_du_trou_sans_le_consommer() {
+        let mut jb = JitterBuffer::new();
+        jb.push(0, pkt(0), 0);
+        jb.push(2, pkt(2), 20);
+        assert_eq!(jb.pop(), Playout::Frame(pkt(0)));
+        assert_eq!(jb.pop(), Playout::Conceal);
+        // Le paquet 2 (successeur du trou) est visible pour la FEC…
+        assert_eq!(jb.peek_next(), Some(pkt(2).as_slice()));
+        // …et reste en tampon : il est joué normalement ensuite.
+        assert_eq!(jb.pop(), Playout::Frame(pkt(2)));
+        assert_eq!(jb.peek_next(), None, "plus rien en tampon");
     }
 
     #[test]
