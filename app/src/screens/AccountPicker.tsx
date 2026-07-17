@@ -11,7 +11,9 @@
  * réutilisent `CreateForm`/`RestoreForm` (screens/Onboarding.tsx) telles
  * quelles, câblées sur `createAccount`/`restoreAccount` — jamais sur le
  * profil actif courant (contrat hôte : ces commandes créent toujours un
- * répertoire de profil dédié).
+ * répertoire de profil dédié). « Importer une sauvegarde » restaure une
+ * archive `.accordbackup` comme compte neuf (`backup_import`, même contrat)
+ * puis recharge la liste — le déverrouillage reste le chemin normal.
  *
  * Un échec de déverrouillage fait transiter la phase par `starting` avant
  * de revenir à `welcome` (même mécanique que `UnlockForm`) : ce composant
@@ -24,7 +26,7 @@
 import { useState } from 'react';
 import { Avatar } from '../components/Avatar';
 import { interpolate, type Dict, type Lang } from '../i18n';
-import type { AccountMeta } from '../lib/bridge';
+import { backupImport, type AccountMeta } from '../lib/bridge';
 import { formatTimestamp } from '../lib/format';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
@@ -124,13 +126,38 @@ type Mode = 'list' | 'create' | 'restore';
 
 export function AccountPicker() {
   const t = useT();
+  const toast = useUi((s) => s.toast);
   const accounts = useSession((s) => s.accounts);
   const unlockAccount = useSession((s) => s.unlockAccount);
   const createAccount = useSession((s) => s.createAccount);
   const restoreAccount = useSession((s) => s.restoreAccount);
+  const loadAccounts = useSession((s) => s.loadAccounts);
   const error = useSession((s) => s.error);
   const [mode, setMode] = useState<Mode>('list');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  /**
+   * Importe une archive `.accordbackup` comme compte NEUF (sélecteur natif,
+   * voir `bridge.backupImport`) puis recharge la liste : le compte apparaît
+   * dans le sélecteur et se déverrouille par la phrase de passe du profil
+   * sauvegardé. L'annulation du sélecteur ne change rien.
+   */
+  const importBackupArchive = async (): Promise<void> => {
+    setImporting(true);
+    try {
+      const compte = await backupImport();
+      if (compte !== null) {
+        toast('info', t.onboarding.importBackupDone);
+        await loadAccounts();
+      }
+    } catch (e) {
+      // Message hôte déjà lisible (ErreurHote sérialisée en français).
+      toast('error', e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
+  };
 
   if (mode === 'create') {
     return (
@@ -180,6 +207,14 @@ export function AccountPicker() {
         className="mt-3 w-full text-center text-sm text-link hover:underline"
       >
         {t.onboarding.importPhrase}
+      </button>
+      <button
+        type="button"
+        disabled={importing}
+        onClick={() => void importBackupArchive()}
+        className="mt-2 w-full text-center text-sm text-link hover:underline disabled:opacity-50"
+      >
+        {t.onboarding.importBackup}
       </button>
     </Card>
   );

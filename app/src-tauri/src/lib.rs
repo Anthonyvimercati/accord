@@ -72,6 +72,8 @@ pub fn executer() -> ExitCode {
             commandes::account_restore,
             commandes::account_unlock,
             commandes::session_close,
+            commandes::backup_export,
+            commandes::backup_import,
             commandes::ouvrir_reglages_systeme,
             commandes::micro_autorisation_etat,
             commandes::micro_autorisation_demander,

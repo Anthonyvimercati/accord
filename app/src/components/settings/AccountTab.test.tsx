@@ -8,12 +8,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { SelfProfile } from '../../lib/api';
+import { backupExport, backupImport } from '../../lib/bridge';
 import { useSession } from '../../stores/session';
 import { useUi } from '../../stores/ui';
 import { AccountTab } from './AccountTab';
 
 vi.mock('../../lib/files', () => ({
   lireFichier: vi.fn(() => new Promise(() => {})),
+}));
+
+// Sauvegarde : seuls export/import sont simulés (sélecteur natif + commande
+// hôte indisponibles sous vitest), le reste du pont reste intact pour les
+// autres imports du store de session.
+vi.mock('../../lib/bridge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/bridge')>()),
+  backupExport: vi.fn(async () => null),
+  backupImport: vi.fn(async () => null),
 }));
 
 /** Bouton Enregistrer de la section nommée (pseudo et bio partagent le libellé). */
@@ -227,6 +237,104 @@ describe('AccountTab — logout (danger zone)', () => {
 
     await waitFor(() => expect(lock).toHaveBeenCalledTimes(1));
     expect(useUi.getState().modal).toBeNull();
+  });
+});
+
+describe('AccountTab — sauvegarde', () => {
+  it('affiche les deux boutons et l’avertissement de verrouillage', () => {
+    // Arrange / Act
+    render(<AccountTab />);
+
+    // Assert : export, import et l'avertissement (l'export verrouille la
+    // session) sont visibles en permanence dans la section Sauvegarde.
+    const section = screen.getByRole('region', { name: 'Sauvegarde' });
+    expect(
+      within(section).getByRole('button', { name: 'Exporter une sauvegarde…' }),
+    ).toBeEnabled();
+    expect(
+      within(section).getByRole('button', { name: 'Importer une sauvegarde…' }),
+    ).toBeEnabled();
+    expect(within(section).getByText(/verrouille la session/)).toBeInTheDocument();
+  });
+
+  it('exporte puis verrouille : toast, modale fermée, lock() appelé', async () => {
+    // Arrange : l'hôte confirme l'export (coffre désormais verrouillé).
+    vi.mocked(backupExport).mockResolvedValueOnce('locked');
+    const lock = vi.fn(async () => {});
+    useSession.setState({ lock });
+    useUi.setState({ modal: { kind: 'settings' } });
+    render(<AccountTab />);
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter une sauvegarde…' }));
+
+    // Assert : toast de succès, modale fermée (l'écran de déverrouillage ne
+    // doit jamais rester sous une modale), état de session aligné via lock().
+    await waitFor(() => expect(lock).toHaveBeenCalledTimes(1));
+    expect(useUi.getState().modal).toBeNull();
+    expect(
+      useUi.getState().toasts.some((t) => t.kind === 'info' && /export/i.test(t.text)),
+    ).toBe(true);
+  });
+
+  it('ne verrouille rien quand le sélecteur d’export est annulé', async () => {
+    // Arrange : sélecteur natif annulé — le pont rend null sans invoquer l'hôte.
+    vi.mocked(backupExport).mockResolvedValueOnce(null);
+    const lock = vi.fn(async () => {});
+    useSession.setState({ lock });
+    render(<AccountTab />);
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter une sauvegarde…' }));
+
+    // Assert : aucun toast, aucun verrouillage, bouton de nouveau actif.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Exporter une sauvegarde…' }),
+      ).toBeEnabled(),
+    );
+    expect(lock).not.toHaveBeenCalled();
+    expect(useUi.getState().toasts).toHaveLength(0);
+  });
+
+  it('confirme l’import d’une archive par un toast (compte neuf)', async () => {
+    // Arrange : l'hôte rend les métadonnées du compte fraîchement importé.
+    vi.mocked(backupImport).mockResolvedValueOnce({
+      id: 'importe-1',
+      name: 'Compte importé',
+      created_ms: 3,
+      last_used_ms: 0,
+      is_legacy: false,
+      pubkey_short: null,
+    });
+    render(<AccountTab />);
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde…' }));
+
+    // Assert : le toast renvoie vers le sélecteur de comptes, la session
+    // active n'est pas touchée (aucune modale fermée, aucun verrouillage).
+    await waitFor(() => {
+      expect(
+        useUi
+          .getState()
+          .toasts.some((t) => t.kind === 'info' && /sélecteur de comptes/.test(t.text)),
+      ).toBe(true);
+    });
+  });
+
+  it('signale l’échec de l’export par un toast d’erreur', async () => {
+    // Arrange
+    vi.mocked(backupExport).mockRejectedValueOnce(new Error('disque plein'));
+    render(<AccountTab />);
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter une sauvegarde…' }));
+
+    // Assert
+    await waitFor(() => {
+      expect(useUi.getState().toasts.some((t) => t.kind === 'error')).toBe(true);
+    });
   });
 });
 

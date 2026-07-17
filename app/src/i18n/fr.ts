@@ -68,6 +68,9 @@ export const fr = {
     importPhrase: 'Importer depuis une phrase de récupération',
     unlockAccountLabel: 'Déverrouiller {name}',
     accountLastUsed: 'Utilisé {date}',
+    importBackup: 'Importer une sauvegarde',
+    importBackupDone:
+      'Sauvegarde importée : déverrouillez le compte avec sa phrase de passe.',
   },
   friends: {
     title: 'Amis',
@@ -899,6 +902,17 @@ export const fr = {
     systemPermsNetTitle: 'Connexions entrantes (pare-feu)',
     systemPermsNetHint:
       'Accord est pair-à-pair : vos amis se connectent DIRECTEMENT à votre machine. Si le pare-feu bloque les connexions entrantes — ou redemande à chaque lancement quand l’app n’est pas signée — autorisez Accord dans le panneau du pare-feu.',
+    // Sauvegarde chiffrée (export/import du profil complet).
+    backupTitle: 'Sauvegarde',
+    backupHint:
+      'Archive chiffrée du profil complet : identité, messages et fichiers. Votre phrase de passe actuelle reste indispensable pour l’ouvrir — conservez-la avec la sauvegarde.',
+    backupExport: 'Exporter une sauvegarde…',
+    backupExportWarning:
+      'L’export verrouille la session : le nœud s’arrête pour copier la base en toute sécurité, et votre phrase de passe sera nécessaire pour vous reconnecter.',
+    backupExportDone: 'Sauvegarde exportée. La session a été verrouillée.',
+    backupImport: 'Importer une sauvegarde…',
+    backupImportDone:
+      'Sauvegarde importée : le compte apparaît dans le sélecteur de comptes.',
     // Zone de danger (déconnexion).
     dangerZoneTitle: 'Zone de danger',
     logout: 'Se déconnecter',

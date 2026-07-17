@@ -69,6 +69,8 @@ export const en: Dict = {
     importPhrase: 'Import from a recovery phrase',
     unlockAccountLabel: 'Unlock {name}',
     accountLastUsed: 'Last used {date}',
+    importBackup: 'Import a backup',
+    importBackupDone: 'Backup imported: unlock the account with its passphrase.',
   },
   friends: {
     title: 'Friends',
@@ -887,6 +889,16 @@ export const en: Dict = {
     systemPermsNetTitle: 'Incoming connections (firewall)',
     systemPermsNetHint:
       'Accord is peer-to-peer: your friends connect DIRECTLY to your machine. If the firewall blocks incoming connections — or asks again at every launch when the app is unsigned — allow Accord in the firewall pane.',
+    // Encrypted backup (full profile export/import).
+    backupTitle: 'Backup',
+    backupHint:
+      'Encrypted archive of the whole profile: identity, messages and files. Your current passphrase is still required to open it — keep it alongside the backup.',
+    backupExport: 'Export a backup…',
+    backupExportWarning:
+      'Exporting locks the session: the node stops to copy the database safely, and your passphrase will be required to sign back in.',
+    backupExportDone: 'Backup exported. The session has been locked.',
+    backupImport: 'Import a backup…',
+    backupImportDone: 'Backup imported: the account appears in the account picker.',
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logout: 'Log out',
