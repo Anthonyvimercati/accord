@@ -1573,8 +1573,14 @@ impl Runtime {
                 // Ce pair connaît la racine (il la demande) : seul destinataire
                 // légitime d'une future annonce `Have` de cette racine.
                 self.note_file_requester(root, static_pub);
-                let reply = match self.node.files_serve_manifest(&root) {
-                    Ok(Some(manifest)) => FileMsg::ManifestMsg { manifest },
+                // Lecture + déchiffrement du manifest = travail bloquant : hors
+                // du thread asynchrone (`spawn_blocking`) pour ne pas figer la
+                // boucle réseau, awaitée en ligne (voir `event_loop`).
+                let node = Arc::clone(&self.node);
+                let served =
+                    tokio::task::spawn_blocking(move || node.files_serve_manifest(&root)).await;
+                let reply = match served {
+                    Ok(Ok(Some(manifest))) => FileMsg::ManifestMsg { manifest },
                     _ => FileMsg::NotFound {
                         root,
                         index: fetch::INDEX_MANIFESTE,
@@ -1587,8 +1593,13 @@ impl Runtime {
                     return;
                 }
                 self.note_file_requester(root, static_pub);
-                let reply = match self.node.files_serve_block(&root, index) {
-                    Ok(Some(data)) => FileMsg::Block { root, index, data },
+                // Lecture disque + parité Reed-Solomon éventuelle = travail
+                // bloquant : déporté hors du thread asynchrone (voir ci-dessus).
+                let node = Arc::clone(&self.node);
+                let served =
+                    tokio::task::spawn_blocking(move || node.files_serve_block(&root, index)).await;
+                let reply = match served {
+                    Ok(Ok(Some(data))) => FileMsg::Block { root, index, data },
                     _ => FileMsg::NotFound { root, index },
                 };
                 self.send_file(&static_pub, reply).await;
