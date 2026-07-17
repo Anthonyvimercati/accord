@@ -1,9 +1,11 @@
 /**
- * Tests de lireFichier : lecture directe, cache module-scope, attente de
- * `event.file_progress` sur `{ pending: true }`, abandon sur silence, et
- * reprises automatiques (backoff) après un abandon signalé par le nœud
- * (`complete: false` sans avancée de `done`) — l'abonnement reste vivant à
- * travers les reprises (un `complete: true` tardif résout toujours).
+ * Tests de lireFichier : lecture directe, cache LRU borné (éviction du plus
+ * ancien, rafraîchissement à l'accès), attente de `event.file_progress` sur
+ * `{ pending: true }`, abandon sur silence, et reprises automatiques
+ * (backoff) après un abandon signalé par le nœud (`complete: false` sans
+ * avancée de `done`) — l'abonnement reste vivant à travers les reprises (un
+ * `complete: true` tardif résout toujours). Tests de lireMiniature : repli
+ * sur l'URL source quand le canvas est indisponible (jsdom) et cache dédié.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,7 +25,13 @@ vi.mock('./client', () => ({
 }));
 
 import { api } from './client';
-import { lireFichier, FILE_RETRY_BACKOFF_MS, FILE_WAIT_TIMEOUT_MS } from './files';
+import {
+  lireFichier,
+  lireMiniature,
+  FILE_CACHE_MAX,
+  FILE_RETRY_BACKOFF_MS,
+  FILE_WAIT_TIMEOUT_MS,
+} from './files';
 
 const readMock = api.filesRead as unknown as Mock;
 
@@ -151,5 +159,94 @@ describe('lireFichier', () => {
     await failure;
     // Bien plus vite que le délai d'inactivité complet : les reprises sont
     // bornées par les backoffs courts, pas par FILE_WAIT_TIMEOUT_MS.
+  });
+});
+
+describe('cache LRU de lireFichier', () => {
+  it('évince le plus ancien au-delà de la capacité : le 65e évince le 1er', async () => {
+    readMock.mockResolvedValue(COMPLETE);
+
+    // Remplit le cache à sa capacité exacte : 64 hachages distincts.
+    for (let i = 0; i < FILE_CACHE_MAX; i += 1) {
+      await lireFichier(`hash-lru-${i}`);
+    }
+    expect(readMock).toHaveBeenCalledTimes(FILE_CACHE_MAX);
+
+    // La 65e entrée dépasse la capacité : le 1er (hash-lru-0) est évincé…
+    await lireFichier(`hash-lru-${FILE_CACHE_MAX}`);
+    // …mais le 2e, encore en cache, est servi sans nouvelle lecture.
+    await lireFichier('hash-lru-1');
+    expect(readMock).toHaveBeenCalledTimes(FILE_CACHE_MAX + 1);
+
+    // Relire le 1er déclenche une vraie lecture : il n'est plus en cache.
+    await lireFichier('hash-lru-0');
+    expect(readMock).toHaveBeenCalledTimes(FILE_CACHE_MAX + 2);
+  });
+
+  it('rafraîchit une entrée à l’accès : la relecture la protège de l’éviction', async () => {
+    readMock.mockResolvedValue(COMPLETE);
+
+    for (let i = 0; i < FILE_CACHE_MAX; i += 1) {
+      await lireFichier(`hash-mru-${i}`);
+    }
+    // Accès au plus ancien : il redevient le plus récent (ré-insertion)…
+    await lireFichier('hash-mru-0');
+    expect(readMock).toHaveBeenCalledTimes(FILE_CACHE_MAX);
+
+    // …donc l'entrée suivante évince hash-mru-1, pas hash-mru-0.
+    await lireFichier(`hash-mru-${FILE_CACHE_MAX}`);
+    await lireFichier('hash-mru-0');
+    expect(readMock).toHaveBeenCalledTimes(FILE_CACHE_MAX + 1);
+    await lireFichier('hash-mru-1');
+    expect(readMock).toHaveBeenCalledTimes(FILE_CACHE_MAX + 2);
+  });
+});
+
+describe('lireMiniature', () => {
+  /** Neutralise le canvas comme le fait jsdom nu : pas de contexte 2d. */
+  function sansCanvas(): () => void {
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    return () => spy.mockRestore();
+  }
+
+  it('retombe sur l’URL source pleine taille quand le canvas est indisponible (jsdom)', async () => {
+    const restaurer = sansCanvas();
+    try {
+      readMock.mockResolvedValueOnce(COMPLETE);
+
+      const url = await lireMiniature('hash-mini-jsdom');
+
+      expect(url).toBe(URL_ATTENDUE);
+    } finally {
+      restaurer();
+    }
+  });
+
+  it('sert la miniature depuis son cache : une seule lecture source', async () => {
+    const restaurer = sansCanvas();
+    try {
+      readMock.mockResolvedValueOnce(COMPLETE);
+
+      const premiere = await lireMiniature('hash-mini-cache');
+      const seconde = await lireMiniature('hash-mini-cache');
+
+      expect(seconde).toBe(premiere);
+      expect(readMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restaurer();
+    }
+  });
+
+  it('libère l’entrée après un échec de lecture pour permettre une reprise', async () => {
+    const restaurer = sansCanvas();
+    try {
+      readMock.mockRejectedValueOnce(new Error('refusé : trop volumineux'));
+      await expect(lireMiniature('hash-mini-echec')).rejects.toThrow();
+
+      readMock.mockResolvedValueOnce(COMPLETE);
+      await expect(lireMiniature('hash-mini-echec')).resolves.toBe(URL_ATTENDUE);
+    } finally {
+      restaurer();
+    }
   });
 });

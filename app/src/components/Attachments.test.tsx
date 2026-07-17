@@ -14,17 +14,25 @@ import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 import { MessageList, type DisplayMessage } from './MessageList';
 
-vi.mock('../lib/files', () => ({
-  FILE_WAIT_TIMEOUT_MS: 30_000,
-  lireFichier: vi.fn(),
-  statutFichier: vi.fn(async () => ({
-    known: false,
-    complete: false,
-    done: 0,
-    total: 0,
-  })),
-  observerProgression: vi.fn(() => () => {}),
-}));
+vi.mock('../lib/files', () => {
+  const lireFichier = vi.fn();
+  return {
+    FILE_WAIT_TIMEOUT_MS: 30_000,
+    lireFichier,
+    // La vignette passe par `lireMiniature` (réduction en prod, même source) :
+    // déléguer à `lireFichier` garde toutes les assertions sur un seul mock.
+    lireMiniature: vi.fn((merkleRoot: string, hint?: string) =>
+      lireFichier(merkleRoot, hint),
+    ),
+    statutFichier: vi.fn(async () => ({
+      known: false,
+      complete: false,
+      done: 0,
+      total: 0,
+    })),
+    observerProgression: vi.fn(() => () => {}),
+  };
+});
 
 // Sélecteur natif Tauri : `open`/`save` interceptés (import statique et
 // dynamique résolvent le même mock). Le chemin gros fichier n'est emprunté
@@ -72,6 +80,10 @@ beforeEach(() => {
   useUi.getState().setShowMediaPreviews(true);
   useSession.setState({ self: null });
   lireMock.mockReset();
+  // Par défaut, lecture jamais résolue : les tests posent des valeurs `Once`,
+  // et l'appel pleine résolution du plein écran reste en vol (la Lightbox
+  // affiche alors la miniature, comportement attendu).
+  lireMock.mockImplementation(() => new Promise<never>(() => {}));
   statutMock.mockClear();
   observerMock.mockClear();
 });

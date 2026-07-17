@@ -1,8 +1,9 @@
 /**
  * Pièces jointes d'un message : lecteur dédié pour les messages vocaux (mime
  * `audio/*`, toujours rendu ainsi — indépendant du réglage aperçu, voir
- * `VoiceMessagePlayer`), vignette inline pour les images (progression du
- * téléchargement via event.file_progress/files.status, clic = plein écran),
+ * `VoiceMessagePlayer`), vignette inline pour les images (miniature réduite
+ * via `lireMiniature`, progression du téléchargement via
+ * event.file_progress/files.status, clic = plein écran en pleine résolution),
  * carte de fichier téléchargeable sinon. Au-delà de 8 Mio (borne `files.read`),
  * l'aperçu/lecture inline se rabat sur la carte de fichier, mais le
  * téléchargement reste possible : le blob complet est copié via `files.save`
@@ -18,6 +19,7 @@ import { api } from '../lib/client';
 import {
   FILE_WAIT_TIMEOUT_MS,
   lireFichier,
+  lireMiniature,
   observerProgression,
   statutFichier,
 } from '../lib/files';
@@ -132,7 +134,12 @@ function Lightbox({
   );
 }
 
-/** Vignette d'image : progression pendant le téléchargement, puis aperçu. */
+/**
+ * Vignette d'image : progression pendant le téléchargement, puis aperçu.
+ * La vignette affiche une miniature réduite (`lireMiniature`) — inutile de
+ * décoder jusqu'à 8 Mio de base64 pour ~500 px ; la pleine résolution n'est
+ * lue (`lireFichier`, cache partagé) qu'à l'ouverture du plein écran.
+ */
 function VignetteImage({
   piece,
   hint,
@@ -142,6 +149,7 @@ function VignetteImage({
 }) {
   const t = useT();
   const [url, setUrl] = useState<string | null>(null);
+  const [urlPleine, setUrlPleine] = useState<string | null>(null);
   const [echec, setEchec] = useState(false);
   const [progression, setProgression] = useState<{ done: number; total: number } | null>(
     null,
@@ -151,6 +159,7 @@ function VignetteImage({
   useEffect(() => {
     let alive = true;
     setUrl(null);
+    setUrlPleine(null);
     setEchec(false);
     setProgression(null);
     const off = observerProgression(piece.merkle_root, (done, total) => {
@@ -166,9 +175,9 @@ function VignetteImage({
       .catch(() => {
         // Sans statut, la barre démarre à zéro.
       });
-    lireFichier(piece.merkle_root, hint)
-      .then((blobUrl) => {
-        if (alive) setUrl(blobUrl);
+    lireMiniature(piece.merkle_root, hint)
+      .then((miniatureUrl) => {
+        if (alive) setUrl(miniatureUrl);
       })
       .catch(() => {
         if (alive) setEchec(true);
@@ -178,6 +187,24 @@ function VignetteImage({
       off();
     };
   }, [piece.merkle_root, hint]);
+
+  // Pleine résolution seulement à l'ouverture du plein écran. En attendant la
+  // lecture (instantanée si le cache pleine taille est chaud), la Lightbox
+  // affiche la miniature, remplacée sans re-montage à l'arrivée.
+  useEffect(() => {
+    if (!pleinEcran || urlPleine !== null) return;
+    let alive = true;
+    lireFichier(piece.merkle_root, hint)
+      .then((pleine) => {
+        if (alive) setUrlPleine(pleine);
+      })
+      .catch(() => {
+        // La miniature reste affichée : l'aperçu demeure utilisable.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [pleinEcran, urlPleine, piece.merkle_root, hint]);
 
   if (echec) {
     return (
@@ -228,7 +255,11 @@ function VignetteImage({
         />
       </button>
       {pleinEcran && (
-        <Lightbox url={url} name={piece.name} onClose={() => setPleinEcran(false)} />
+        <Lightbox
+          url={urlPleine ?? url}
+          name={piece.name}
+          onClose={() => setPleinEcran(false)}
+        />
       )}
     </>
   );
