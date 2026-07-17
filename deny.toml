@@ -7,10 +7,18 @@
 # ajouter la licence manquante si une dépendance légitime est rejetée.
 
 [advisories]
-# Comportement v2 par défaut (cargo-deny >= 0.16) : vulnérabilité connue =
-# erreur, crate non maintenu / unsound / notice = avertissement. On garde les
-# défauts, simples et suffisants.
-yanked = "deny"
+# Vulnérabilités connues (RUSTSEC) et code `unsound` restent des ERREURS qui
+# bloquent la publication. En revanche :
+# - `unmaintained = "workspace"` : ne bloque QUE sur un crate non maintenu dont
+#   NOUS dépendons directement (actionnable). Les crates non maintenus tirés
+#   transitivement par Tauri/GTK/Opus (gtk-rs, audiopus_sys, unic-*, paste,
+#   instant, proc-macro-error…) sont hors de notre contrôle : signalés sans
+#   faire échouer la CI, sinon la release serait bloquée par des dépendances
+#   qu'on ne maîtrise pas.
+# - `yanked = "warn"` : un crate retiré rencontré en transitif (ex. spin) est
+#   signalé mais ne bloque pas une publication.
+unmaintained = "workspace"
+yanked = "warn"
 
 [licenses]
 # Seules les licences permissives (ou faiblement copyleft compatibles) sont
