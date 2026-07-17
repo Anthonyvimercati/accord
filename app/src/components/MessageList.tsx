@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
-import type { DeliveryState, GroupThread } from '../lib/api';
+import type { GroupThread } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatDay, formatTimestamp, formatTimestampCompact } from '../lib/format';
 import { extractInviteLink } from '../lib/invite';
@@ -11,6 +11,7 @@ import {
   avatarDecorationOf,
   avatarOf,
   displayNameOf,
+  presenceOf,
 } from '../stores/friends';
 import {
   hasPerm,
@@ -31,6 +32,7 @@ import { MessageActions } from './MessageActions';
 import { MessageEditor } from './MessageEditor';
 import { buildMessageItems, buildUserItems, type MessageMenuDeps } from './messageMenus';
 import {
+  deliveryOf,
   displayText,
   firstUnreadIndex,
   messageLink,
@@ -66,12 +68,6 @@ function messageScrollBehavior(): ScrollBehavior {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
     ? 'auto'
     : 'smooth';
-}
-
-/** État de livraison effectif : le champ explicite prime, l'ack le complète. */
-function deliveryOf(message: DisplayMessage): DeliveryState {
-  if (message.delivery !== undefined) return message.delivery;
-  return message.acked === false ? 'pending' : 'sent';
 }
 
 function sameDay(a: number, b: number): boolean {
@@ -200,6 +196,12 @@ export function MessageList({
   };
   // Accusés de lecture : uniquement en conversation directe (jamais en salon).
   const dmPeer = groupId === null && view.kind === 'dm' ? view.peer : null;
+  // Présence du pair (MP seulement) : un message local encore `pending` alors
+  // que le pair est hors ligne est en réalité déposé dans sa boîte chiffrée —
+  // « envoi… » serait mensonger, on affiche `dm.mailboxPending` à la place.
+  const peerOffline =
+    dmPeer !== null &&
+    presenceOf(contacts.find((c) => c.pubkey === dmPeer)) === 'offline';
   const peerReadLamport = useDms((s) =>
     dmPeer === null ? undefined : s.peerRead[dmPeer],
   );
@@ -654,7 +656,7 @@ export function MessageList({
                         )}
                         {isOwn && delivery === 'pending' && (
                           <span className="text-xs italic text-faint">
-                            {t.dm.pending}
+                            {peerOffline ? t.dm.mailboxPending : t.dm.pending}
                           </span>
                         )}
                       </div>

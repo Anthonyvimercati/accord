@@ -114,6 +114,10 @@ export const fr = {
     unsupported: 'Message non pris en charge',
     edited: '(modifié)',
     pending: 'envoi…',
+    mailboxPending:
+      'Déposé dans sa boîte chiffrée — livré à son retour (expire sous 7 j)',
+    mailboxBanner:
+      '{name} est hors ligne — vos messages l’attendent dans sa boîte chiffrée (7 j max).',
     addReaction: 'Ajouter une réaction',
     reactWith: 'Réagir avec {emoji}',
     whoReacted: 'Ont réagi avec {emoji}',
