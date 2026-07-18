@@ -6,8 +6,8 @@
  * groupée avec les autres réglages de confort visuel.
  */
 
-import { useRef } from 'react';
-import type { CouleursPerso } from '../../lib/customTheme';
+import { useMemo, useRef } from 'react';
+import { deriverVariables, type CouleursPerso } from '../../lib/customTheme';
 import { useUi, useT, THEME_IDS, type Theme } from '../../stores/ui';
 import type { Dict } from '../../i18n';
 import { ThemeAtmosphere } from '../ThemeAtmosphere';
@@ -129,12 +129,18 @@ function ThemeCard({
   selected,
   onSelect,
   buttonRef,
+  previewVars,
+  previewBase,
 }: {
   id: Theme;
   label: string;
   selected: boolean;
   onSelect: () => void;
   buttonRef: (el: HTMLButtonElement | null) => void;
+  /** Variables inline de l'aperçu (tuile « Personnalisé » : couleurs choisies). */
+  previewVars?: Record<string, string> | undefined;
+  /** Base d'aperçu de la tuile « Personnalisé » (texte, verre). */
+  previewBase?: 'dark' | 'light' | undefined;
 }) {
   return (
     <button
@@ -147,7 +153,8 @@ function ThemeCard({
       className="group w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-header focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
     >
       <span
-        data-theme={id}
+        data-theme={id === 'custom' ? previewBase : id}
+        style={previewVars as React.CSSProperties | undefined}
         aria-hidden
         className={`theme-preview relative flex h-20 w-full overflow-hidden rounded-lg border-2 transition-colors duration-150 ${
           selected ? 'border-blurple' : 'border-input group-hover:border-faint'
@@ -202,6 +209,8 @@ function ThemeGallery({
   t: Dict;
 }) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const customTheme = useUi((s) => s.customTheme);
+  const persoVars = useMemo(() => deriverVariables(customTheme), [customTheme]);
 
   const selectAt = (next: number): void => {
     const bounded = ((next % THEME_IDS.length) + THEME_IDS.length) % THEME_IDS.length;
@@ -239,6 +248,8 @@ function ThemeGallery({
           buttonRef={(el) => {
             buttonRefs.current[index] = el;
           }}
+          previewVars={id === 'custom' ? persoVars : undefined}
+          previewBase={id === 'custom' ? customTheme.base : undefined}
         />
       ))}
     </div>
