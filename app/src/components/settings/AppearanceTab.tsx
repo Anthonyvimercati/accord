@@ -322,9 +322,11 @@ export function AppearanceTab() {
   const theme = useUi((s) => s.theme);
   const customTheme = useUi((s) => s.customTheme);
   const density = useUi((s) => s.density);
+  const fontUi = useUi((s) => s.fontUi);
   const setTheme = useUi((s) => s.setTheme);
   const setCustomTheme = useUi((s) => s.setCustomTheme);
   const setDensity = useUi((s) => s.setDensity);
+  const setFontUi = useUi((s) => s.setFontUi);
 
   return (
     <div>
@@ -337,6 +339,20 @@ export function AppearanceTab() {
         hint={t.settings.customThemeHint}
       >
         <CustomThemeEditor couleurs={customTheme} onChange={setCustomTheme} t={t} />
+      </SettingsSection>
+
+      <SettingsSection title={t.settings.fontUiTitle} hint={t.settings.fontUiHint}>
+        <div className="flex flex-wrap gap-2">
+          <OptionPill selected={fontUi === 'system'} onSelect={() => setFontUi('system')}>
+            {t.settings.fontUiSystem}
+          </OptionPill>
+          <OptionPill selected={fontUi === 'rounded'} onSelect={() => setFontUi('rounded')}>
+            {t.settings.fontUiRounded}
+          </OptionPill>
+          <OptionPill selected={fontUi === 'serif'} onSelect={() => setFontUi('serif')}>
+            {t.settings.fontUiSerif}
+          </OptionPill>
+        </div>
       </SettingsSection>
 
       <SettingsSection title={t.settings.density} hint={t.settings.densityHint}>

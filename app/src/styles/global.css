@@ -367,6 +367,9 @@ html {
 
 body {
   @apply bg-chat font-sans text-norm antialiased;
+  /* Police d'interface au choix (Paramètres → Apparence) : repli sur la pile
+     système `font-sans` quand la préférence n'est pas posée. */
+  font-family: var(--font-ui, theme('fontFamily.sans'));
   text-rendering: optimizeLegibility;
   user-select: none;
 }

@@ -135,6 +135,19 @@ export type ReducedMotionPref = 'system' | 'on' | 'off';
 /** Taille des émojis personnalisés (`:nom:`) rendus dans le corps des messages. */
 export type EmojiSize = 'normal' | 'large';
 
+/** Familles de police d'interface proposées (toutes disponibles nativement,
+ * aucune n'est téléchargée — la CSP interdit les hôtes externes). */
+export const FONT_UI_CHOICES = ['system', 'rounded', 'serif'] as const;
+export type FontUi = (typeof FONT_UI_CHOICES)[number];
+
+/** Pile CSS `font-family` de chaque choix (générique système en repli). */
+export const FONT_UI_STACKS: Record<FontUi, string> = {
+  system:
+    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  rounded: 'ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif',
+  serif: 'ui-serif, Georgia, "Times New Roman", serif',
+};
+
 /** Filtrage du blip sonore par nature de message entrant. */
 export type NotifySoundMode = 'all' | 'mentionsOnly' | 'none';
 
@@ -180,6 +193,7 @@ const STORAGE_KEYS = {
   saturation: 'accord.a11y.saturation',
   showMediaPreviews: 'accord.media.showPreviews',
   emojiSize: 'accord.media.emojiSize',
+  fontUi: 'accord.appearance.fontUi',
   videoPreviewMaxMio: 'accord.media.videoPreviewMaxMio',
   notifySoundEnabled: 'accord.notify.soundEnabled',
   notifyNative: 'accord.notify.native',
@@ -386,6 +400,19 @@ function initialCustomTheme(): CouleursPerso {
   }
 }
 
+function applyFontUi(font: FontUi): void {
+  document.documentElement.style.setProperty('--font-ui', FONT_UI_STACKS[font]);
+}
+
+function isFontUi(value: string | null): value is FontUi {
+  return value !== null && (FONT_UI_CHOICES as readonly string[]).includes(value);
+}
+
+function initialFontUi(): FontUi {
+  const stored = readStored(STORAGE_KEYS.fontUi);
+  return isFontUi(stored) ? stored : 'system';
+}
+
 function applyDensity(density: Density): void {
   document.documentElement.dataset.density = density;
 }
@@ -486,6 +513,7 @@ interface UiState {
   showMediaPreviews: boolean;
   /** Taille par défaut des émojis personnalisés dans le corps des messages. */
   emojiSize: EmojiSize;
+  fontUi: FontUi;
   /** Taille maximale (Mio) d'une vidéo lisible dans le fil (D-055). */
   videoPreviewMaxMio: VideoPreviewMaxMio;
   /** Blip sonore de notification (message, mention, invitation). */
@@ -572,6 +600,7 @@ interface UiState {
   setSaturation: (percent: number) => void;
   setShowMediaPreviews: (enabled: boolean) => void;
   setEmojiSize: (size: EmojiSize) => void;
+  setFontUi: (font: FontUi) => void;
   setVideoPreviewMaxMio: (mio: VideoPreviewMaxMio) => void;
   setNotifySoundEnabled: (enabled: boolean) => void;
   setNotifyNative: (enabled: boolean) => void;
@@ -609,12 +638,14 @@ export const useUi = create<UiState>((set, get) => {
   const customTheme = initialCustomTheme();
   const density = initialDensity();
   const fontScale = initialFontScale();
+  const fontUi = initialFontUi();
   const reducedMotion = initialReducedMotion();
   const saturation = initialSaturation();
   const keepInTray = initialBool(STORAGE_KEYS.keepInTray, false);
   applyTheme(theme, customTheme);
   applyDensity(density);
   applyFontScale(fontScale);
+  applyFontUi(fontUi);
   applyReducedMotion(reducedMotion);
   applySaturation(saturation);
   // Barre des menus/systray : la tray est créée/détruite côté hôte
@@ -650,6 +681,7 @@ export const useUi = create<UiState>((set, get) => {
     saturation,
     showMediaPreviews: initialBool(STORAGE_KEYS.showMediaPreviews, true),
     emojiSize: initialEmojiSize(),
+    fontUi,
     videoPreviewMaxMio: initialVideoPreviewMax(),
     notifySoundEnabled: initialBool(STORAGE_KEYS.notifySoundEnabled, true),
     notifyNative: initialBool(STORAGE_KEYS.notifyNative, true),
@@ -782,6 +814,11 @@ export const useUi = create<UiState>((set, get) => {
     setEmojiSize: (size) => {
       writeStored(STORAGE_KEYS.emojiSize, size);
       set({ emojiSize: size });
+    },
+    setFontUi: (font) => {
+      applyFontUi(font);
+      writeStored(STORAGE_KEYS.fontUi, font);
+      set({ fontUi: font });
     },
     setVideoPreviewMaxMio: (mio) => {
       writeStored(STORAGE_KEYS.videoPreviewMaxMio, String(mio));

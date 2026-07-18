@@ -523,3 +523,14 @@ describe('useUi — sélecteur rapide', () => {
     expect(useUi.getState().quickSwitcherOpen).toBe(false);
   });
 });
+
+describe('useUi — police d’interface', () => {
+  it('applique et persiste chaque police, en variable CSS racine', () => {
+    for (const f of ['system', 'rounded', 'serif'] as const) {
+      useUi.getState().setFontUi(f);
+      expect(document.documentElement.style.getPropertyValue('--font-ui')).not.toBe('');
+      expect(window.localStorage.getItem('accord.appearance.fontUi')).toBe(f);
+      expect(useUi.getState().fontUi).toBe(f);
+    }
+  });
+});
