@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { FileAttachment } from '../lib/api';
-import { estAudio, estImage, MAX_TAILLE_PIECE } from '../lib/attachments';
+import { estAudio, estImage, estVideo, MAX_TAILLE_PIECE } from '../lib/attachments';
 import { isTauri } from '../lib/bridge';
 import { api } from '../lib/client';
 import {
@@ -26,6 +26,7 @@ import {
 import { tailleLisible } from '../lib/format';
 import { useUi, useT } from '../stores/ui';
 import { CloseIcon } from './ContextMenu';
+import { VideoPlayer } from './VideoPlayer';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 
 /** Durée de l'animation de fermeture de l'aperçu (aligne `--duration-fast`). */
@@ -505,7 +506,8 @@ export function AttachmentRow({
     <div className="mt-1 flex flex-col items-start gap-1.5">
       {pieces.map((piece, i) => {
         const tropGrandPourApercu =
-          (estImage(piece.mime) || estAudio(piece.mime)) && piece.size > MAX_TAILLE_PIECE;
+          (estImage(piece.mime) || estAudio(piece.mime) || estVideo(piece.mime)) &&
+          piece.size > MAX_TAILLE_PIECE;
         if (estAudio(piece.mime) && !tropGrandPourApercu) {
           return (
             <VoiceMessagePlayer
@@ -513,6 +515,11 @@ export function AttachmentRow({
               piece={piece}
               hint={hint}
             />
+          );
+        }
+        if (showPreviews && estVideo(piece.mime) && !tropGrandPourApercu) {
+          return (
+            <VideoPlayer key={`${piece.merkle_root}-${i}`} piece={piece} hint={hint} />
           );
         }
         return showPreviews && estImage(piece.mime) && !tropGrandPourApercu ? (

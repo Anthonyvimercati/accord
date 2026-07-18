@@ -979,6 +979,8 @@ export const en: Dict = {
     joindre: 'Attach files',
     retirerPiece: 'Remove {name}',
     publication: 'Publishing attachments…',
+    deposerTitre: 'Drop to send',
+    deposerHint: 'Images, videos, files — added to the message being written.',
     tropDeFichiers: 'At most 10 attachments per message',
     tropVolumineux:
       '“{name}” is too large to drop here — use the attach button (paperclip) to send large files',
@@ -987,6 +989,7 @@ export const en: Dict = {
     telechargementEchoue: 'Failed to download the file',
     enTelechargement: 'Downloading… {pct}%',
     imageIndisponible: 'Image unavailable',
+    videoIndisponible: 'Video unavailable',
     agrandir: 'Enlarge {name}',
     fermerApercu: 'Close preview',
   },

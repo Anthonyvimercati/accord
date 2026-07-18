@@ -28,6 +28,11 @@ export function estAudio(mime: string): boolean {
   return mime.startsWith('audio/');
 }
 
+/** Vrai si le type MIME désigne une vidéo (lecteur intégré, D-053). */
+export function estVideo(mime: string): boolean {
+  return mime.startsWith('video/');
+}
+
 /** Bilan d'un ajout de fichiers à un message en cours de composition. */
 export interface AjoutPieces<T> {
   /** Fichiers admis, dans la limite du nombre et de la taille. */

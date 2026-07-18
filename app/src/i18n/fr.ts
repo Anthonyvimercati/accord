@@ -995,6 +995,8 @@ export const fr = {
     joindre: 'Joindre des fichiers',
     retirerPiece: 'Retirer {name}',
     publication: 'Publication des pièces jointes…',
+    deposerTitre: 'Déposez pour envoyer',
+    deposerHint: 'Images, vidéos, fichiers — ajoutés au message en cours.',
     tropDeFichiers: '10 pièces jointes au maximum par message',
     tropVolumineux:
       '« {name} » est trop lourd pour le glisser-déposer — utilisez le bouton de pièce jointe (trombone) pour les gros fichiers',
@@ -1003,6 +1005,7 @@ export const fr = {
     telechargementEchoue: 'Téléchargement du fichier impossible',
     enTelechargement: 'Téléchargement… {pct} %',
     imageIndisponible: 'Image indisponible',
+    videoIndisponible: 'Vidéo indisponible',
     agrandir: 'Agrandir {name}',
     fermerApercu: 'Fermer l’aperçu',
   },

@@ -2,6 +2,23 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.3.1] — 2026-07-18
+
+### Added
+
+- **Drag and drop into the chat**: drop images, videos or any files anywhere
+  on the conversation — a "Drop to send" overlay appears, and the files are
+  attached to the message being written. In the desktop app, dropped files
+  go through the unbounded disk path (up to 2 GiB), like the attach button.
+  The previous composer-only drop zone silently did nothing in the packaged
+  app (the webview intercepts OS file drags) — now handled natively.
+- **Built-in video player**: video attachments (up to 8 MiB) play directly
+  in the thread — download progress, then a standard player, with a Retry
+  button if the sender is unreachable. Larger videos keep the downloadable
+  file card.
+- **Dedicated Updates tab**: the update section moved out of Settings →
+  System into its own Settings → Updates tab.
+
 ## [2.3.0] — 2026-07-18
 
 ### Fixed

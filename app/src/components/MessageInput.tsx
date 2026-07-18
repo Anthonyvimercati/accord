@@ -45,6 +45,7 @@ import { api } from '../lib/client';
 import { formatTimestamp, formatDuration, tailleLisible } from '../lib/format';
 import { applySlashCommand } from '../lib/slashCommands';
 import { VoiceRecorder, voiceFileName } from '../lib/voiceRecorder';
+import { useDeposeFichiers } from '../hooks/useDeposeFichiers';
 import { useTypingEmitter, type TypingTarget } from '../hooks/useTypingEmitter';
 import { useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
@@ -195,7 +196,6 @@ export function MessageInput({
   const [sending, setSending] = useState(false);
   const [pieces, setPieces] = useState<PieceEnvoi[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [survol, setSurvol] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   /**
    * Phase d'enregistrement vocal : `pending` dès le clic micro (rangée
@@ -404,29 +404,14 @@ export function MessageInput({
   };
 
   /**
-   * Bouton de pièce jointe : sélecteur natif Tauri (`open`), publication par
-   * chemin disque via `files.share` (jusqu'à 2 Gio, aucun plafond). Chaque
-   * fichier choisi devient une pièce `ready` déjà publiée. Hors Tauri
-   * (build navigateur), repli sur le champ `<input type=file>` masqué (chemin
-   * en mémoire, plafonné). L'aperçu image est chargé en best effort (les
-   * images > 8 Mio échouent la lecture média et restent sans vignette).
+   * Ajoute des fichiers PAR CHEMIN disque (sélecteur natif, glisser-déposer
+   * Tauri) : publication immédiate via `files.share` (jusqu'à 2 Gio, aucun
+   * plafond), chaque fichier devient une pièce `ready`. L'aperçu image est
+   * chargé en best effort (les images > 8 Mio échouent la lecture média et
+   * restent sans vignette).
    */
-  const choisirFichiers = async (): Promise<void> => {
-    if (sending) return;
-    if (!isTauri()) {
-      fileRef.current?.click();
-      return;
-    }
-    let chemins: string[] | null;
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const choix: string[] | null = await open({ multiple: true });
-      chemins = choix;
-    } catch {
-      setErreur(t.errors.actionFailed);
-      return;
-    }
-    if (chemins === null || chemins.length === 0) return;
+  const ajouterChemins = async (chemins: string[]): Promise<void> => {
+    if (chemins.length === 0 || sending) return;
     const dispo = MAX_PIECES - pieces.length;
     if (dispo <= 0) {
       setErreur(t.fichiers.tropDeFichiers);
@@ -459,6 +444,39 @@ export function MessageInput({
         });
     }
   };
+
+  /**
+   * Bouton de pièce jointe : sélecteur natif Tauri (`open`) puis publication
+   * par chemin ([`ajouterChemins`]). Hors Tauri (build navigateur), repli sur
+   * le champ `<input type=file>` masqué (chemin en mémoire, plafonné).
+   */
+  const choisirFichiers = async (): Promise<void> => {
+    if (sending) return;
+    if (!isTauri()) {
+      fileRef.current?.click();
+      return;
+    }
+    let chemins: string[] | null;
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const choix: string[] | null = await open({ multiple: true });
+      chemins = choix;
+    } catch {
+      setErreur(t.errors.actionFailed);
+      return;
+    }
+    if (chemins === null) return;
+    await ajouterChemins(chemins);
+  };
+
+  // Glisser-déposer sur toute la fenêtre (D-053) : chemins disque dans
+  // l'app Tauri (la webview intercepte les dépôts de l'OS), objets File en
+  // navigateur. Voile « Déposez pour envoyer » pendant le survol.
+  const { glisse } = useDeposeFichiers({
+    actif: !sending && !recording,
+    surFichiers: ajouter,
+    surChemins: (chemins) => void ajouterChemins(chemins),
+  });
 
   const retirer = (id: number): void => {
     setPieces((p) => p.filter((x) => x.id !== id));
@@ -709,6 +727,17 @@ export function MessageInput({
 
   return (
     <div className="accord-composer-zone px-4 pb-1">
+      {glisse && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        >
+          <div className="rounded-2xl border-2 border-dashed border-blurple bg-modal/90 px-8 py-6 text-center shadow-3">
+            <p className="text-lg font-semibold text-header">{t.fichiers.deposerTitre}</p>
+            <p className="mt-1 text-sm text-muted">{t.fichiers.deposerHint}</p>
+          </div>
+        </div>
+      )}
       {pieces.length > 0 && (
         <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto overscroll-contain rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-3 py-2.5">
           {pieces.map((piece) => {
@@ -784,18 +813,7 @@ export function MessageInput({
       <div
         className={`accord-composer relative flex items-end gap-0.5 rounded-xl border bg-input px-1.5 py-1 shadow-1 transition-colors duration-fast focus-within:border-blurple/50 ${
           pieces.length > 0 ? 'rounded-t-none' : ''
-        } ${survol ? 'border-blurple/50' : 'border-rail/60'}`}
-        onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes('Files')) return;
-          e.preventDefault();
-          setSurvol(true);
-        }}
-        onDragLeave={() => setSurvol(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setSurvol(false);
-          ajouter(Array.from(e.dataTransfer.files));
-        }}
+        } ${glisse ? 'border-blurple/50' : 'border-rail/60'}`}
       >
         {mentionOpen && !recording && (
           <MentionAutocomplete
