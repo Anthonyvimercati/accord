@@ -29,7 +29,7 @@ central server to host, read, or lose your conversations.
 - 🌐 **Serverless** — automatic NAT traversal (hole punching + relay
   fallback): friends connect without touching their router; offline friends
   receive messages through encrypted mailboxes (up to 7 days)
-- 👥 **Multi-account**, light/dark themes, English & French
+- 👥 **Multi-account**, 20 visual themes, English & French
 
 Accord protects the **content** of your exchanges, not your **anonymity**
 (peers see your IP, like most P2P software). Details and limits:
@@ -46,12 +46,12 @@ core has been through repeated internal adversarial security audits, but no
       <sub><b>Direct messages</b> — one-to-one, end-to-end encrypted</sub>
     </td>
     <td width="33%" valign="top">
-      <img src="docs/screenshots/profile.jpg" alt="Profile card with status menu and account switcher" /><br/>
-      <sub><b>Profile &amp; status</b> — custom status, multi-account</sub>
+      <img src="docs/screenshots/profile.jpg" alt="Profile card with animated frame, avatar decoration and visual effect" /><br/>
+      <sub><b>Profile personalization</b> — animated frames, effects and decorations</sub>
     </td>
     <td width="33%" valign="top">
-      <img src="docs/screenshots/themes.jpg" alt="Appearance settings with eight themes and message density" /><br/>
-      <sub><b>Appearance</b> — eight themes, light &amp; dark</sub>
+      <img src="docs/screenshots/themes.jpg" alt="Appearance settings with twenty visual themes and message density" /><br/>
+      <sub><b>Appearance</b> — 20 themes, light &amp; dark</sub>
     </td>
   </tr>
 </table>
