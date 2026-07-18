@@ -2,6 +2,14 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.3.4] — 2026-07-18
+
+### Fixed
+
+- Server banner no longer overflows the sidebar's rounded top corners: the
+  server header now matches the column radius (with the same responsive
+  breakpoints), and the banner image and its scrim inherit it.
+
 ## [2.3.3] — 2026-07-18
 
 ### Added
