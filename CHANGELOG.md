@@ -2,6 +2,20 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.1.1] — 2026-07-18
+
+### Fixed
+
+- **DM images displaying reliably again** (macOS packaged app): the thumbnail
+  pipeline introduced with image previews could fail silently in WKWebView
+  (WebP canvas encoding) and leave images stuck loading or "unavailable".
+  Thumbnails are now non-blocking with a systematic fallback to the proven
+  full-resolution path: an invalid thumbnail, a canvas decode that never
+  finishes (4 s timeout) or a render failure all fall back to the full-size
+  image before ever declaring it unavailable. End-to-end transfer covered by
+  two new Rust tests (full UI flow, and relayed transfer behind symmetric
+  NAT).
+
 ## [2.1.0] — 2026-07-18
 
 ### Changed
