@@ -592,23 +592,12 @@ export function ServerRail() {
         badge={dmBadge}
         onClick={openHome}
       >
-        <svg width="27" height="27" viewBox="0 0 24 24" aria-hidden>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h8A2.5 2.5 0 0 1 17 5.5v5a2.5 2.5 0 0 1-2.5 2.5H9l-3.6 2.7A.9.9 0 0 1 4 15V5.5Z" />
           <path
-            d="M2.5 13.7c2.6-6.2 5.7-6.2 8.5 0s6.1 6.2 8.5 0"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
+            opacity=".55"
+            d="M18.5 8H19a2.5 2.5 0 0 1 2.5 2.5v8.6a.9.9 0 0 1-1.4.7L16.5 17H11a2.5 2.5 0 0 1-2.4-1.8h5.9a4 4 0 0 0 4-4V8Z"
           />
-          <path
-            d="M2.5 10.3c2.6 6.2 5.7 6.2 8.5 0s6.1-6.2 8.5 0"
-            fill="none"
-            stroke="currentColor"
-            strokeOpacity=".58"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-          />
-          <circle cx="11" cy="12" r="1.45" fill="currentColor" />
         </svg>
       </RailButton>
 

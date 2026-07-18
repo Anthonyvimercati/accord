@@ -1,74 +1,9 @@
 :root {
-  --accord-iris: 124 105 255;
-  --accord-cyan: 91 210 230;
-  --accord-mint: 81 220 173;
-  --accord-edge: rgb(var(--color-header) / 0.1);
+  --accord-iris: var(--color-blurple);
+  --accord-cyan: var(--theme-accent-secondary, var(--color-link));
+  --accord-mint: var(--color-green);
+  --accord-edge: var(--glass-border);
   --accord-edge-strong: rgb(var(--color-header) / 0.16);
-  --accord-surface-glow: rgb(var(--accord-iris) / 0.14);
-  --color-blurple: 124 105 255;
-  --color-blurple-hover: 105 88 235;
-  --color-link: 91 210 230;
-  --radius-xs: 7px;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
-  --radius-xl: 24px;
-  --glass-border: rgb(var(--color-header) / 0.1);
-  --glass-highlight: inset 0 1px 0 rgb(var(--color-header) / 0.07);
-  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.22), 0 8px 24px rgb(0 0 0 / 0.08);
-  --shadow-2: 0 10px 30px rgb(0 0 0 / 0.24), 0 2px 8px rgb(0 0 0 / 0.18);
-  --shadow-3: 0 24px 72px rgb(0 0 0 / 0.42), 0 4px 18px rgb(0 0 0 / 0.22);
-  --ambient-a: var(--accord-iris);
-  --ambient-b: var(--accord-cyan);
-  --ambient-alpha-a: 0.14;
-  --ambient-alpha-b: 0.08;
-}
-
-:root[data-theme='dark'],
-:root:not([data-theme]) {
-  --color-rail: 8 11 19;
-  --color-sidebar: 17 22 35;
-  --color-chat: 22 28 43;
-  --color-chat-hover: 30 37 56;
-  --color-input: 31 39 59;
-  --color-modal: 23 29 45;
-  --color-tooltip: 6 9 16;
-  --color-norm: 220 226 239;
-  --color-muted: 160 171 194;
-  --color-faint: 132 145 171;
-  --color-header: 247 249 255;
-  --color-green: 81 220 173;
-  --color-red: 250 102 113;
-  --color-yellow: 246 190 82;
-}
-
-:root[data-theme='light'] {
-  --accord-iris: 91 73 214;
-  --accord-cyan: 20 153 179;
-  --accord-mint: 20 149 108;
-  --color-rail: 225 230 240;
-  --color-sidebar: 241 244 250;
-  --color-chat: 250 251 254;
-  --color-chat-hover: 231 235 244;
-  --color-input: 235 239 247;
-  --color-modal: 250 251 254;
-  --color-tooltip: 20 25 37;
-  --color-norm: 42 49 66;
-  --color-muted: 79 89 111;
-  --color-faint: 99 110 133;
-  --color-header: 20 25 37;
-  --color-blurple: 91 73 214;
-  --color-blurple-hover: 73 57 190;
-  --color-link: 16 126 151;
-  --color-green: 20 149 108;
-  --color-red: 205 61 78;
-  --color-yellow: 154 99 8;
-  --accord-edge: rgb(var(--color-header) / 0.1);
-  --accord-edge-strong: rgb(var(--color-header) / 0.16);
-  --glass-border: rgb(var(--color-header) / 0.11);
-  --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 0.9);
-  --ambient-alpha-a: 0.1;
-  --ambient-alpha-b: 0.08;
 }
 
 body {
@@ -77,40 +12,13 @@ body {
 }
 
 .accord-shell {
+  --accord-shell-gap: 7px;
   position: relative;
   isolation: isolate;
-  gap: 7px;
+  gap: var(--accord-shell-gap);
   overflow: hidden;
   padding: 8px;
   background-color: rgb(var(--color-rail));
-  background-image:
-    radial-gradient(
-      48rem 32rem at 4% -10%,
-      rgb(var(--accord-iris) / 0.18),
-      transparent 62%
-    ),
-    radial-gradient(
-      42rem 34rem at 100% 112%,
-      rgb(var(--accord-cyan) / 0.1),
-      transparent 66%
-    ),
-    linear-gradient(
-      145deg,
-      rgb(var(--color-rail)),
-      color-mix(in srgb, rgb(var(--color-rail)) 92%, rgb(var(--accord-iris)) 8%)
-    );
-}
-
-.accord-shell::before {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background-image:
-    linear-gradient(rgb(var(--color-header) / 0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--color-header) / 0.018) 1px, transparent 1px);
-  background-size: 28px 28px;
-  content: '';
-  pointer-events: none;
 }
 
 .accord-shell > .accord-rail,
@@ -119,6 +27,11 @@ body {
 .accord-shell > [role='separator'] {
   position: relative;
   z-index: 1;
+}
+
+.accord-shell > [role='separator'][aria-orientation='vertical'] {
+  width: var(--accord-shell-gap);
+  margin-inline: calc(var(--accord-shell-gap) * -1);
 }
 
 .accord-rail,
@@ -134,7 +47,8 @@ body {
   background-color: rgb(var(--color-rail) / 0.86);
   box-shadow:
     var(--glass-highlight),
-    0 18px 50px rgb(0 0 0 / 0.18);
+    inset -1px 0 var(--theme-seam),
+    var(--shadow-2);
 }
 
 .accord-rail button[aria-current='page'] {
@@ -167,7 +81,8 @@ body {
   background-color: rgb(var(--color-sidebar) / 0.9);
   box-shadow:
     var(--glass-highlight),
-    0 18px 50px rgb(0 0 0 / 0.14);
+    inset -1px 0 var(--theme-seam),
+    var(--shadow-2);
 }
 
 .accord-server-header {
@@ -199,9 +114,7 @@ body {
     rgb(var(--accord-iris) / 0.1),
     rgb(var(--color-rail) / 0.8)
   );
-  box-shadow:
-    var(--glass-highlight),
-    0 10px 30px rgb(0 0 0 / 0.16);
+  box-shadow: var(--glass-highlight), var(--shadow-1);
 }
 
 .accord-user-panel > div:last-child {
@@ -212,9 +125,7 @@ body {
   overflow: clip;
   border-radius: 24px;
   background-color: rgb(var(--color-chat) / 0.95);
-  box-shadow:
-    var(--glass-highlight),
-    0 24px 64px rgb(0 0 0 / 0.17);
+  box-shadow: var(--glass-highlight), var(--shadow-2);
 }
 
 .accord-conversation {
@@ -264,9 +175,7 @@ body {
   border-color: var(--accord-edge);
   border-radius: 18px;
   background-color: rgb(var(--color-input) / 0.82);
-  box-shadow:
-    var(--glass-highlight),
-    0 12px 34px rgb(0 0 0 / 0.14);
+  box-shadow: var(--glass-highlight), var(--shadow-1);
   backdrop-filter: blur(16px) saturate(1.12);
   -webkit-backdrop-filter: blur(16px) saturate(1.12);
 }
@@ -276,7 +185,7 @@ body {
   box-shadow:
     var(--glass-highlight),
     0 0 0 3px rgb(var(--accord-iris) / 0.1),
-    0 14px 38px rgb(0 0 0 / 0.18);
+    var(--shadow-2);
 }
 
 .accord-typing {
@@ -330,9 +239,7 @@ body {
     rgb(var(--accord-iris) / 0.14),
     transparent 68%
   );
-  box-shadow:
-    var(--glass-highlight),
-    0 24px 70px rgb(0 0 0 / 0.42);
+  box-shadow: var(--glass-highlight), var(--shadow-3);
 }
 
 .server-menu-surface {
@@ -357,9 +264,7 @@ body {
   border: 1px solid var(--accord-edge-strong);
   border-radius: 28px;
   background-color: rgb(var(--color-chat));
-  box-shadow:
-    var(--glass-highlight),
-    0 34px 100px rgb(0 0 0 / 0.52);
+  box-shadow: var(--glass-highlight), var(--shadow-3);
 }
 
 .accord-settings::before {
@@ -405,9 +310,7 @@ body {
 
 .profile-card-shell__surface {
   border-color: var(--accord-edge-strong);
-  box-shadow:
-    var(--glass-highlight),
-    0 30px 90px rgb(0 0 0 / 0.48);
+  box-shadow: var(--glass-highlight), var(--shadow-3);
 }
 
 .profile-card-surface {
@@ -417,7 +320,7 @@ body {
 
 @media (max-width: 760px) {
   .accord-shell {
-    gap: 3px;
+    --accord-shell-gap: 3px;
     padding: 4px;
   }
 
