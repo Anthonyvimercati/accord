@@ -1049,6 +1049,14 @@ export const en: Dict = {
     natHint:
       'If automatic opening fails (incompatible router), the manual fallback remains: at least one of the two friends forwards their UDP port 48016 to their computer, or you are on the same local network.',
     refreshFailed: 'Unable to read network status.',
+    friendsTitle: 'Connection to your friends',
+    friendsHint:
+      'Live status of each friend as seen by your node: “Connected” = a session is active, otherwise Accord is trying to reach them. The last known address is used to reconnect quickly at startup.',
+    friendsEmpty: 'No friends yet.',
+    friendLive: 'Connected',
+    friendOffline: 'Offline',
+    friendLastAddr: 'Last known address',
+    friendNoAddr: 'Address never learned',
   },
   errors: {
     sendFailed: 'Failed to send',

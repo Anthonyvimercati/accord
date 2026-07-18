@@ -21,6 +21,10 @@ impl NodeService {
             .node
             .network_control()
             .ok_or(NodeError::NotFound("sous-système réseau indisponible"))?;
+        if method == "network.peers" {
+            let links = ctrl.peer_links();
+            return Ok(serde_json::to_value(links).unwrap_or_else(|_| json!([])));
+        }
         let status = match method {
             "network.status" => ctrl.status(),
             "network.add_peer" => {

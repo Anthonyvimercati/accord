@@ -1065,6 +1065,14 @@ export const fr = {
     natHint:
       'Si l’ouverture automatique échoue (routeur incompatible), il reste le repli manuel : au moins l’un des deux amis redirige son port UDP 48016 vers son ordinateur, ou vous êtes sur le même réseau local.',
     refreshFailed: 'Impossible de lire l’état du réseau.',
+    friendsTitle: 'Connexion à tes amis',
+    friendsHint:
+      'État en direct de chaque ami vu par ton nœud : « Connecté » = une session est active, sinon Accord tente de le joindre. La dernière adresse connue sert à te reconnecter vite au démarrage.',
+    friendsEmpty: 'Aucun ami pour l’instant.',
+    friendLive: 'Connecté',
+    friendOffline: 'Hors ligne',
+    friendLastAddr: 'Dernière adresse connue',
+    friendNoAddr: 'Adresse jamais apprise',
   },
   errors: {
     sendFailed: 'Échec de l’envoi',

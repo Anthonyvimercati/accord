@@ -9,8 +9,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { NetworkStatus } from '../lib/api';
+import type { NetworkStatus, PeerLink } from '../lib/api';
 import { api, rpc } from '../lib/client';
+import { displayNameOf, useFriends } from '../stores/friends';
 import { useT } from '../stores/ui';
 import { SettingsSection } from './settings/controls';
 
@@ -96,6 +97,8 @@ function CopyRow({
 export function NetworkPanel() {
   const t = useT();
   const [status, setStatus] = useState<NetworkStatus | null>(null);
+  const [peers, setPeers] = useState<PeerLink[]>([]);
+  const contacts = useFriends((s) => s.contacts);
   const [erreur, setErreur] = useState<string | null>(null);
   const [saisie, setSaisie] = useState('');
   const [ajoutErreur, setAjoutErreur] = useState(false);
@@ -110,6 +113,10 @@ export function NetworkPanel() {
         setErreur(null);
       })
       .catch(() => setErreur(t.reseau.refreshFailed));
+    api
+      .networkPeers()
+      .then(setPeers)
+      .catch(() => {});
   }, [t.reseau.refreshFailed]);
 
   useEffect(() => {
@@ -160,6 +167,14 @@ export function NetworkPanel() {
       locales: all.filter((a) => isLocalAddr(a)),
     };
   }, [status?.local_addrs]);
+
+  // Amis d'abord connectés, puis par nom : la connectivité active en tête.
+  const peersTries = useMemo(() => {
+    return [...peers].sort((a, b) => {
+      if (a.live !== b.live) return a.live ? -1 : 1;
+      return displayNameOf(contacts, a.pubkey).localeCompare(displayNameOf(contacts, b.pubkey));
+    });
+  }, [peers, contacts]);
 
   const portMapping = status?.port_mapping ?? 'aucun';
   const externalAddr = status?.external_addr ?? null;
@@ -220,6 +235,40 @@ export function NetworkPanel() {
             <Stat label={t.reseau.dhtNodes} value={status?.dht_nodes ?? '—'} />
           </div>
         </div>
+      </SettingsSection>
+
+      <SettingsSection title={t.reseau.friendsTitle} hint={t.reseau.friendsHint}>
+        {peers.length === 0 ? (
+          <p className="rounded-lg bg-sidebar p-4 text-sm text-muted">
+            {t.reseau.friendsEmpty}
+          </p>
+        ) : (
+          <ul className="divide-y divide-input overflow-hidden rounded-lg bg-sidebar">
+            {peersTries.map((p) => (
+              <li key={p.pubkey} className="flex items-center gap-3 p-3">
+                <span
+                  aria-hidden
+                  className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                    p.live ? 'bg-green' : 'bg-faint/50'
+                  }`}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-norm">
+                    {displayNameOf(contacts, p.pubkey)}
+                  </div>
+                  <div className="truncate text-xs text-faint">
+                    {p.addr !== null
+                      ? `${t.reseau.friendLastAddr} : ${p.addr}`
+                      : t.reseau.friendNoAddr}
+                  </div>
+                </div>
+                <span className={`shrink-0 text-xs ${p.live ? 'text-green' : 'text-faint'}`}>
+                  {p.live ? t.reseau.friendLive : t.reseau.friendOffline}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </SettingsSection>
 
       <SettingsSection title={t.reseau.addPeer} hint={t.reseau.addPeerHint}>

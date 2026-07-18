@@ -556,6 +556,16 @@ export interface NetworkStatus {
   lan_peers: number;
 }
 
+/** Lien courant vers un ami (voir `network.peers`), pour le diagnostic. */
+export interface PeerLink {
+  /** Clé publique de l'ami (hex). */
+  pubkey: string;
+  /** Vrai si une session (directe ou relayée) est active en ce moment. */
+  live: boolean;
+  /** Dernière adresse directe connue (`ip:port`), ou `null`. */
+  addr: string | null;
+}
+
 /** Phase de l'appel 1-à-1 courant (`calls.status`, voir VOICE_CALLS.md §1.3). */
 export type CallState = 'idle' | 'outgoing_ringing' | 'incoming_ringing' | 'active';
 
@@ -2069,6 +2079,11 @@ export class Api {
    */
   networkStatus(): Promise<NetworkStatus> {
     return this.rpc.call('network.status');
+  }
+
+  /** Lien courant vers chaque ami (diagnostic de connectivité). */
+  networkPeers(): Promise<PeerLink[]> {
+    return this.rpc.call('network.peers');
   }
 
   /**

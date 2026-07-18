@@ -35,7 +35,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::error::NodeError;
 use crate::maintenance::{self, MaintenanceConfig};
-use crate::node::network::{NetworkControl, NetworkStatus};
+use crate::node::network::{NetworkControl, NetworkStatus, PeerLink};
 use crate::node::relay::{self, NatKind};
 use crate::node::Node;
 use crate::node::{discovery, holepunch, nat};
@@ -2037,6 +2037,18 @@ impl NetworkControl for Runtime {
 
     fn status(&self) -> NetworkStatus {
         self.network_status()
+    }
+
+    fn peer_links(&self) -> Vec<PeerLink> {
+        let friends = self.node.friend_pubkeys().unwrap_or_default();
+        friends
+            .into_iter()
+            .map(|pk| PeerLink {
+                pubkey: crate::hex::encode(&pk),
+                live: self.is_peer_live(&pk),
+                addr: self.addr_of(&pk).map(|a| a.to_string()),
+            })
+            .collect()
     }
 }
 

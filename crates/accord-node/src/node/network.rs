@@ -61,6 +61,19 @@ pub struct NetworkStatus {
     pub nat_kind: super::relay::NatKind,
 }
 
+/// Lien courant vers un ami, exposé par `network.peers` pour le diagnostic de
+/// connectivité (sérialisé tel quel). Additif : le carnet d'adresses et le
+/// suivi des sessions vivantes sont déjà maintenus par le runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PeerLink {
+    /// Clé publique de l'ami (hex).
+    pub pubkey: String,
+    /// Vrai si une session (directe ou relayée) est actuellement active.
+    pub live: bool,
+    /// Dernière adresse directe connue (`ip:port`), ou `null` si jamais apprise.
+    pub addr: Option<String>,
+}
+
 /// Contrôle du réseau depuis l'API : implémenté par le runtime, branché sur le
 /// nœud après construction.
 #[async_trait::async_trait]
@@ -72,6 +85,8 @@ pub trait NetworkControl: Send + Sync {
     async fn remove_peer(&self, addr: SocketAddr) -> Result<NetworkStatus, NodeError>;
     /// Photographie de l'état réseau courant.
     fn status(&self) -> NetworkStatus;
+    /// Lien courant vers chaque ami (diagnostic de connectivité).
+    fn peer_links(&self) -> Vec<PeerLink>;
 }
 
 // ---- Encodage/décodage des valeurs `meta` (pur, testable) ----

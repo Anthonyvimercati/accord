@@ -13,6 +13,7 @@ vi.mock('../lib/client', () => {
   return {
     api: {
       networkStatus: vi.fn(),
+      networkPeers: vi.fn(),
       networkAddPeer: vi.fn(),
       networkRemovePeer: vi.fn(),
     },
@@ -53,10 +54,14 @@ async function renderPanel(): Promise<void> {
   await act(async () => {});
 }
 
+const peersMock = api.networkPeers as unknown as Mock;
+
 beforeEach(() => {
   statusMock.mockReset();
   addPeerMock.mockReset();
+  peersMock.mockReset();
   statusMock.mockResolvedValue(STATUS);
+  peersMock.mockResolvedValue([]);
 });
 
 describe('isLocalAddr', () => {
@@ -124,5 +129,17 @@ describe('NetworkPanel', () => {
     });
 
     await waitFor(() => expect(statusMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('affiche l’état de connexion par ami (connecté/hors ligne + adresse)', async () => {
+    peersMock.mockResolvedValue([
+      { pubkey: 'aa'.repeat(32), live: true, addr: '203.0.113.9:48016' },
+      { pubkey: 'bb'.repeat(32), live: false, addr: null },
+    ]);
+    await renderPanel();
+    expect(await screen.findByText('Connected')).toBeInTheDocument();
+    expect(screen.getByText('Offline')).toBeInTheDocument();
+    expect(screen.getByText(/203\.0\.113\.9:48016/)).toBeInTheDocument();
+    expect(screen.getByText(/Address never learned/i)).toBeInTheDocument();
   });
 });
