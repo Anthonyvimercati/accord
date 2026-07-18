@@ -185,6 +185,14 @@ export const MINIATURE_MAX_PX = 512;
 /** Qualité WebP des miniatures (compromis taille mémoire / netteté). */
 const MINIATURE_QUALITE = 0.82;
 
+/**
+ * Délai au-delà duquel le décodage canvas d'une miniature est abandonné au
+ * profit de la pleine résolution. Certaines WKWebView (app packagée macOS) ne
+ * déclenchent ni `onload` ni `onerror` sur un `data:` volumineux : sans cette
+ * borne, la vignette resterait en chargement perpétuel (« l'image ne charge pas »).
+ */
+const MINIATURE_TIMEOUT_MS = 4_000;
+
 /** Cache LRU des miniatures, séparé du cache pleine taille. Clé : `maxPx:hash`. */
 const cacheMiniatures = new CacheLru<Promise<string>>(FILE_CACHE_MAX);
 
@@ -204,11 +212,22 @@ function reduireImage(url: string, maxPx: number): Promise<string> {
   if (contexte === null) return Promise.resolve(url);
   return new Promise((resolve) => {
     const image = new Image();
+    let regle = false;
+    let minuteur: ReturnType<typeof setTimeout>;
+    const finir = (resultat: string): void => {
+      if (regle) return;
+      regle = true;
+      clearTimeout(minuteur);
+      resolve(resultat);
+    };
+    // Filet de sécurité : décodage qui ne se termine jamais (WKWebView) →
+    // pleine résolution, jamais de vignette bloquée en chargement.
+    minuteur = setTimeout(() => finir(url), MINIATURE_TIMEOUT_MS);
     image.onload = () => {
       const bord = Math.max(image.naturalWidth, image.naturalHeight);
       if (bord <= maxPx) {
         // Déjà assez petite (ou dimensions inconnues) : rien à réduire.
-        resolve(url);
+        finir(url);
         return;
       }
       try {
@@ -216,14 +235,18 @@ function reduireImage(url: string, maxPx: number): Promise<string> {
         canvas.width = Math.max(1, Math.round(image.naturalWidth * facteur));
         canvas.height = Math.max(1, Math.round(image.naturalHeight * facteur));
         contexte.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/webp', MINIATURE_QUALITE));
+        const reduit = canvas.toDataURL('image/webp', MINIATURE_QUALITE);
+        // Certaines WKWebView rendent un `data:` inexploitable pour un type
+        // non pris en charge (WebP) sans lever d'exception : on ne propage la
+        // miniature que si elle est bien une image `data:`, sinon pleine taille.
+        finir(reduit.startsWith('data:image/') ? reduit : url);
       } catch {
         // Encodage impossible : on retombe sur la pleine taille.
-        resolve(url);
+        finir(url);
       }
     };
     // Décodage impossible : pleine taille (l'<img> aval signalera l'erreur).
-    image.onerror = () => resolve(url);
+    image.onerror = () => finir(url);
     image.src = url;
   });
 }

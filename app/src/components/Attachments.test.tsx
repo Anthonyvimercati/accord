@@ -126,8 +126,31 @@ describe('Pièces jointes — vignette d’image', () => {
     expect(await screen.findByText('Image indisponible')).toBeInTheDocument();
   });
 
-  it('signale une image illisible après son chargement', async () => {
-    lireMock.mockResolvedValueOnce('blob:image-invalide');
+  it('bascule sur la pleine résolution quand la vignette ne s’affiche pas', async () => {
+    // La miniature (canvas/WebP, fragile en WKWebView) est illisible : au lieu
+    // d'abandonner, la vignette recharge la pleine résolution `data:` et
+    // l'affiche (une image plus lourde vaut mieux qu'une image cassée).
+    lireMock.mockResolvedValueOnce('data:image/webp;base64,MINIATURE');
+    lireMock.mockResolvedValueOnce('data:image/png;base64,PLEINE');
+    render(<MessageList messages={[message([piece()])]} />);
+
+    const img = await screen.findByAltText('photo.png');
+    expect(img).toHaveAttribute('src', 'data:image/webp;base64,MINIATURE');
+    fireEvent.error(img);
+
+    await waitFor(() =>
+      expect(screen.getByAltText('photo.png')).toHaveAttribute(
+        'src',
+        'data:image/png;base64,PLEINE',
+      ),
+    );
+    // Deux lectures : la miniature puis le repli pleine résolution.
+    expect(lireMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('signale une image indisponible seulement si la pleine résolution échoue aussi', async () => {
+    lireMock.mockResolvedValueOnce('data:image/webp;base64,MINIATURE');
+    lireMock.mockRejectedValueOnce(new Error('introuvable'));
     render(<MessageList messages={[message([piece()])]} />);
 
     fireEvent.error(await screen.findByAltText('photo.png'));

@@ -155,6 +155,9 @@ function VignetteImage({
     null,
   );
   const [pleinEcran, setPleinEcran] = useState(false);
+  // Vrai une fois qu'on a déjà basculé la vignette sur la pleine résolution
+  // après un échec de rendu : évite toute boucle sur `<img onError>`.
+  const replierPleineRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -162,6 +165,7 @@ function VignetteImage({
     setUrlPleine(null);
     setEchec(false);
     setProgression(null);
+    replierPleineRef.current = false;
     const off = observerProgression(piece.merkle_root, (done, total) => {
       if (alive) setProgression({ done, total });
     });
@@ -205,6 +209,29 @@ function VignetteImage({
       alive = false;
     };
   }, [pleinEcran, urlPleine, piece.merkle_root, hint]);
+
+  // La vignette affichée est produite par canvas/WebP (`lireMiniature`), un
+  // chemin fragile dans la WKWebView de l'app packagée (macOS) : selon la
+  // version, l'encodage WebP rend un `data:` que l'`<img>` ne sait pas
+  // afficher. Plutôt que de déclarer l'image indisponible, on bascule UNE
+  // fois sur la pleine résolution `data:` (servie par `lireFichier`, rendue
+  // partout, y compris en WKWebView) ; ce n'est que si celle-ci échoue AUSSI
+  // qu'on abandonne. Mieux vaut une image plus lourde qu'une image cassée.
+  const surErreurVignette = (): void => {
+    if (replierPleineRef.current) {
+      setEchec(true);
+      return;
+    }
+    replierPleineRef.current = true;
+    lireFichier(piece.merkle_root, hint)
+      .then((pleine) => {
+        // Si la source affichée était DÉJÀ la pleine résolution (miniature
+        // repliée en amont) et qu'elle échoue, inutile de reboucler.
+        if (pleine === url) setEchec(true);
+        else setUrl(pleine);
+      })
+      .catch(() => setEchec(true));
+  };
 
   if (echec) {
     return (
@@ -251,7 +278,7 @@ function VignetteImage({
           src={url}
           alt={piece.name}
           className="h-full w-full rounded-lg object-contain"
-          onError={() => setEchec(true)}
+          onError={surErreurVignette}
         />
       </button>
       {pleinEcran && (
