@@ -27,6 +27,20 @@ still on 2.3.x keeps working unchanged.
   page and a step-by-step guide (install, peer-to-peer connection,
   troubleshooting), deployed from `website/`.
 
+### Performance
+
+- **Long conversations scroll smoothly**: the message list now renders only
+  the visible tail of the thread to the DOM (80 rows, extending by 80 as you
+  scroll up, with scroll anchoring) instead of every loaded message. Jump
+  targets and the "new messages" divider are always rendered; switching
+  conversations resets the window.
+
+### Internal
+
+- The conversation view was split into focused modules (`chat/DmView`,
+  `chat/MemberList`, `chat/panels`, `chat/common`) — every source file is now
+  under 800 lines. Pure moves, no behavior change.
+
 ### Fixed
 
 - Friend addresses are now persisted even when the transport session was
