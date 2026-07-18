@@ -502,6 +502,7 @@ export interface VoiceActive {
 export interface VoiceDsp {
   noise_suppression: boolean;
   agc: boolean;
+  echo_cancel: boolean;
 }
 
 /**
@@ -1975,6 +1976,11 @@ export class Api {
   /** Active/désactive le contrôle automatique de gain sur la capture locale, à chaud. */
   voiceSetAgc(enabled: boolean): Promise<Record<string, never>> {
     return this.rpc.call('voice.set_agc', { enabled });
+  }
+
+  /** Active/désactive l'annulation d'écho acoustique (D-051), à chaud. */
+  voiceSetEchoCancel(enabled: boolean): Promise<Record<string, never>> {
+    return this.rpc.call('voice.set_echo_cancel', { enabled });
   }
 
   /** Périphériques audio disponibles et sélection courante. */

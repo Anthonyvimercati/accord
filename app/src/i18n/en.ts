@@ -843,6 +843,9 @@ export const en: Dict = {
     // Audio quality (DSP).
     dspTitle: 'Audio quality',
     dspHint: 'Applied live, in channels and calls alike — about 0.5% of one CPU core.',
+    echoCancel: 'Echo cancellation',
+    echoCancelHint:
+      'Removes what your speakers just played from your microphone — without it, the people you talk to hear themselves twice. Pointless with headphones, but harmless.',
     noiseSuppression: 'Noise suppression (RNNoise)',
     noiseSuppressionHint: 'Reduces ambient background noise on your microphone.',
     agc: 'Automatic gain control (AGC)',

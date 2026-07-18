@@ -3109,7 +3109,7 @@ async fn voice_join_status_mute_leave_exact_shapes() {
                 }],
             },
             "master_volume": 100,
-            "dsp": { "noise_suppression": false, "agc": false },
+            "dsp": { "noise_suppression": false, "agc": false, "echo_cancel": true },
         })
     );
 
@@ -3162,9 +3162,34 @@ async fn voice_join_status_mute_leave_exact_shapes() {
         json!({
             "active": null,
             "master_volume": 150,
-            "dsp": { "noise_suppression": false, "agc": false },
+            "dsp": { "noise_suppression": false, "agc": false, "echo_cancel": true },
         })
     );
+}
+
+#[tokio::test]
+async fn voice_echo_cancel_toggle_round_trips() {
+    let (s, _, _, _) = service_with_voice();
+    // Actif par défaut (D-051) : sans lui, les interlocuteurs s'entendent en
+    // double dès que le haut-parleur joue.
+    let status = s.call("voice.status", json!({})).await.unwrap();
+    assert_eq!(status["dsp"]["echo_cancel"], json!(true));
+    assert_eq!(
+        s.call("voice.set_echo_cancel", json!({"enabled": false}))
+            .await
+            .unwrap(),
+        json!({})
+    );
+    let status = s.call("voice.status", json!({})).await.unwrap();
+    assert_eq!(status["dsp"]["echo_cancel"], json!(false));
+    // Persisté ET réactivable à chaud.
+    s.call("voice.set_echo_cancel", json!({"enabled": true}))
+        .await
+        .unwrap();
+    let status = s.call("voice.status", json!({})).await.unwrap();
+    assert_eq!(status["dsp"]["echo_cancel"], json!(true));
+    // Paramètre manquant : rejet propre à la frontière.
+    assert!(s.call("voice.set_echo_cancel", json!({})).await.is_err());
 }
 
 #[tokio::test]

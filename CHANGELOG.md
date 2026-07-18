@@ -2,6 +2,31 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.2.0] — 2026-07-18
+
+### Added
+
+- **Echo cancellation** (on by default, Settings → Voice to toggle): Accord
+  now removes what your speakers just played from your microphone — the fix
+  for "I hear myself twice" when the person you're talking to uses speakers.
+  Pure-Rust acoustic echo canceller: automatic speaker-to-mic delay tracking
+  (up to 500 ms), partitioned frequency-domain adaptive filter (160 ms tail),
+  double-talk detection so your own voice is never eaten, and a bounded
+  residual suppressor.
+
+### Fixed
+
+- **Voices now mix properly in group channels**: with 3+ people, simultaneous
+  speakers were queued one after the other instead of being layered — causing
+  robotic interleaving, growing latency and dropped frames. Decoded frames
+  are now summed into a single output frame per tick with a soft limiter.
+- **Less crackling**: hard clipping (the main "crackle" source) replaced by a
+  soft-knee limiter on the auto-gain and the output mix, and audio-output
+  starvation now ramps to silence and back (2 ms fades) instead of jumping —
+  no more clicks at buffer boundaries.
+- Composer bar sat too close to the bottom edge since Liquid Glass — raised
+  by 10 px, aligned with the user panel (DM and server channels alike).
+
 ## [2.1.2] — 2026-07-18
 
 ### Added

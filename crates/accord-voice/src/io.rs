@@ -13,7 +13,9 @@ use std::sync::mpsc;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-use crate::convert::{downmix_i16, f32_to_i16, u16_to_i16, FrameChunker, LinearResampler};
+use crate::convert::{
+    downmix_i16, f32_to_i16, u16_to_i16, Declicker, FrameChunker, LinearResampler,
+};
 use crate::params::SAMPLE_RATE;
 
 /// Trames en file au maximum (borne de latence : 32 × 20 ms = 640 ms).
@@ -179,8 +181,10 @@ impl AudioOutput {
 
         let mut resampler = LinearResampler::new(SAMPLE_RATE, supported.sample_rate().0);
         let mut pending: Vec<i16> = Vec::new();
+        let mut declick = Declicker::default();
         // Produit `count` échantillons mono à la fréquence du périphérique,
-        // complétés de silence en cas de famine.
+        // complétés en cas de famine par une rampe anti-clic puis du silence
+        // (des zéros bruts claqueraient à la coupure et à la reprise, D-051).
         let mut next_mono = move |count: usize| -> Vec<i16> {
             while pending.len() < count {
                 match rx.try_recv() {
@@ -190,7 +194,10 @@ impl AudioOutput {
             }
             let take = pending.len().min(count);
             let mut mono: Vec<i16> = pending.drain(..take).collect();
-            mono.resize(count, 0);
+            declick.smooth(&mut mono);
+            if mono.len() < count {
+                declick.pad_gap(&mut mono, count);
+            }
             mono
         };
         let on_err = |e: cpal::StreamError| tracing::warn!("flux de sortie audio : {e}");

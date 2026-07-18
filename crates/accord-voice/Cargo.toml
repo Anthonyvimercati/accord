@@ -15,6 +15,9 @@ tracing.workspace = true
 opus = { version = "0.3", optional = true }
 cpal = { version = "0.15", optional = true }
 nnnoiseless = { version = "0.5.2", default-features = false }
+# FFT réelle de l'annuleur d'écho (D-051) — déjà présent dans l'arbre de
+# dépendances via nnnoiseless (easyfft → realfft → rustfft) : aucun ajout net.
+realfft = "3"
 
 [features]
 default = []

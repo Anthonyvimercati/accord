@@ -261,13 +261,15 @@ pub(crate) enum Cmd {
         noise_suppression: Option<bool>,
         /// Contrôle automatique de gain : `None` = inchangé.
         agc: Option<bool>,
+        /// Annulation d'écho (D-051) : `None` = inchangée.
+        echo_cancel: Option<bool>,
         /// Réponse : erreur si la persistance échoue.
         resp: oneshot::Sender<Result<(), NodeError>>,
     },
-    /// Réglages DSP courants `(suppression de bruit, AGC)`.
+    /// Réglages DSP courants `(suppression de bruit, AGC, annulation d'écho)`.
     DspConfig {
         /// Réponse : drapeaux courants.
-        resp: oneshot::Sender<(bool, bool)>,
+        resp: oneshot::Sender<(bool, bool, bool)>,
     },
     /// L'op-log d'un groupe a changé : rafraîchit la modération vocale et la
     /// priorité d'orateur du salon actif le cas échéant.
@@ -512,20 +514,22 @@ impl VoiceHandle {
         &self,
         noise_suppression: Option<bool>,
         agc: Option<bool>,
+        echo_cancel: Option<bool>,
     ) -> Result<(), NodeError> {
         let (resp, rx) = oneshot::channel();
         self.tx
             .send(Cmd::SetDsp {
                 noise_suppression,
                 agc,
+                echo_cancel,
                 resp,
             })
             .map_err(|_| Self::stopped())?;
         rx.await.map_err(|_| Self::stopped())?
     }
 
-    /// Réglages DSP courants `(suppression de bruit, AGC)`.
-    pub async fn dsp_config(&self) -> Result<(bool, bool), NodeError> {
+    /// Réglages DSP courants `(suppression de bruit, AGC, annulation d'écho)`.
+    pub async fn dsp_config(&self) -> Result<(bool, bool, bool), NodeError> {
         let (resp, rx) = oneshot::channel();
         self.tx
             .send(Cmd::DspConfig { resp })

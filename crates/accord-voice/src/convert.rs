@@ -111,9 +111,118 @@ impl FrameChunker {
     }
 }
 
+/// Longueur des rampes anti-clic (échantillons à 48 kHz : 96 = 2 ms).
+const DECLICK_RAMP: usize = 96;
+
+/// Anti-clic de la sortie audio (D-051) : une famine comblée par des zéros
+/// bruts crée une discontinuité — un « clic » — à la coupure ET à la reprise.
+/// Ici, la coupure descend en rampe courte vers le silence et la reprise
+/// remonte en rampe depuis le silence : le trou reste audible (le PLC du
+/// codec le couvre en amont), mais il ne claque plus.
+#[derive(Debug, Default)]
+pub struct Declicker {
+    /// Dernier échantillon émis (point de départ de la rampe de coupure).
+    last: i16,
+    /// Une famine est en cours : la prochaine donnée réelle sera fondue.
+    in_gap: bool,
+}
+
+impl Declicker {
+    /// Lisse un bloc complet d'échantillons réels : fondu d'entrée si l'on
+    /// sort d'une famine, mémorisation du point de coupure potentiel.
+    pub fn smooth(&mut self, mono: &mut [i16]) {
+        if mono.is_empty() {
+            return;
+        }
+        if self.in_gap {
+            let ramp = mono.len().min(DECLICK_RAMP);
+            for (i, sample) in mono.iter_mut().take(ramp).enumerate() {
+                let g = (i + 1) as f32 / ramp as f32;
+                *sample = (f32::from(*sample) * g) as i16;
+            }
+            self.in_gap = false;
+        }
+        self.last = *mono.last().expect("bloc non vide");
+    }
+
+    /// Complète `mono` jusqu'à `count` échantillons : rampe courte du dernier
+    /// échantillon réel vers zéro, puis silence.
+    pub fn pad_gap(&mut self, mono: &mut Vec<i16>, count: usize) {
+        let from = f32::from(mono.last().copied().unwrap_or(self.last));
+        let deficit = count.saturating_sub(mono.len());
+        let ramp = deficit.min(DECLICK_RAMP);
+        for i in 0..ramp {
+            let g = 1.0 - (i + 1) as f32 / ramp as f32;
+            mono.push((from * g) as i16);
+        }
+        mono.resize(count, 0);
+        self.in_gap = true;
+        self.last = 0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Plus grand saut absolu entre échantillons consécutifs.
+    fn max_jump(pcm: &[i16]) -> i32 {
+        pcm.windows(2)
+            .map(|w| (i32::from(w[1]) - i32::from(w[0])).abs())
+            .max()
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn declicker_ramps_gaps_instead_of_hard_zeroing() {
+        let mut declick = Declicker::default();
+        // Bloc plein à niveau haut constant, puis famine totale.
+        let mut full = vec![12_000i16; 480];
+        declick.smooth(&mut full);
+        let mut starved: Vec<i16> = Vec::new();
+        declick.pad_gap(&mut starved, 480);
+        assert_eq!(starved.len(), 480);
+        // La coupure descend en rampe (pas de saut brutal 12 000 → 0)…
+        assert!(
+            max_jump(&starved) < 400,
+            "coupure abrupte : {}",
+            max_jump(&starved)
+        );
+        assert!(
+            i32::from(12_000i16 - starved[0]) < 400,
+            "départ de rampe abrupt"
+        );
+        // …et finit en silence.
+        assert!(starved[200..].iter().all(|&s| s == 0));
+
+        // Reprise : le bloc suivant est fondu depuis le silence.
+        let mut resumed = vec![12_000i16; 480];
+        declick.smooth(&mut resumed);
+        assert!(resumed[0].abs() < 400, "reprise abrupte : {}", resumed[0]);
+        assert!(max_jump(&resumed) < 400);
+        assert_eq!(resumed[479], 12_000, "au-delà de la rampe, signal intact");
+    }
+
+    #[test]
+    fn declicker_is_transparent_on_a_steady_stream() {
+        let mut declick = Declicker::default();
+        for _ in 0..5 {
+            let mut block: Vec<i16> = (0..480).map(|i| (i % 100) as i16).collect();
+            let original = block.clone();
+            declick.smooth(&mut block);
+            assert_eq!(block, original, "flux continu : aucun traitement");
+        }
+    }
+
+    #[test]
+    fn declicker_partial_block_then_gap_ramps_from_last_sample() {
+        let mut declick = Declicker::default();
+        let mut partial = vec![8_000i16; 100];
+        declick.smooth(&mut partial);
+        declick.pad_gap(&mut partial, 480);
+        assert_eq!(partial.len(), 480);
+        assert!(max_jump(&partial) < 300);
+    }
 
     #[test]
     fn downmix_averages_channels() {

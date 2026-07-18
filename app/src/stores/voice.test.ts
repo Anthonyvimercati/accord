@@ -71,7 +71,7 @@ beforeEach(() => {
     selfDeafened: false,
     masterVolume: 100,
     participants: new Map(),
-    dsp: { noiseSuppression: false, agc: false },
+    dsp: { noiseSuppression: false, agc: false, echoCancel: true },
   });
   joinMock.mockReset();
   leaveMock.mockReset();
@@ -471,12 +471,16 @@ describe('useVoice.loadMasterVolume', () => {
     statusMock.mockResolvedValueOnce({
       master_volume: 100,
       active: null,
-      dsp: { noise_suppression: true, agc: true },
+      dsp: { noise_suppression: true, agc: true, echo_cancel: false },
     });
 
     await useVoice.getState().loadMasterVolume();
 
-    expect(useVoice.getState().dsp).toEqual({ noiseSuppression: true, agc: true });
+    expect(useVoice.getState().dsp).toEqual({
+      noiseSuppression: true,
+      agc: true,
+      echoCancel: false,
+    });
   });
 
   it('retombe sur des DSP désactivés si le nœud ne les émet pas (tolérance)', async () => {
@@ -484,7 +488,11 @@ describe('useVoice.loadMasterVolume', () => {
 
     await useVoice.getState().loadMasterVolume();
 
-    expect(useVoice.getState().dsp).toEqual({ noiseSuppression: false, agc: false });
+    expect(useVoice.getState().dsp).toEqual({
+      noiseSuppression: false,
+      agc: false,
+      echoCancel: true,
+    });
   });
 });
 

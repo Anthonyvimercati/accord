@@ -48,6 +48,7 @@ export interface ParticipantState {
 export interface VoiceDspState {
   noiseSuppression: boolean;
   agc: boolean;
+  echoCancel: boolean;
 }
 
 interface VoiceState {
@@ -97,6 +98,8 @@ interface VoiceState {
   setNoiseSuppression: (enabled: boolean) => Promise<void>;
   /** Active/désactive le contrôle automatique de gain (voice.set_agc). */
   setAgc: (enabled: boolean) => Promise<void>;
+  /** Active/désactive l'annulation d'écho (voice.set_echo_cancel). */
+  setEchoCancel: (enabled: boolean) => Promise<void>;
   /** Applique `event.voice_joined` (ignoré hors du salon actif). */
   applyJoined: (params: { group_id: string; channel_id: string; pubkey: string }) => void;
   /** Applique `event.voice_left` (ignoré hors du salon actif). */
@@ -170,7 +173,13 @@ function matchesActive(
   return active !== null && active.groupId === groupId && active.channelId === channelId;
 }
 
-const DSP_DEFAULT: VoiceDspState = { noiseSuppression: false, agc: false };
+const DSP_DEFAULT: VoiceDspState = {
+  noiseSuppression: false,
+  agc: false,
+  // Annulation d'écho active par défaut (D-051) : sans elle, les
+  // interlocuteurs s'entendent en double dès que le haut-parleur joue.
+  echoCancel: true,
+};
 
 export const useVoice = create<VoiceState>((set, get) => ({
   active: null,
@@ -252,6 +261,7 @@ export const useVoice = create<VoiceState>((set, get) => ({
     const nextDsp: VoiceDspState = {
       noiseSuppression: dsp?.noise_suppression ?? DSP_DEFAULT.noiseSuppression,
       agc: dsp?.agc ?? DSP_DEFAULT.agc,
+      echoCancel: dsp?.echo_cancel ?? DSP_DEFAULT.echoCancel,
     };
     if (active === null) {
       set({
@@ -298,6 +308,7 @@ export const useVoice = create<VoiceState>((set, get) => ({
       dsp: {
         noiseSuppression: dsp?.noise_suppression ?? DSP_DEFAULT.noiseSuppression,
         agc: dsp?.agc ?? DSP_DEFAULT.agc,
+        echoCancel: dsp?.echo_cancel ?? DSP_DEFAULT.echoCancel,
       },
     });
   },
@@ -310,6 +321,11 @@ export const useVoice = create<VoiceState>((set, get) => ({
   setAgc: async (enabled) => {
     await api.voiceSetAgc(enabled);
     set((s) => ({ dsp: { ...s.dsp, agc: enabled } }));
+  },
+
+  setEchoCancel: async (enabled) => {
+    await api.voiceSetEchoCancel(enabled);
+    set((s) => ({ dsp: { ...s.dsp, echoCancel: enabled } }));
   },
 
   applyJoined: ({ group_id, channel_id, pubkey }) => {

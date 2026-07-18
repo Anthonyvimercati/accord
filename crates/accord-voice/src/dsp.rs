@@ -112,7 +112,9 @@ impl Agc {
             };
             self.gain += (desired - self.gain) * rate;
         }
-        gain::apply_gain(pcm, self.gain);
+        // Plafond doux : un pic amplifié est compressé au lieu d'être écrêté
+        // net aux bornes `i16` (l'écrêtage dur « grésille »).
+        gain::apply_gain_soft(pcm, self.gain);
     }
 }
 

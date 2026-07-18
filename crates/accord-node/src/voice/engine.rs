@@ -192,6 +192,13 @@ pub(crate) struct Engine {
     dsp_noise_suppression: bool,
     /// Contrôle automatique de gain de capture (persisté, appliqué à chaud).
     dsp_agc: bool,
+    /// Annulation d'écho acoustique (persistée, appliquée à chaud, D-051).
+    dsp_echo_cancel: bool,
+    /// Annuleur d'écho : capture nettoyée de ce que la sortie vient de jouer
+    /// (référence far-end = trame mixée poussée au haut-parleur, silence
+    /// compris — la chronologie doit suivre la lecture). Remis à neuf à
+    /// chaque session et au changement de périphérique (le délai change).
+    aec: accord_voice::EchoCanceller,
     #[cfg(feature = "hardware")]
     hw: Option<super::hw::HardwareIo>,
     /// Test micro en cours (`event.voice_level` à ~10 Hz, D-029).
@@ -241,11 +248,13 @@ impl Engine {
             tracing::warn!(erreur = %e, "voix : volume principal illisible, défaut appliqué");
             gain::VOLUME_DEFAULT_PCT
         });
-        // Réglages DSP persistés ; illisibles = tout désactivé.
-        let (dsp_noise_suppression, dsp_agc) = deps.node.voice_dsp_config().unwrap_or_else(|e| {
-            tracing::warn!(erreur = %e, "voix : réglages DSP illisibles, défauts appliqués");
-            (false, false)
-        });
+        // Réglages DSP persistés ; illisibles = défauts (annulation d'écho
+        // active, le reste désactivé).
+        let (dsp_noise_suppression, dsp_agc, dsp_echo_cancel) =
+            deps.node.voice_dsp_config().unwrap_or_else(|e| {
+                tracing::warn!(erreur = %e, "voix : réglages DSP illisibles, défauts appliqués");
+                (false, false, true)
+            });
         let me = deps.node.public_key();
         Self {
             node: deps.node,
@@ -265,6 +274,8 @@ impl Engine {
             mod_flags: HashMap::new(),
             dsp_noise_suppression,
             dsp_agc,
+            dsp_echo_cancel,
+            aec: accord_voice::EchoCanceller::new(),
             #[cfg(feature = "hardware")]
             hw: None,
             #[cfg(feature = "hardware")]
@@ -380,12 +391,17 @@ impl Engine {
             Cmd::SetDsp {
                 noise_suppression,
                 agc,
+                echo_cancel,
                 resp,
             } => {
-                let _ = resp.send(self.handle_set_dsp(noise_suppression, agc));
+                let _ = resp.send(self.handle_set_dsp(noise_suppression, agc, echo_cancel));
             }
             Cmd::DspConfig { resp } => {
-                let _ = resp.send((self.dsp_noise_suppression, self.dsp_agc));
+                let _ = resp.send((
+                    self.dsp_noise_suppression,
+                    self.dsp_agc,
+                    self.dsp_echo_cancel,
+                ));
             }
             Cmd::GroupChanged { group_id } => self.refresh_moderation(group_id),
             Cmd::PeerSignal {
@@ -471,6 +487,8 @@ impl Engine {
         if self.backend == VoiceBackend::Materiel {
             // Le salon prend la main sur la capture : fin du test micro.
             self.mic_test = None;
+            // Session neuve : annuleur d'écho neuf (délai et filtre à zéro).
+            self.aec = accord_voice::EchoCanceller::new();
             self.hw = Some(super::hw::HardwareIo::open(
                 self.input_device.clone(),
                 self.output_device.clone(),
@@ -521,6 +539,8 @@ impl Engine {
         if self.backend == VoiceBackend::Materiel {
             // La session d'appel prend la main sur la capture.
             self.mic_test = None;
+            // Session neuve : annuleur d'écho neuf (délai et filtre à zéro).
+            self.aec = accord_voice::EchoCanceller::new();
             self.hw = Some(super::hw::HardwareIo::open(
                 self.input_device.clone(),
                 self.output_device.clone(),
@@ -820,6 +840,8 @@ impl Engine {
             if self.active.is_some() {
                 // Libère les anciens périphériques avant de rouvrir.
                 self.hw = None;
+                // Nouveau périphérique = nouveau délai d'écho : état neuf.
+                self.aec = accord_voice::EchoCanceller::new();
                 self.hw = Some(super::hw::HardwareIo::open(
                     self.input_device.clone(),
                     self.output_device.clone(),
@@ -1059,7 +1081,15 @@ impl Engine {
         self.run_call_actions(call_actions);
         let me = self.node.public_key();
         let my_server_mute = self.mod_flags.get(&me).is_some_and(|f| f.muted);
-        let pcm = self.next_capture();
+        let mut pcm = self.next_capture();
+        // Annulation d'écho (D-051) : la capture est nettoyée de ce que la
+        // sortie a joué AVANT la suppression de bruit et l'AGC (l'ordre
+        // standard — l'écho est un signal linéaire, il se soustrait sur le
+        // micro brut). Sans session active, la référence est muette et le
+        // traitement est transparent.
+        if self.dsp_echo_cancel && self.active.is_some() {
+            self.aec.process(&mut pcm);
+        }
         let mut events: Vec<(RoomKey, RosterEvent)> = Vec::new();
         let mut to_send: Vec<([u8; 32], VoiceMsg)> = Vec::new();
         let mut call_peer_lost = false;
@@ -1087,16 +1117,18 @@ impl Engine {
                 }
             }
             if let Some(roster) = self.rooms.get_mut(&key) {
-                // Lecture des participants (le tampon de gigue cadence).
+                // Lecture des participants (le tampon de gigue cadence). Les
+                // trames décodées du tick sont MIXÉES en une seule (D-051) :
+                // envoyées une à une, elles joueraient à la suite — voix
+                // entrelacées, file de sortie qui enfle puis jette (à-coups)
+                // dès trois participants.
+                let mut decoded_frames: Vec<Vec<i16>> = Vec::new();
                 for pk in roster.pubkeys() {
                     if pk == me {
                         continue;
                     }
-                    if let Ok(Some(_decoded)) = active.room.play(&pk) {
-                        #[cfg(feature = "hardware")]
-                        if let Some(hw) = &self.hw {
-                            hw.play(_decoded);
-                        }
+                    if let Ok(Some(decoded)) = active.room.play(&pk) {
+                        decoded_frames.push(decoded);
                     }
                     // Retour de qualité périodique (SPEC §8).
                     if self.tick_count % PING_PERIOD_TICKS == 0 {
@@ -1105,6 +1137,25 @@ impl Engine {
                         }
                     }
                 }
+                let mixed = accord_voice::mix::mix_frames(decoded_frames);
+                // Référence far-end de l'AEC : la trame réellement poussée
+                // vers le haut-parleur, silence compris (chronologie de la
+                // lecture). Poussée APRÈS le traitement de la capture de ce
+                // tick : l'écho ne peut contenir que des trames déjà rangées.
+                if self.dsp_echo_cancel {
+                    match &mixed {
+                        Some(frame) => self.aec.push_far(frame),
+                        None => self.aec.push_far(&[]),
+                    }
+                }
+                #[cfg(feature = "hardware")]
+                if let Some(hw) = &self.hw {
+                    if let Some(frame) = mixed {
+                        hw.play(frame);
+                    }
+                }
+                #[cfg(not(feature = "hardware"))]
+                drop(mixed);
                 // Priority speaker : les non-prioritaires sont atténués tant
                 // qu'un orateur prioritaire parle (salons de groupe).
                 if !active.is_call {
@@ -1403,13 +1454,22 @@ impl Engine {
         &mut self,
         noise_suppression: Option<bool>,
         agc: Option<bool>,
+        echo_cancel: Option<bool>,
     ) -> Result<(), NodeError> {
-        self.node.set_voice_dsp_config(noise_suppression, agc)?;
+        self.node
+            .set_voice_dsp_config(noise_suppression, agc, echo_cancel)?;
         if let Some(enabled) = noise_suppression {
             self.dsp_noise_suppression = enabled;
         }
         if let Some(enabled) = agc {
             self.dsp_agc = enabled;
+        }
+        if let Some(enabled) = echo_cancel {
+            // Réactivation : état neuf (une référence périmée n'a aucun sens).
+            if enabled && !self.dsp_echo_cancel {
+                self.aec = accord_voice::EchoCanceller::new();
+            }
+            self.dsp_echo_cancel = enabled;
         }
         if let Some(active) = self.active.as_mut() {
             active

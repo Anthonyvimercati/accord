@@ -77,15 +77,19 @@ impl Node {
         })
     }
 
-    /// Persisted capture DSP flags `(noise suppression, AGC)` — both default
-    /// to `false` (the UI decides its own policy); same `meta`-table pattern
-    /// as the audio devices (no schema migration). A corrupt value falls
-    /// back to the default rather than making voice unusable.
-    pub fn voice_dsp_config(&self) -> Result<(bool, bool), NodeError> {
+    /// Persisted capture DSP flags `(noise suppression, AGC, echo cancel)` —
+    /// noise suppression and AGC default to `false` (the UI decides its own
+    /// policy), echo cancellation defaults to `true` (D-051 : sans elle, les
+    /// interlocuteurs s'entendent en double dès que le haut-parleur joue) ;
+    /// same `meta`-table pattern as the audio devices (no schema migration).
+    /// A corrupt value falls back to the default rather than making voice
+    /// unusable.
+    pub fn voice_dsp_config(&self) -> Result<(bool, bool, bool), NodeError> {
         self.with_db(|db| {
             Ok((
                 read_flag_meta(db, META_VOICE_DSP_NS)?,
                 read_flag_meta(db, META_VOICE_DSP_AGC)?,
+                read_flag_meta_or(db, META_VOICE_DSP_EC, true)?,
             ))
         })
     }
@@ -95,6 +99,7 @@ impl Node {
         &self,
         noise_suppression: Option<bool>,
         agc: Option<bool>,
+        echo_cancel: Option<bool>,
     ) -> Result<(), NodeError> {
         self.with_db(|db| {
             if let Some(enabled) = noise_suppression {
@@ -102,6 +107,9 @@ impl Node {
             }
             if let Some(enabled) = agc {
                 db.set_meta(META_VOICE_DSP_AGC, flag_bytes(enabled))?;
+            }
+            if let Some(enabled) = echo_cancel {
+                db.set_meta(META_VOICE_DSP_EC, flag_bytes(enabled))?;
             }
             Ok(())
         })
@@ -121,6 +129,8 @@ const DEVICE_NAME_MAX_CHARS: usize = 256;
 const META_VOICE_DSP_NS: &str = "voice.dsp.noise_suppression";
 /// Meta key of the persisted AGC flag.
 const META_VOICE_DSP_AGC: &str = "voice.dsp.agc";
+/// Meta key of the persisted echo-cancellation flag (absent ⇒ enabled, D-051).
+const META_VOICE_DSP_EC: &str = "voice.dsp.echo_cancel";
 
 /// Meta key of a peer's persisted output volume (percent).
 fn peer_volume_key(pubkey: &[u8; 32]) -> String {
@@ -139,6 +149,16 @@ fn flag_bytes(enabled: bool) -> &'static [u8] {
 /// Reads a persisted boolean flag (absent or unreadable ⇒ `false`).
 fn read_flag_meta(db: &Db, key: &str) -> Result<bool, NodeError> {
     Ok(db.meta(key)?.as_deref() == Some(b"1"))
+}
+
+/// Reads a persisted boolean flag with an explicit default when absent
+/// (an explicitly stored `"0"` stays `false`).
+fn read_flag_meta_or(db: &Db, key: &str, default: bool) -> Result<bool, NodeError> {
+    Ok(match db.meta(key)?.as_deref() {
+        Some(b"1") => true,
+        Some(_) => false,
+        None => default,
+    })
 }
 
 /// Validates a volume percent (0..=200).

@@ -16,6 +16,35 @@ pub fn gain_of_pct(pct: u16) -> f32 {
     f32::from(pct.min(VOLUME_MAX_PCT)) / 100.0
 }
 
+/// Soft-limiter threshold (≈ −1.4 dBFS): below it, samples pass untouched.
+const SOFT_LIMIT_THRESHOLD: f32 = 28_000.0;
+
+/// Compresses a sample smoothly above [`SOFT_LIMIT_THRESHOLD`] instead of
+/// hard-clipping at the `i16` bounds (hard clipping is what "crackles"). The
+/// tanh knee maps any input magnitude into (threshold, i16::MAX) — safe for
+/// values far beyond the `i16` range (e.g. a mixing accumulator).
+pub fn soft_limit(x: f32) -> f32 {
+    const MAX: f32 = 32_767.0;
+    const RANGE: f32 = MAX - SOFT_LIMIT_THRESHOLD;
+    let a = x.abs();
+    if a <= SOFT_LIMIT_THRESHOLD {
+        return x;
+    }
+    (SOFT_LIMIT_THRESHOLD + RANGE * ((a - SOFT_LIMIT_THRESHOLD) / RANGE).tanh()).copysign(x)
+}
+
+/// Applies a linear gain in place with the soft limiter as the ceiling: the
+/// scaling happens in f32 BEFORE any `i16` clamp, so a boosted peak is
+/// compressed smoothly instead of squared off. Used by the capture AGC.
+pub fn apply_gain_soft(pcm: &mut [i16], gain: f32) {
+    if (gain - 1.0).abs() < f32::EPSILON {
+        return;
+    }
+    for sample in pcm.iter_mut() {
+        *sample = soft_limit(f32::from(*sample) * gain).round() as i16;
+    }
+}
+
 /// Applies a linear gain in place, saturating at the `i16` bounds to avoid
 /// wrap-around clipping artifacts. Unity gain is a no-op.
 pub fn apply_gain(pcm: &mut [i16], gain: f32) {
@@ -63,6 +92,30 @@ mod tests {
         let mut pcm = vec![i16::MAX, i16::MIN, 20_000, -20_000];
         apply_gain(&mut pcm, 2.0);
         assert_eq!(pcm, vec![i16::MAX, i16::MIN, i16::MAX, i16::MIN]);
+    }
+
+    #[test]
+    fn soft_limit_is_transparent_below_threshold_and_never_wraps_above() {
+        assert_eq!(soft_limit(0.0), 0.0);
+        assert_eq!(soft_limit(10_000.0), 10_000.0);
+        assert_eq!(soft_limit(-27_000.0), -27_000.0);
+        // Au-delà du seuil : compressé, monotone, borné, signe conservé.
+        let a = soft_limit(30_000.0);
+        let b = soft_limit(60_000.0);
+        let c = soft_limit(1_000_000.0);
+        assert!(a > 28_000.0 && a < 30_000.0);
+        assert!(b > a && c > b && c <= 32_767.0);
+        assert_eq!(soft_limit(-60_000.0), -b);
+    }
+
+    #[test]
+    fn soft_gain_compresses_peaks_instead_of_flattening_them() {
+        // Écrêtage dur : deux pics différents finissent identiques (méplat).
+        // Limiteur doux : l'ordre est conservé — pas de distorsion en plateau.
+        let mut pcm = vec![8_000i16, 9_000];
+        apply_gain_soft(&mut pcm, 4.0);
+        assert!(pcm[0] < pcm[1], "l'ordre des pics doit survivre : {pcm:?}");
+        assert!(pcm[1] <= i16::MAX);
     }
 
     #[test]

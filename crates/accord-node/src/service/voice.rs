@@ -56,7 +56,7 @@ impl NodeService {
                     .get("enabled")
                     .and_then(Value::as_bool)
                     .ok_or(NodeError::Invalid("enabled booléen requis"))?;
-                voice.set_dsp(Some(enabled), None).await?;
+                voice.set_dsp(Some(enabled), None, None).await?;
                 Ok(json!({}))
             }
             "voice.set_agc" => {
@@ -64,7 +64,15 @@ impl NodeService {
                     .get("enabled")
                     .and_then(Value::as_bool)
                     .ok_or(NodeError::Invalid("enabled booléen requis"))?;
-                voice.set_dsp(None, Some(enabled)).await?;
+                voice.set_dsp(None, Some(enabled), None).await?;
+                Ok(json!({}))
+            }
+            "voice.set_echo_cancel" => {
+                let enabled = params
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or(NodeError::Invalid("enabled booléen requis"))?;
+                voice.set_dsp(None, None, Some(enabled)).await?;
                 Ok(json!({}))
             }
             "voice.join" => {
@@ -116,13 +124,14 @@ impl NodeService {
             "voice.status" => {
                 let status = voice.status().await?;
                 let master_volume = voice.master_volume().await?;
-                let (noise_suppression, agc) = voice.dsp_config().await?;
+                let (noise_suppression, agc, echo_cancel) = voice.dsp_config().await?;
                 Ok(json!({
                     "active": status.as_ref().map(voice_status_json),
                     "master_volume": master_volume,
                     "dsp": {
                         "noise_suppression": noise_suppression,
                         "agc": agc,
+                        "echo_cancel": echo_cancel,
                     },
                 }))
             }

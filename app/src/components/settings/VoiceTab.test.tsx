@@ -67,7 +67,10 @@ async function renderVoiceTab(): Promise<ReturnType<typeof render>> {
 beforeEach(() => {
   window.localStorage.clear();
   useUi.setState({ lang: 'fr', toasts: [], pttEnabled: false, pttKey: 'Space' });
-  useVoice.setState({ masterVolume: 100, dsp: { noiseSuppression: false, agc: false } });
+  useVoice.setState({
+    masterVolume: 100,
+    dsp: { noiseSuppression: false, agc: false, echoCancel: true },
+  });
   devicesMock.mockReset();
   setDevicesMock.mockReset();
   micTestMock.mockReset();

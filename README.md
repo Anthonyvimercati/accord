@@ -45,7 +45,7 @@ end-to-end encrypted. Nobody can host, read, sell, or lose your conversations.
 | | |
 |---|---|
 | 💬 **Chat** | DMs and servers — text, announcement and forum channels, threads, categories, pins, mentions, reactions, custom emojis, stickers, polls, file sharing with image thumbnails |
-| 📞 **Voice** | Voice channels and 1-to-1 calls with ringing, noise suppression (RNNoise), auto gain, packet-loss recovery (Opus FEC), soundboard |
+| 📞 **Voice** | Voice channels and 1-to-1 calls with ringing, echo cancellation, noise suppression (RNNoise), auto gain, packet-loss recovery (Opus FEC), soundboard |
 | 🛡️ **Communities** | Roles & permissions, moderation (kick/ban/timeout), AutoMod word filter, invitations, scheduled events, server folders |
 | ⌨️ **Comfort** | Ctrl/Cmd+K palette (navigation + commands), right-click menus everywhere, dock unread badge, native notifications, keyboard shortcuts, built-in signed updates |
 | 🎨 **Personalization** | 24 themes (light & dark, 5 animated figurative scenes), animated profile decorations, effects and frames, custom status, message density |

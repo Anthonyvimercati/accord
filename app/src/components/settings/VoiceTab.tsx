@@ -103,6 +103,7 @@ export function VoiceTab() {
   const dsp = useVoice((s) => s.dsp);
   const setNoiseSuppression = useVoice((s) => s.setNoiseSuppression);
   const setAgc = useVoice((s) => s.setAgc);
+  const setEchoCancel = useVoice((s) => s.setEchoCancel);
 
   const [devices, setDevices] = useState<VoiceDevices | null>(null);
   const [testing, setTesting] = useState(false);
@@ -260,6 +261,14 @@ export function VoiceTab() {
       </SettingsSection>
 
       <SettingsSection title={t.settings.dspTitle} hint={t.settings.dspHint}>
+        <ToggleRow
+          label={t.settings.echoCancel}
+          hint={t.settings.echoCancelHint}
+          checked={dsp.echoCancel}
+          onChange={(enabled) => {
+            setEchoCancel(enabled).catch(() => toast('error', t.errors.actionFailed));
+          }}
+        />
         <ToggleRow
           label={t.settings.noiseSuppression}
           hint={t.settings.noiseSuppressionHint}

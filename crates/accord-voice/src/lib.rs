@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod aec;
 pub mod bitrate;
 pub mod codec;
 pub mod convert;
@@ -20,10 +21,12 @@ pub mod gain;
 pub mod io;
 pub mod jitter;
 pub mod loss;
+pub mod mix;
 pub mod params;
 pub mod room;
 pub mod vad;
 
+pub use aec::EchoCanceller;
 pub use codec::{AudioCodec, CodecError, PassthroughCodec, Pcm8Codec};
 pub use jitter::{JitterBuffer, Playout};
 pub use loss::LossEstimator;

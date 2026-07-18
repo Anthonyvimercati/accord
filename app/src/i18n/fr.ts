@@ -852,6 +852,9 @@ export const fr = {
     // Qualité audio (DSP).
     dspTitle: 'Qualité audio',
     dspHint: 'Appliqué à chaud, salon comme appel — environ 0,5 % d’un cœur processeur.',
+    echoCancel: 'Annulation d’écho',
+    echoCancelHint:
+      'Retire de votre micro le son que vos haut-parleurs viennent de jouer — sans elle, vos interlocuteurs s’entendent en double. Inutile au casque, mais sans effet néfaste.',
     noiseSuppression: 'Suppression de bruit (RNNoise)',
     noiseSuppressionHint: 'Réduit le bruit de fond ambiant sur votre micro.',
     agc: 'Gain automatique (AGC)',
