@@ -68,9 +68,9 @@ mod tests {
         let a = vec![30_000i16; FRAME_SAMPLES];
         let b = vec![30_000i16; FRAME_SAMPLES];
         let mixed = mix_frames(vec![a, b]).expect("trame mixée");
-        // Jamais d'enroulement (le signe reste positif), plafond respecté,
-        // et le limiteur mord (la somme brute 60 000 est compressée).
-        assert!(mixed.iter().all(|&s| s > 28_000 && s <= i16::MAX));
+        // Jamais d'enroulement : la somme brute (60 000, hors bornes i16) est
+        // compressée dans la zone du limiteur, signe conservé.
+        assert!(mixed.iter().all(|&s| s > 28_000));
     }
 
     #[test]

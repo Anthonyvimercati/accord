@@ -115,7 +115,7 @@ mod tests {
         let mut pcm = vec![8_000i16, 9_000];
         apply_gain_soft(&mut pcm, 4.0);
         assert!(pcm[0] < pcm[1], "l'ordre des pics doit survivre : {pcm:?}");
-        assert!(pcm[1] <= i16::MAX);
+        assert!(pcm[1] > 28_000, "le limiteur doit mordre : {pcm:?}");
     }
 
     #[test]
