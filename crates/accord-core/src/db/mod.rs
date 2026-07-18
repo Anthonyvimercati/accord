@@ -28,12 +28,31 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
     v.try_into()
         .map_err(|_| CoreError::Invalid("taille de blob"))
+}
+
+/// Taille de tranche des requêtes `IN (…)` par lot : sous la limite SQLite de
+/// variables liées (999 par défaut), et bornée pour que `prepare_cached` ne
+/// garde qu'un petit nombre de formes de requête distinctes.
+pub(crate) const IN_CHUNK: usize = 256;
+
+/// Liste de `n` marqueurs `?` pour une clause `IN (…)` construite par lot.
+/// Aucune donnée n'est interpolée : uniquement des marqueurs, les valeurs
+/// restent liées par paramètres.
+pub(crate) fn sql_placeholders(n: usize) -> String {
+    let mut s = String::with_capacity(n * 2);
+    for i in 0..n {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push('?');
+    }
+    s
 }
 
 /// Encode une clé binaire en littéral hexadécimal SQLCipher `x'…'`.
@@ -84,10 +103,22 @@ impl Db {
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(db_key)))?;
         // Vérifie que la clé ouvre bien la base (première lecture réelle).
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))?;
+        // `synchronous = NORMAL` est sûr sous WAL : la base ne peut pas être
+        // corrompue ; au pire, le dernier commit est perdu sur une coupure de
+        // l'OS — acceptable pour un client, contre un fsync par message en
+        // FULL. `cache_size` négatif = Kio (~16 Mio de cache de pages).
+        // `mmap_size` est demandé mais SQLCipher désactive l'I/O mappée sur
+        // une base chiffrée (les pages doivent être déchiffrées) : sans effet
+        // ici, inoffensif, actif si la base devenait claire. `temp_store =
+        // MEMORY` garde tris et index temporaires hors disque.
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 5000;",
+             PRAGMA busy_timeout = 5000;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA cache_size = -16000;
+             PRAGMA mmap_size = 268435456;
+             PRAGMA temp_store = MEMORY;",
         )?;
         let db = Self {
             conn,
@@ -242,6 +273,12 @@ impl Db {
              );
              CREATE INDEX IF NOT EXISTS outbox_due
                ON outbox(next_attempt_ms);
+             -- Migration v10 : `outbox_for` (reconnexion d'un pair) et
+             -- `outbox_dests` filtrent/groupent par destinataire — sans cet
+             -- index, chaque ouverture de conversation balayait toute la
+             -- file. (dest, created_ms) couvre l'égalité ET l'ordre de tri.
+             CREATE INDEX IF NOT EXISTS outbox_by_dest
+               ON outbox(dest, created_ms);
              CREATE TABLE IF NOT EXISTS files (
                merkle_root BLOB PRIMARY KEY,
                name        TEXT NOT NULL,
@@ -327,7 +364,7 @@ impl Db {
                last_ms    INTEGER NOT NULL,
                PRIMARY KEY (group_id, channel_id, author)
              );
-             PRAGMA user_version = 9;
+             PRAGMA user_version = 10;
              COMMIT;",
         )?;
         Ok(())

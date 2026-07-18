@@ -21,6 +21,27 @@ use super::helpers::{
     param_pubkey, param_str, param_u32, param_u64, param_u8,
 };
 
+/// Sérialise une tranche d'historique de groupe. Les réactions, pièces
+/// jointes et mentions sont chargées en un LOT (trois requêtes par page, au
+/// lieu de trois par message).
+fn group_messages_json(
+    node: &Node,
+    msgs: &[accord_core::db::GroupMsgRecord],
+) -> Result<Vec<Value>, NodeError> {
+    let ids: Vec<[u8; 16]> = msgs.iter().map(|m| m.msg_id).collect();
+    let annotations = node.annotations_of(&ids)?;
+    msgs.iter()
+        .map(|m| {
+            Ok(group_msg_json(
+                m,
+                annotations.reactions_of(&m.msg_id),
+                annotations.attachments_of(&m.msg_id),
+                annotations.mentions_me(&m.msg_id),
+            ))
+        })
+        .collect()
+}
+
 /// Identifiant de salon optionnel (catégorie parente d'un salon).
 fn param_opt_id16(params: &Value, key: &str) -> Result<Option<[u8; 16]>, NodeError> {
     match param_opt_str(params, key)? {
@@ -677,17 +698,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let cid = param_id16(params, "channel_id")?;
             let before = param_u64(params, "before_lamport", u64::MAX);
             let msgs = node.group_history(&gid, &cid, before, param_limit(params))?;
-            let messages = msgs
-                .iter()
-                .map(|m| {
-                    Ok(group_msg_json(
-                        m,
-                        &node.reactions_of(&m.msg_id)?,
-                        &node.attachments_of(&m.msg_id)?,
-                        node.msg_mentions_me(&m.msg_id)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, NodeError>>()?;
+            let messages = group_messages_json(node, &msgs)?;
             Ok(json!({ "messages": messages }))
         }
         "groups.history_around" => {
@@ -695,17 +706,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let cid = param_id16(params, "channel_id")?;
             let mid = param_id16(params, "msg_id")?;
             let (msgs, found) = node.group_history_around(&gid, &cid, &mid, param_limit(params))?;
-            let messages = msgs
-                .iter()
-                .map(|m| {
-                    Ok(group_msg_json(
-                        m,
-                        &node.reactions_of(&m.msg_id)?,
-                        &node.attachments_of(&m.msg_id)?,
-                        node.msg_mentions_me(&m.msg_id)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, NodeError>>()?;
+            let messages = group_messages_json(node, &msgs)?;
             Ok(json!({ "messages": messages, "found": found }))
         }
         "groups.send" => {

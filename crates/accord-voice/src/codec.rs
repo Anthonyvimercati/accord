@@ -16,6 +16,17 @@ pub trait AudioCodec: Send {
     /// produit une dissimulation de perte (PLC).
     fn decode(&mut self, packet: Option<&[u8]>) -> Result<Vec<i16>, CodecError>;
 
+    /// Reconstruit une trame PERDUE à partir de la redondance FEC in-band du
+    /// paquet SUIVANT (`next_packet`, déjà reçu). Bien mieux qu'une simple
+    /// dissimulation : Opus embarque une version basse résolution de la trame
+    /// précédente dans chaque paquet quand la FEC est active. Par défaut
+    /// (codecs sans FEC), retombe sur le PLC — comportement inchangé.
+    /// `next_packet` sera ensuite décodé normalement à son tour : la FEC ne
+    /// remplace que la trame manquante.
+    fn decode_fec(&mut self, _next_packet: &[u8]) -> Result<Vec<i16>, CodecError> {
+        self.decode(None)
+    }
+
     /// Ajuste le débit cible (bit/s) — sans effet pour un codec sans débit.
     fn set_bitrate(&mut self, _bitrate: u32) {}
 }
@@ -98,6 +109,11 @@ mod opus_codec {
     use super::*;
     use crate::params::{CHANNELS, SAMPLE_RATE};
 
+    /// Perte de paquets annoncée à l'encodeur : dimensionne la redondance FEC
+    /// in-band (compromis débit/résilience raisonnable pour du P2P grand
+    /// public ; en dessous, libopus n'émet quasiment pas de redondance).
+    const EXPECTED_LOSS_PERC: i32 = 10;
+
     /// Codec Opus réel (48 kHz mono, VoIP).
     pub struct OpusCodec {
         encoder: opus::Encoder,
@@ -105,7 +121,11 @@ mod opus_codec {
     }
 
     impl OpusCodec {
-        /// Crée un codec Opus au débit initial donné.
+        /// Crée un codec Opus au débit initial donné. FEC in-band active
+        /// (récupération d'une trame perdue depuis le paquet suivant, au lieu
+        /// de la masquer par PLC) et DTX actif (quasi-silence ≈ 0 émission —
+        /// ceinture et bretelles derrière la VAD applicative, qui coupe déjà
+        /// les trames jugées silencieuses avant l'encodeur).
         pub fn new(bitrate: u32) -> Result<Self, CodecError> {
             let channels = if CHANNELS == 1 {
                 opus::Channels::Mono
@@ -116,6 +136,15 @@ mod opus_codec {
                 .map_err(|e| CodecError::Backend(e.to_string()))?;
             encoder
                 .set_bitrate(opus::Bitrate::Bits(bitrate as i32))
+                .map_err(|e| CodecError::Backend(e.to_string()))?;
+            encoder
+                .set_inband_fec(true)
+                .map_err(|e| CodecError::Backend(e.to_string()))?;
+            encoder
+                .set_packet_loss_perc(EXPECTED_LOSS_PERC)
+                .map_err(|e| CodecError::Backend(e.to_string()))?;
+            encoder
+                .set_dtx(true)
                 .map_err(|e| CodecError::Backend(e.to_string()))?;
             let decoder = opus::Decoder::new(SAMPLE_RATE, channels)
                 .map_err(|e| CodecError::Backend(e.to_string()))?;
@@ -140,6 +169,20 @@ mod opus_codec {
                 None => self.decoder.decode(&[], &mut out, true), // PLC
             }
             .map_err(|e| CodecError::Backend(e.to_string()))?;
+            out.truncate(decoded);
+            Ok(out)
+        }
+
+        fn decode_fec(&mut self, next_packet: &[u8]) -> Result<Vec<i16>, CodecError> {
+            // `fec = true` sur le paquet SUIVANT le trou : libopus rend la
+            // reconstruction de la trame PERDUE (le tampon de sortie doit
+            // faire exactement une trame). Le paquet lui-même sera décodé
+            // normalement au tour suivant.
+            let mut out = vec![0i16; FRAME_SAMPLES];
+            let decoded = self
+                .decoder
+                .decode(next_packet, &mut out, true)
+                .map_err(|e| CodecError::Backend(e.to_string()))?;
             out.truncate(decoded);
             Ok(out)
         }
@@ -173,6 +216,21 @@ mod tests {
     fn passthrough_plc_is_silence() {
         let mut codec = PassthroughCodec;
         assert_eq!(codec.decode(None).unwrap(), vec![0i16; FRAME_SAMPLES]);
+    }
+
+    #[test]
+    fn decode_fec_par_defaut_retombe_sur_le_plc() {
+        // Les codecs sans FEC in-band ignorent le paquet suivant et rendent
+        // la même dissimulation que `decode(None)`.
+        let mut codec = PassthroughCodec;
+        let pcm: Vec<i16> = (0..FRAME_SAMPLES as i32).map(|i| i as i16).collect();
+        let next = codec.encode(&pcm).unwrap();
+        assert_eq!(codec.decode_fec(&next).unwrap(), vec![0i16; FRAME_SAMPLES]);
+        let mut codec = Pcm8Codec;
+        assert_eq!(
+            codec.decode_fec(&[0u8; FRAME_SAMPLES]).unwrap(),
+            vec![0i16; FRAME_SAMPLES]
+        );
     }
 
     #[test]

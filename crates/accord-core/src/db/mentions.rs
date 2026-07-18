@@ -3,7 +3,9 @@
 //! passive à l'ingestion (voir [`crate::mentions`]) ; aucune donnée de mention
 //! ne transite sur le réseau. Une entrée par message (dédup sur `msg_id`).
 
-use super::{blob, Db};
+use std::collections::HashSet;
+
+use super::{blob, sql_placeholders, Db, IN_CHUNK};
 use crate::error::CoreError;
 use rusqlite::{params, OptionalExtension};
 
@@ -127,6 +129,33 @@ impl Db {
             )
             .optional()?
             .is_some())
+    }
+
+    /// Sous-ensemble d'un LOT de messages portant une entrée de mention
+    /// (annotation `mentions_me` de l'historique). Une requête par tranche de
+    /// [`IN_CHUNK`] identifiants au lieu d'une par message.
+    pub fn mentions_recorded_for(
+        &self,
+        msg_ids: &[[u8; 16]],
+    ) -> Result<HashSet<[u8; 16]>, CoreError> {
+        let mut out = HashSet::new();
+        for chunk in msg_ids.chunks(IN_CHUNK) {
+            let sql = format!(
+                "SELECT msg_id FROM mentions WHERE msg_id IN ({})",
+                sql_placeholders(chunk.len())
+            );
+            let mut stmt = self.conn().prepare_cached(&sql)?;
+            let raws = stmt
+                .query_map(
+                    rusqlite::params_from_iter(chunk.iter().map(|id| id.as_slice())),
+                    |row| row.get::<_, Vec<u8>>(0),
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            for id in raws {
+                out.insert(blob(id)?);
+            }
+        }
+        Ok(out)
     }
 
     /// Boîte de mentions, de la plus récente à la plus ancienne, bornée à
@@ -268,6 +297,28 @@ mod tests {
             snippet: format!("extrait {id}"),
             read: false,
         }
+    }
+
+    #[test]
+    fn mentions_par_lot_egalent_l_acces_unitaire() {
+        // Le sous-ensemble rendu par lot doit coïncider avec
+        // `mention_recorded` message par message.
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let ids: Vec<[u8; 16]> = (1..=12u8).map(|i| [i; 16]).collect();
+        for i in (1..=12u8).step_by(3) {
+            db.insert_mention(&entry(i, u64::from(i), MentionScope::Dm))
+                .unwrap();
+        }
+        let batch = db.mentions_recorded_for(&ids).unwrap();
+        for id in &ids {
+            assert_eq!(
+                batch.contains(id),
+                db.mention_recorded(id).unwrap(),
+                "divergence pour {:?}",
+                id[0]
+            );
+        }
+        assert!(!batch.contains(&[99; 16]));
     }
 
     #[test]

@@ -13,6 +13,7 @@ accord-transport = { path = "../accord-transport" }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
+futures-util = { workspace = true }
 rand = { workspace = true }
 async-trait = "0.1"
 sha2 = { workspace = true }
