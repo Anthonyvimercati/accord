@@ -2,6 +2,26 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.3.2] — 2026-07-18
+
+### Fixed
+
+- **Image zoom no longer breaks**: the fullscreen viewer was rendered inside
+  the chat panel, and since Liquid Glass an ancestor `backdrop-filter` turns
+  into the containing block for `position: fixed` — the overlay came out
+  clipped and misplaced. It now renders at the document root (portal).
+- **Floating panels readable again on animated themes**: server menu, server
+  settings and other glass surfaces were far too translucent when the
+  backdrop blur silently fails (WKWebView + animated scene layers) — content
+  behind bled through. Glass panels are now near-opaque, with the blur kept
+  as a progressive enhancement.
+
+### Changed
+
+- **Bigger emojis in messages**: unicode emojis are rendered ~45% larger
+  than the surrounding text, and custom server emojis go from 22 px to 28 px
+  (48 px with the "large" setting).
+
 ## [2.3.1] — 2026-07-18
 
 ### Added

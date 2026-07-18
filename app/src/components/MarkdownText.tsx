@@ -19,9 +19,33 @@ import { CustomEmoji } from './CustomEmoji';
 
 /** Diamètre (px) d'un émoji personnalisé selon le réglage « Taille des émojis ». */
 const CUSTOM_EMOJI_PX: Record<EmojiSize, number | undefined> = {
-  normal: undefined, // laisse `CustomEmoji` appliquer son défaut en ligne (22px).
-  large: 44,
+  normal: 28,
+  large: 48,
 };
+
+/**
+ * Séquences d'émojis unicode (pictogrammes, ZWJ, sélecteurs de variante,
+ * teintes de peau) : agrandies dans le corps des messages via `.emoji-uni`
+ * (D-054 — à la taille du texte, un émoji est illisible).
+ */
+const EMOJI_UNICODE =
+  /((?![©®™])\p{Extended_Pictographic}(?:️|[\u{1F3FB}-\u{1F3FF}])?(?:‍\p{Extended_Pictographic}(?:️|[\u{1F3FB}-\u{1F3FF}])?)*)/gu;
+
+/** Enveloppe chaque séquence d'émoji unicode d'un `<span>` agrandi. */
+function texteAvecEmojis(value: string): ReactNode {
+  if (!EMOJI_UNICODE.test(value)) return value;
+  EMOJI_UNICODE.lastIndex = 0;
+  const parts = value.split(EMOJI_UNICODE);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} className="emoji-uni">
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
 
 export interface MarkdownTextProps {
   text: string;
@@ -141,7 +165,7 @@ function renderNodes(nodes: readonly MdNode[], ctx: Ctx): ReactNode {
 function renderNode(node: MdNode, ctx: Ctx): ReactNode {
   switch (node.type) {
     case 'text':
-      return node.value;
+      return texteAvecEmojis(node.value);
     case 'break':
       return <br />;
     case 'bold':

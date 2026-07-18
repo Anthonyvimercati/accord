@@ -12,8 +12,8 @@
   --liquid-sidebar: rgb(var(--color-sidebar) / 0.6);
   --liquid-stage: rgb(var(--color-chat) / 0.76);
   --liquid-chrome: rgb(var(--color-chat) / 0.48);
-  --liquid-floating: rgb(var(--color-modal) / 0.74);
-  --liquid-floating-strong: rgb(var(--color-modal) / 0.92);
+  --liquid-floating: rgb(var(--color-modal) / 0.94);
+  --liquid-floating-strong: rgb(var(--color-modal) / 0.97);
   --liquid-control: rgb(var(--color-input) / 0.48);
   --liquid-shadow:
     0 1px 0 var(--liquid-specular-soft) inset, 0 -1px 0 var(--liquid-depth) inset,
@@ -41,8 +41,8 @@
   --liquid-sidebar: rgb(var(--color-sidebar) / 0.75);
   --liquid-stage: rgb(var(--color-chat) / 0.88);
   --liquid-chrome: rgb(var(--color-chat) / 0.7);
-  --liquid-floating: rgb(var(--color-modal) / 0.84);
-  --liquid-floating-strong: rgb(var(--color-modal) / 0.95);
+  --liquid-floating: rgb(var(--color-modal) / 0.96);
+  --liquid-floating-strong: rgb(var(--color-modal) / 0.98);
   --liquid-control: rgb(var(--color-input) / 0.64);
 }
 
@@ -418,7 +418,7 @@
 .modal-overlay-enter,
 .modal-overlay-exit,
 .liquid-overlay {
-  background-color: rgb(var(--color-tooltip) / 0.52);
+  background-color: rgb(var(--color-tooltip) / 0.68);
   backdrop-filter: blur(10px) saturate(118%);
   -webkit-backdrop-filter: blur(10px) saturate(118%);
 }
@@ -427,7 +427,7 @@
 .liquid-settings {
   border: 1px solid var(--liquid-rim);
   border-color: var(--liquid-rim);
-  background-color: rgb(var(--color-chat) / 0.88);
+  background-color: rgb(var(--color-chat) / 0.96);
   background-image:
     linear-gradient(155deg, var(--liquid-specular-soft), transparent 24%),
     var(--theme-modal-art);
@@ -439,7 +439,7 @@
 .accord-settings-nav,
 .liquid-settings-nav {
   border-color: var(--liquid-rim-soft);
-  background-color: rgb(var(--color-sidebar) / 0.72);
+  background-color: rgb(var(--color-sidebar) / 0.94);
   background-image:
     linear-gradient(150deg, var(--liquid-specular-soft), transparent 30%),
     radial-gradient(

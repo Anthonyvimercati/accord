@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { interpolate } from '../i18n';
 import type { FileAttachment } from '../lib/api';
 import { estAudio, estImage, estVideo, MAX_TAILLE_PIECE } from '../lib/attachments';
@@ -106,7 +107,11 @@ function Lightbox({
     return () => window.removeEventListener('keydown', onKey);
   }, [fermer]);
 
-  return (
+  // Portail vers <body> (D-054) : rendu dans le fil de messages, l'overlay
+  // `position: fixed` serait CONFINÉ au panneau de chat — un ancêtre avec
+  // `backdrop-filter` (`.accord-stage`, Liquid Glass) devient le bloc
+  // conteneur des `fixed` descendants et le plein écran sort « tout cassé ».
+  return createPortal(
     <div
       role="dialog"
       aria-label={name}
@@ -131,7 +136,8 @@ function Lightbox({
       >
         <CloseIcon size={22} />
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

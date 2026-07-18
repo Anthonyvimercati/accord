@@ -537,6 +537,17 @@ textarea {
   background-repeat: no-repeat;
 }
 
+/*
+ * Émojis unicode agrandis dans le corps des messages (D-054) : à la taille
+ * du texte ils sont illisibles. `vertical-align` recentre la ligne, la
+ * hauteur de ligne est neutralisée pour ne pas aérer les paragraphes.
+ */
+.emoji-uni {
+  font-size: 1.45em;
+  line-height: 1;
+  vertical-align: -0.18em;
+}
+
 /* Surbrillance brève du message ciblé par un saut (recherche, épingle, citation). */
 @keyframes msg-flash {
   0% {
