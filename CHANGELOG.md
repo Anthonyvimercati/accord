@@ -2,6 +2,21 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.1.0] — 2026-07-18
+
+### Changed
+
+- **Liquid Glass interface**: floating surfaces — modals, pinned-message and
+  thread panels, the soundboard, the avatar cropper, server settings and the
+  member drawer — now use a translucent frosted-glass treatment with subtle
+  rim light and depth. It reads each theme's own color tokens, so it adapts to
+  all 20 themes (light and dark) with no hardcoded colors. The logo and visual
+  identity are unchanged.
+- Respects system preferences: falls back to opaque surfaces where
+  `backdrop-filter` is unsupported, and honors reduced-transparency,
+  increased-contrast, forced-colors (Windows high contrast) and
+  reduced-motion.
+
 ## [2.0.0] — 2026-07-18
 
 ### Added
