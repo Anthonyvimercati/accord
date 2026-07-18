@@ -479,6 +479,11 @@ async fn run_node(
     let boot_rt = Arc::clone(&runtime);
     tokio::spawn(async move { boot_rt.bootstrap_all().await });
 
+    // Reconnexion rapide aux amis via leur dernière adresse connue (carnet
+    // persistant) : rétablit les sessions sans attendre la résolution DHT.
+    let recon_rt = Arc::clone(&runtime);
+    tokio::spawn(async move { recon_rt.reconnect_known_friends().await });
+
     // Annonce de présence « en ligne » aux amis joignables (best-effort :
     // ceux hors ligne la perdent, un futur message les remettra en ligne).
     let _ = node.broadcast_presence(true);

@@ -15,6 +15,7 @@ pub mod group;
 pub mod mentions;
 pub mod messaging;
 pub mod offline;
+pub mod peer_addr;
 pub mod presence;
 pub mod profile;
 pub mod search;

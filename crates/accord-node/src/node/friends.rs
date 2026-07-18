@@ -1,8 +1,10 @@
 //! Amis : contacts, demandes, réponses, retrait, blocage et statut de
 //! présence local (bloc `impl Node` du domaine `friends.*`).
 
+use std::net::SocketAddr;
+
 use accord_core::db::Contact;
-use accord_core::{friends, presence};
+use accord_core::{friends, peer_addr, presence};
 use accord_crypto::FriendCode;
 use accord_proto::core_msg::CoreMsg;
 use serde_json::json;
@@ -119,6 +121,31 @@ impl Node {
         self.with_db(|db| Ok(friends::unblock(db, peer_pubkey)?))
     }
 
+    /// Mémorise la dernière adresse directe connue d'un pair (carnet
+    /// PERSISTANT, cf. [`peer_addr`]). Best-effort : appelé à chaque session
+    /// établie avec un ami pour permettre une reconnexion rapide au prochain
+    /// démarrage, avant la résolution DHT.
+    pub fn remember_peer_addr(&self, node_id: [u8; 32], addr: SocketAddr) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(peer_addr::remember(db, &node_id, addr, now_ms())?))
+    }
+
+    /// Amis dont une adresse directe fraîche (TTL par défaut) est mémorisée,
+    /// pour un dial immédiat au démarrage. Une entrée périmée ou corrompue est
+    /// silencieusement omise (la DHT reprend la main).
+    pub fn known_friend_addrs(&self) -> Result<Vec<([u8; 32], SocketAddr)>, NodeError> {
+        let friends = self.friend_pubkeys()?;
+        self.with_db(|db| {
+            let now = now_ms();
+            let mut out = Vec::with_capacity(friends.len());
+            for pk in friends {
+                if let Some(addr) = peer_addr::recall(db, &pk, now, peer_addr::DEFAULT_TTL_MS)? {
+                    out.push((pk, addr));
+                }
+            }
+            Ok(out)
+        })
+    }
+
     /// Clés publiques des amis confirmés (présence, relève des boîtes).
     pub fn friend_pubkeys(&self) -> Result<Vec<[u8; 32]>, NodeError> {
         self.with_db(|db| {
@@ -191,6 +218,24 @@ mod tests {
         .unwrap();
         while rx.try_recv().is_ok() {}
         (node, peer.public_key(), rx)
+    }
+
+    #[test]
+    fn known_friend_addrs_rend_les_amis_avec_adresse_fraiche() {
+        let (node, peer, _rx) = node_with_friend();
+        let addr: SocketAddr = "203.0.113.7:48016".parse().unwrap();
+        node.remember_peer_addr(peer, addr).unwrap();
+        let known = node.known_friend_addrs().unwrap();
+        assert_eq!(known, vec![(peer, addr)]);
+    }
+
+    #[test]
+    fn known_friend_addrs_ignore_les_non_amis() {
+        let (node, _peer, _rx) = node_with_friend();
+        let stranger = Identity::generate_with_pow_bits(1).public_key();
+        let addr: SocketAddr = "203.0.113.9:48016".parse().unwrap();
+        node.remember_peer_addr(stranger, addr).unwrap();
+        assert!(node.known_friend_addrs().unwrap().is_empty());
     }
 
     /// Next `CoreMsg` pushed on the outbound channel, with its recipient.

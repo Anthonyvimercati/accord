@@ -469,6 +469,28 @@ impl Runtime {
         self.emit_network_if_changed();
     }
 
+    /// Reconnexion RAPIDE aux amis via leur dernière adresse directe mémorisée
+    /// (carnet persistant, cf. [`peer_addr`]). Appelée au démarrage EN PLUS de
+    /// l'amorçage DHT : une adresse encore valide rétablit la session en un
+    /// aller-retour, sans attendre la résolution de présence. Best-effort et
+    /// borné (nombre d'amis) ; un dial qui échoue est sans conséquence — la
+    /// DHT et la maintenance périodique prennent le relais.
+    pub(crate) async fn reconnect_known_friends(&self) {
+        let known = match self.node.known_friend_addrs() {
+            Ok(k) if !k.is_empty() => k,
+            _ => return,
+        };
+        for (pubkey, addr) in known {
+            // Le carnet mémoire connaît déjà l'adresse : la session à venir
+            // (événement `Connected`) déclenchera flush + convergence profil.
+            self.register_peer_if_absent(pubkey, addr);
+            if let Err(e) = self.endpoint.connect(addr).await {
+                tracing::debug!(erreur = %e, "reconnexion ami : dial impossible");
+            }
+        }
+        self.emit_network_if_changed();
+    }
+
     /// Reconnecte les pairs d'amorçage injoignables, avec backoff par pair
     /// (appelée périodiquement par la maintenance).
     pub(crate) async fn reconnect_bootstrap(&self, base: Duration) {
@@ -1100,6 +1122,10 @@ impl Runtime {
                     // pannes : le pair compare les hashes et ne télécharge
                     // que ce qui a changé (anti-DoS déjà en place).
                     if self.is_friend(&static_pub) {
+                        // Carnet d'adresses PERSISTANT (reconnexion rapide au
+                        // prochain démarrage, avant la DHT) : on note l'adresse
+                        // directe de cette session. Best-effort.
+                        let _ = self.node.remember_peer_addr(static_pub, addr);
                         if let Ok(Some(msg)) = self.node.own_profile_msg() {
                             let _ = self
                                 .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
