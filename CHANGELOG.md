@@ -41,11 +41,26 @@ still on 2.3.x keeps working unchanged.
   `chat/MemberList`, `chat/panels`, `chat/common`) — every source file is now
   under 800 lines. Pure moves, no behavior change.
 
+- **Custom theme editor** (Settings → Appearance): a 25th "Custom" tile —
+  pick your chat background, side-panel and accent colors on a dark or light
+  base; the rest of the palette (hovers, inputs, rail, tooltip) is derived
+  automatically and applied live. The gallery tile previews your colors.
+
 ### Fixed
 
-- Friend addresses are now persisted even when the transport session was
-  established **before** the friendship became mutual (the on-connect hook
-  alone missed that ordering).
+- **"My friend's banner/profile never arrives" (field bug, root-caused)**:
+  when two peers re-established contact after a restart, the direct dial and
+  the hole-punch volley crossed — both sides opening a handshake at once
+  (*simultaneous open*). The peer that the tie-breaker turns into the
+  **responder** had its own outgoing handshake dropped, and **every message it
+  had queued on that handshake was silently discarded** — typically the
+  profile/banner announce it was about to send. The transport now re-seals and
+  delivers that queued backlog under the freshly-established session, so no
+  message is lost when handshakes cross. Covered by a new deterministic
+  transport test. Two safety nets were added on top: the profile announce is
+  replayed on the first inbound message of each session episode, and friend
+  addresses are persisted from pending-friendship sessions too (the on-connect
+  hook alone missed sessions opened before mutual friendship).
 
 ### Tests
 

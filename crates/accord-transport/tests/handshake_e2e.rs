@@ -424,3 +424,79 @@ async fn welcome_from_wrong_identity_is_rejected() {
         "Alice n'aurait pas dû établir de session avec une identité inattendue"
     );
 }
+
+/// Croisement de handshakes (reconnexion du terrain : dial + poinçonnage
+/// simultanés) : chaque côté ouvre SON handshake avant d'avoir vu celui de
+/// l'autre — les HELLO se croisent et DEUX sessions s'établissent, chaque
+/// côté pouvant retenir « en dernier » un handshake différent. La session
+/// remplacée doit rester RECEVABLE (elle n'est plus le chemin d'envoi) :
+/// sinon, tout un sens de la conversation part dans un trou noir silencieux
+/// jusqu'au timeout d'inactivité — vécu sur le terrain comme un profil ou
+/// une bannière « jamais reçus ». On vérifie que les deux sens livrent, à
+/// l'établissement comme APRÈS stabilisation.
+#[tokio::test]
+async fn croisement_de_handshakes_ne_perd_aucune_direction() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(7, NetConditions::default());
+    let mut alice = spawn_node(&net, &clock, "10.0.7.1:4000");
+    let mut bob = spawn_node(&net, &clock, "10.0.7.2:4000");
+
+    let depuis_alice = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 0,
+        custom: Some("annonce-d-alice".into()),
+    });
+    let depuis_bob = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 0,
+        custom: Some("annonce-de-bob".into()),
+    });
+
+    // Envois SIMULTANÉS : les deux pendings initiateurs existent avant que le
+    // moindre HELLO ne soit traité — croisement garanti.
+    let (ra, rb) = tokio::join!(
+        alice.ep.send(bob.addr, &depuis_alice),
+        bob.ep.send(alice.addr, &depuis_bob),
+    );
+    ra.unwrap();
+    rb.unwrap();
+
+    // Les DEUX messages d'établissement arrivent (aucun sens perdu).
+    let recu_par_bob = recv_message(&mut bob).await;
+    match recu_par_bob {
+        ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence { custom, .. }) => {
+            assert_eq!(custom, Some("annonce-d-alice".into()));
+        }
+        other => panic!("message inattendu chez Bob: {other:?}"),
+    }
+    let recu_par_alice = recv_message(&mut alice).await;
+    match recu_par_alice {
+        ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence { custom, .. }) => {
+            assert_eq!(custom, Some("annonce-de-bob".into()));
+        }
+        other => panic!("message inattendu chez Alice: {other:?}"),
+    }
+
+    // Après stabilisation (les deux handshakes ont fini de s'installer), les
+    // envois suivants livrent TOUJOURS dans les deux sens.
+    let tardif_alice = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 1,
+        custom: Some("tardif-alice".into()),
+    });
+    alice.ep.send(bob.addr, &tardif_alice).await.unwrap();
+    match recv_message(&mut bob).await {
+        ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence { custom, .. }) => {
+            assert_eq!(custom, Some("tardif-alice".into()));
+        }
+        other => panic!("message tardif inattendu chez Bob: {other:?}"),
+    }
+    let tardif_bob = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 1,
+        custom: Some("tardif-bob".into()),
+    });
+    bob.ep.send(alice.addr, &tardif_bob).await.unwrap();
+    match recv_message(&mut alice).await {
+        ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence { custom, .. }) => {
+            assert_eq!(custom, Some("tardif-bob".into()));
+        }
+        other => panic!("message tardif inattendu chez Alice: {other:?}"),
+    }
+}

@@ -903,6 +903,10 @@ impl Endpoint {
 
         // Traiter le HELLO : produire le WELCOME et établir la session.
         let welcome_bytes;
+        // Trames scellées de la file d'un pending initiateur évincé par ce
+        // répondeur (simultaneous-open) : envoyées APRÈS le WELCOME, sur le
+        // même lien direct (un croisement ne se produit pas en tunnel).
+        let mut file_rescellee: Vec<Vec<u8>> = Vec::new();
         {
             let mut st = self.state.lock().expect("state mutex");
             let (welcome, established) = respond(
@@ -915,7 +919,8 @@ impl Endpoint {
             welcome_bytes = Packet::Welcome(welcome).to_bytes();
             let peer_node = node_id_of(&established.peer_static);
             let crypto = SessionCrypto::new(&established.keys, established.session_id, false, now);
-            Self::install_session(
+            let sid = established.session_id;
+            let en_attente = Self::install_session(
                 &mut st,
                 Session {
                     crypto,
@@ -932,8 +937,20 @@ impl Endpoint {
                     announced: link.circuit().is_some(),
                     ctrl_bucket: Bucket::new(CTRL_MSG_BURST, CTRL_MSG_REFILL_PER_S, now),
                 },
-                established.session_id,
+                sid,
             );
+            // Re-scelle la file du pending évincé sous la session tout juste
+            // établie (sinon ces messages — dont l'annonce de profil — sont
+            // perdus au simultaneous-open, cf. `install_session`).
+            if !en_attente.is_empty() {
+                if let Some(session) = st.sessions_by_id.get_mut(&sid) {
+                    for plaintext in en_attente {
+                        if let Ok(frames) = Self::seal_frames(session, &plaintext, now) {
+                            file_rescellee.extend(frames);
+                        }
+                    }
+                }
+            }
             let _ = self.events.send(TransportEvent::Connected {
                 node: peer_node,
                 addr: peer_addr,
@@ -942,6 +959,10 @@ impl Endpoint {
         }
         // Le WELCOME repart par le même lien (direct ou ré-enveloppé en tunnel).
         self.send_packet_via_link(welcome_bytes, link).await?;
+        // Puis la file re-scellée (lien direct uniquement — jamais en tunnel).
+        for bytes in file_rescellee {
+            self.send_packet_via_link(bytes, link).await?;
+        }
         Ok(())
     }
 
@@ -1014,7 +1035,10 @@ impl Endpoint {
                 }
             }
             let sid = established.session_id;
-            Self::install_session(&mut st, session, sid);
+            // Le pending initiateur a déjà été retiré en tête de `on_welcome`
+            // (sa file est scellée dans `to_send` ci-dessus) : `install_session`
+            // ne trouve donc rien à re-sceller ici. On l'affirme.
+            debug_assert!(Self::install_session(&mut st, session, sid).is_empty());
             let _ = self.events.send(TransportEvent::Connected {
                 node: peer_node,
                 addr: peer_addr,
@@ -1894,7 +1918,16 @@ impl Endpoint {
             .map(|cc| (cc.relay_addr, cc.relay_node, cc.peer_static))
     }
 
-    fn install_session(st: &mut State, session: Session, sid: [u8; 8]) {
+    /// Installe une session et RETOURNE les messages applicatifs qui étaient
+    /// en file sur le `Pending` évincé par cette installation — à re-sceller
+    /// sous la nouvelle session par l'appelant. Décisif au simultaneous-open
+    /// (SPEC §11.2) : le côté qui devient RÉPONDEUR (arbitrage `on_hello`) voit
+    /// son propre `Pending` initiateur retiré ici ; sans récupérer sa file,
+    /// tous les messages qu'il avait mis en attente (typiquement l'annonce de
+    /// profil/bannière à la reconnexion) seraient jetés en silence — le bug
+    /// « la bannière de mon ami n'arrive jamais ».
+    #[must_use]
+    fn install_session(st: &mut State, session: Session, sid: [u8; 8]) -> Vec<Vec<u8>> {
         match session.relay_circuit {
             Some(circuit) => {
                 // Session relayée : indexée par circuit, JAMAIS par adresse
@@ -1909,7 +1942,10 @@ impl Endpoint {
                     }
                 }
                 st.sessions_by_id.insert(sid, session);
+                // Les rôles d'un tunnel sont fixes (seul l'initiateur ouvre le
+                // circuit) : le pending relais retiré n'a pas de file croisée.
                 st.relay_pending.remove(&circuit);
+                Vec::new()
             }
             None => {
                 let addr = session.peer_addr;
@@ -1920,7 +1956,10 @@ impl Endpoint {
                     }
                 }
                 st.sessions_by_id.insert(sid, session);
-                st.pending.remove(&addr);
+                st.pending
+                    .remove(&addr)
+                    .map(|p| p.queued)
+                    .unwrap_or_default()
             }
         }
     }

@@ -676,7 +676,19 @@ impl Node {
                         now_ms(),
                     )?)
                 })?;
+                tracing::debug!(
+                    moi = %hex::encode(&self.public_key()[..4]),
+                    pair = %hex::encode(&peer_pubkey[..4]),
+                    appliquee = updated.is_some(),
+                    "profil : annonce de pair reçue"
+                );
                 if let Some(applied) = updated {
+                    tracing::debug!(
+                        pair = %hex::encode(&peer_pubkey[..4]),
+                        banniere = applied.banner.is_some(),
+                        banniere_changee = applied.banner_changed,
+                        "profil : annonce de pair appliquée"
+                    );
                     // Octets d'avatar et de bannière absents en local :
                     // récupération en arrière-plan auprès de l'émetteur
                     // (meilleur effort — le sous-système fichiers peut être

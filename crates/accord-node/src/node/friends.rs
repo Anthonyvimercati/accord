@@ -129,6 +129,29 @@ impl Node {
         self.with_db(|db| Ok(peer_addr::remember(db, &node_id, addr, now_ms())?))
     }
 
+    /// Vrai si `pubkey` est une RELATION : ami confirmé ou demande en cours
+    /// (entrante ou sortante). Périmètre de la persistance d'adresse : une
+    /// session s'établit souvent AVANT la conclusion de l'amitié — n'écrire
+    /// l'adresse que pour les amis raterait exactement cette fenêtre (l'entrée
+    /// d'un contact en attente ne devient lisible par [`known_friend_addrs`]
+    /// qu'une fois l'amitié conclue ; un bloqué ou un inconnu n'écrit rien).
+    pub fn is_relation(&self, pubkey: &[u8; 32]) -> bool {
+        use accord_core::db::ContactState;
+        self.contacts()
+            .map(|cs| {
+                cs.iter().any(|c| {
+                    c.pubkey == *pubkey
+                        && matches!(
+                            c.state,
+                            ContactState::Friend
+                                | ContactState::PendingIn
+                                | ContactState::PendingOut
+                        )
+                })
+            })
+            .unwrap_or(false)
+    }
+
     /// Amis dont une adresse directe fraîche (TTL par défaut) est mémorisée,
     /// pour un dial immédiat au démarrage. Une entrée périmée ou corrompue est
     /// silencieusement omise (la DHT reprend la main).

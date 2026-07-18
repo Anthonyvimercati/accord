@@ -224,6 +224,14 @@ pub struct Runtime {
     /// entrée présente et égale court-circuite la persistance (voir
     /// [`Self::maybe_persist_friend_addr`]).
     addr_persisted: Mutex<HashMap<[u8; 32], SocketAddr>>,
+    /// Amis auxquels notre profil a été RE-annoncé sur premier message entrant
+    /// de l'épisode de session courant (purgé sur `Disconnected`, comme
+    /// [`Self::live`]). Filet de l'annonce à la connexion (D-052) : quand des
+    /// sessions se croisent à la reconnexion (dial + poinçonnage vers un pair
+    /// qui relie le même port), l'annonce unique peut partir sur un lien
+    /// cadavre et se perdre sans trace — un message ENTRANT de l'ami prouve un
+    /// chemin vivant, on rejoue l'annonce dessus (une fois par épisode).
+    profile_reannounced: Mutex<HashSet<[u8; 32]>>,
     /// Signal d'arrêt des boucles de maintenance.
     stop_tx: watch::Sender<bool>,
     /// Curseurs de rotation des passes de maintenance (anti-famine).
@@ -311,6 +319,7 @@ impl Runtime {
             live: Mutex::new(HashSet::new()),
             verified_relays: Mutex::new(HashSet::new()),
             addr_persisted: Mutex::new(HashMap::new()),
+            profile_reannounced: Mutex::new(HashSet::new()),
             stop_tx,
             presence_cursor: AtomicUsize::new(0),
             mailbox_cursor: AtomicUsize::new(0),
@@ -484,8 +493,12 @@ impl Runtime {
     pub(crate) async fn reconnect_known_friends(&self) {
         let known = match self.node.known_friend_addrs() {
             Ok(k) if !k.is_empty() => k,
-            _ => return,
+            _ => {
+                tracing::debug!("reconnexion : aucune adresse d'ami mémorisée");
+                return;
+            }
         };
+        tracing::debug!(amis = known.len(), "reconnexion : dial des adresses mémorisées");
         for (pubkey, addr) in known {
             // Le carnet mémoire connaît déjà l'adresse : la session à venir
             // (événement `Connected`) déclenchera flush + convergence profil.
@@ -670,14 +683,17 @@ impl Runtime {
             .copied()
     }
 
-    /// Persiste l'adresse directe d'un AMI dans le carnet durable, pour une
-    /// reconnexion rapide au prochain démarrage. Court-circuit peu coûteux :
-    /// si `(pubkey, addr)` est déjà l'entrée persistée connue, aucune lecture
-    /// d'amitié ni écriture base — la persistance ne coûte donc qu'un accès
-    /// base par changement d'adresse (nouvelle session), pas par message.
-    /// L'appel depuis `Connected` NE suffit pas seul : une session ouverte
-    /// AVANT l'amitié mutuelle n'y serait pas encore un ami — d'où l'appel
-    /// jumeau sur `Message`, qui rattrape ce cas.
+    /// Persiste l'adresse directe d'une RELATION (ami ou demande en cours)
+    /// dans le carnet durable, pour une reconnexion rapide au prochain
+    /// démarrage. Court-circuit peu coûteux : si `(pubkey, addr)` est déjà
+    /// l'entrée persistée connue, aucune lecture base — la persistance ne
+    /// coûte qu'un accès par changement d'adresse (nouvelle session), pas par
+    /// message. Le périmètre RELATION (et non ami strict) est décisif : la
+    /// session s'établit souvent AVANT la conclusion de l'amitié ; ne
+    /// persister que les amis raterait cette fenêtre et laisserait le cache
+    /// vide au premier redémarrage — le pair redémarré ne pourrait plus
+    /// joindre personne quand l'autre côté garde une session périmée vers son
+    /// ancienne incarnation (poinçonnage no-op « déjà connecté »).
     fn maybe_persist_friend_addr(&self, pubkey: [u8; 32], addr: SocketAddr) {
         {
             let map = self.addr_persisted.lock().unwrap_or_else(|e| e.into_inner());
@@ -685,7 +701,7 @@ impl Runtime {
                 return;
             }
         }
-        if !self.is_friend(&pubkey) {
+        if !self.node.is_relation(&pubkey) {
             return;
         }
         if self.node.remember_peer_addr(pubkey, addr).is_ok() {
@@ -724,11 +740,18 @@ impl Runtime {
             .verified_relays
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let mut reannounced = self
+            .profile_reannounced
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for k in &keys {
             live.remove(k);
             // La joignabilité vérifiée expire avec la session (M1a) : on ne
             // priorise plus un relais dont on n'a plus de session directe.
             verified.remove(k);
+            // Le filet de ré-annonce de profil se réarme pour le prochain
+            // épisode de session (voir `profile_reannounced`).
+            reannounced.remove(k);
         }
     }
 
@@ -1158,11 +1181,42 @@ impl Runtime {
                     // jumeau sur `Message` pour les sessions antérieures à
                     // l'amitié.
                     self.maybe_persist_friend_addr(static_pub, addr);
+                    // Nouvel épisode de session : réarme le filet de
+                    // ré-annonce (voir `profile_reannounced`). Indispensable
+                    // ici et pas seulement sur `Disconnected` : l'extinction
+                    // brutale d'un pair (UDP) n'émet RIEN — au retour du pair,
+                    // le drapeau de l'épisode précédent inhiberait le filet.
+                    self.profile_reannounced
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&static_pub);
                     if self.is_friend(&static_pub) {
-                        if let Ok(Some(msg)) = self.node.own_profile_msg() {
-                            let _ = self
-                                .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
-                                .await;
+                        match self.node.own_profile_msg() {
+                            Ok(Some(msg)) => {
+                                let banniere = matches!(
+                                    &msg,
+                                    accord_proto::core_msg::CoreMsg::Profile {
+                                        banner: Some(_),
+                                        ..
+                                    }
+                                );
+                                let envoye = self
+                                    .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
+                                    .await;
+                                tracing::debug!(
+                                    moi = %crate::hex::encode(&self.node.public_key()[..4]),
+                                    ami = %crate::hex::encode(&static_pub[..4]),
+                                    envoye,
+                                    banniere,
+                                    "profil : annonce à l'établissement de session"
+                                );
+                            }
+                            Ok(None) => {
+                                tracing::debug!("profil : rien à annoncer à la connexion");
+                            }
+                            Err(e) => {
+                                tracing::debug!(erreur = %e, "profil : annonce à la connexion impossible");
+                            }
                         }
                     }
                 }
@@ -1175,7 +1229,40 @@ impl Runtime {
                     self.remember(static_pub, addr);
                     self.mark_live(static_pub);
                     self.maybe_persist_friend_addr(static_pub, addr);
+                    // La relation peut NAÎTRE pendant le routage (FriendRequest/
+                    // FriendResponse ingérés) : re-tente la persistance APRÈS,
+                    // sinon un nœud qui s'éteint juste après avoir accepté une
+                    // amitié redémarre avec un carnet vide. Borné aux messages
+                    // Core (seuls à changer l'état des contacts) — le
+                    // court-circuit mémoire rend l'appel gratuit ensuite.
+                    let est_core = matches!(&*msg, ChannelMsg::Core(_));
                     self.route(addr, static_pub, *msg).await;
+                    if est_core {
+                        self.maybe_persist_friend_addr(static_pub, addr);
+                    }
+                    // Filet D-052 (voir `profile_reannounced`) : premier
+                    // message ENTRANT d'un ami sur cet épisode de session —
+                    // le chemin est prouvé vivant, on rejoue notre annonce de
+                    // profil dessus. L'annonce à la connexion seule peut se
+                    // perdre sans trace quand dial et poinçonnage se croisent
+                    // à la reconnexion (envoi sur une session cadavre).
+                    let premier_message = self
+                        .profile_reannounced
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(static_pub);
+                    if premier_message && self.is_friend(&static_pub) {
+                        if let Ok(Some(msg)) = self.node.own_profile_msg() {
+                            let envoye = self
+                                .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
+                                .await;
+                            tracing::debug!(
+                                ami = %crate::hex::encode(&static_pub[..4]),
+                                envoye,
+                                "profil : ré-annonce sur premier message entrant"
+                            );
+                        }
+                    }
                 }
                 TransportEvent::ObservedAddr { observer, observed } => {
                     self.observe_addr(observer, observed);
@@ -1636,6 +1723,12 @@ impl Runtime {
         let now = crate::node::now_ms();
         let mut c = self.files_lock();
         for (root, (envoyees, tentees)) in issues {
+            tracing::debug!(
+                racine = %crate::hex::encode(&root[..4]),
+                envoyees,
+                tentees,
+                "fichiers : requêtes émises"
+            );
             c.note_emission(&root, envoyees, tentees, now);
         }
     }
@@ -1926,7 +2019,16 @@ impl Runtime {
             }
         };
         for intent in intents {
-            if intent.next_attempt_ms > now {
+            // Le backoff d'abandon existe pour ne pas marteler un pair
+            // INJOIGNABLE. Si l'indice (le pair qui détient le média) a une
+            // session VIVANTE en ce moment, l'attendre n'a pas de sens : on
+            // court-circuite le report. Corrige le « profil/bannière jamais
+            // reçus » à la reconnexion — le fetch, abandonné pendant la brève
+            // fenêtre où la session n'était pas encore établie, était reporté
+            // de 60 s (première échéance) bien au-delà de la fenêtre de
+            // co-présence, alors que l'ami est là.
+            let indice_vivant = intent.hint.is_some_and(|h| self.is_peer_live(&h));
+            if intent.next_attempt_ms > now && !indice_vivant {
                 continue;
             }
             let (root, hint) = (intent.merkle_root, intent.hint);

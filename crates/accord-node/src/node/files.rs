@@ -232,6 +232,11 @@ impl Node {
         // Intention persistée : la boucle réseau la reprend (même après un
         // redémarrage) et pilote le transfert fenêtré multi-sources. Le plafond
         // média éventuel voyage AVEC l'intention (colonne `media_cap`).
+        tracing::debug!(
+            racine = %crate::hex::encode(&racine[..4]),
+            plafonnee = media_cap.is_some(),
+            "fichiers : intention de téléchargement posée"
+        );
         self.with_db(|db| match media_cap {
             Some(max) => Ok(db.upsert_file_fetch_media(racine, indice.as_ref(), now_ms(), max)?),
             None => Ok(db.upsert_file_fetch(racine, indice.as_ref(), now_ms())?),
