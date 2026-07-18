@@ -219,6 +219,11 @@ pub struct Runtime {
     /// pour qu'un flot de faux relais injoignables ne les évince pas de la
     /// fenêtre bornée d'essais.
     verified_relays: Mutex<HashSet<[u8; 32]>>,
+    /// Dernière adresse d'ami écrite dans le carnet PERSISTANT (cf.
+    /// [`accord_core::peer_addr`]) : évite une écriture base par message. Une
+    /// entrée présente et égale court-circuite la persistance (voir
+    /// [`Self::maybe_persist_friend_addr`]).
+    addr_persisted: Mutex<HashMap<[u8; 32], SocketAddr>>,
     /// Signal d'arrêt des boucles de maintenance.
     stop_tx: watch::Sender<bool>,
     /// Curseurs de rotation des passes de maintenance (anti-famine).
@@ -305,6 +310,7 @@ impl Runtime {
             observed_addrs: Mutex::new(ObservedAddrs::new()),
             live: Mutex::new(HashSet::new()),
             verified_relays: Mutex::new(HashSet::new()),
+            addr_persisted: Mutex::new(HashMap::new()),
             stop_tx,
             presence_cursor: AtomicUsize::new(0),
             mailbox_cursor: AtomicUsize::new(0),
@@ -662,6 +668,32 @@ impl Runtime {
             .by_pubkey
             .get(pubkey)
             .copied()
+    }
+
+    /// Persiste l'adresse directe d'un AMI dans le carnet durable, pour une
+    /// reconnexion rapide au prochain démarrage. Court-circuit peu coûteux :
+    /// si `(pubkey, addr)` est déjà l'entrée persistée connue, aucune lecture
+    /// d'amitié ni écriture base — la persistance ne coûte donc qu'un accès
+    /// base par changement d'adresse (nouvelle session), pas par message.
+    /// L'appel depuis `Connected` NE suffit pas seul : une session ouverte
+    /// AVANT l'amitié mutuelle n'y serait pas encore un ami — d'où l'appel
+    /// jumeau sur `Message`, qui rattrape ce cas.
+    fn maybe_persist_friend_addr(&self, pubkey: [u8; 32], addr: SocketAddr) {
+        {
+            let map = self.addr_persisted.lock().unwrap_or_else(|e| e.into_inner());
+            if map.get(&pubkey) == Some(&addr) {
+                return;
+            }
+        }
+        if !self.is_friend(&pubkey) {
+            return;
+        }
+        if self.node.remember_peer_addr(pubkey, addr).is_ok() {
+            self.addr_persisted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(pubkey, addr);
+        }
     }
 
     // ---- Suivi des sessions vivantes (repli relais idempotent) ----
@@ -1121,11 +1153,12 @@ impl Runtime {
                     // message par connexion suffit à fermer cette classe de
                     // pannes : le pair compare les hashes et ne télécharge
                     // que ce qui a changé (anti-DoS déjà en place).
+                    // Carnet d'adresses PERSISTANT (reconnexion rapide au
+                    // prochain démarrage, avant la DHT). Voir aussi l'appel
+                    // jumeau sur `Message` pour les sessions antérieures à
+                    // l'amitié.
+                    self.maybe_persist_friend_addr(static_pub, addr);
                     if self.is_friend(&static_pub) {
-                        // Carnet d'adresses PERSISTANT (reconnexion rapide au
-                        // prochain démarrage, avant la DHT) : on note l'adresse
-                        // directe de cette session. Best-effort.
-                        let _ = self.node.remember_peer_addr(static_pub, addr);
                         if let Ok(Some(msg)) = self.node.own_profile_msg() {
                             let _ = self
                                 .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
@@ -1141,6 +1174,7 @@ impl Runtime {
                 } => {
                     self.remember(static_pub, addr);
                     self.mark_live(static_pub);
+                    self.maybe_persist_friend_addr(static_pub, addr);
                     self.route(addr, static_pub, *msg).await;
                 }
                 TransportEvent::ObservedAddr { observer, observed } => {
