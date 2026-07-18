@@ -2,6 +2,26 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.9.0] — 2026-07-18
+
+### Added
+
+- **Restore from the first screen**: onboarding now opens on a welcome step
+  with explicit choices — create an account, restore from a recovery phrase,
+  or **import an encrypted `.accordbackup`** — instead of burying restoration
+  behind the create form.
+
+### Changed
+
+- **New visual identity**: refreshed Accord logo rolled out everywhere — app
+  icons on all three platforms (dock/taskbar/tray), onboarding, README and
+  the GitHub screenshots (regenerated, ~8× lighter).
+- **Onboarding redesign**: dedicated visual language for the first-launch
+  screens (dark hero surface, staged panels, reduced-motion aware) replacing
+  the bare centered card.
+- Shell polish: aligned spacing across the server rail, sidebar and chat
+  header (identity-refresh pass).
+
 ## [1.8.0] — 2026-07-18
 
 ### Changed
