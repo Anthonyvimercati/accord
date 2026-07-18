@@ -49,6 +49,8 @@ still on 2.3.x keeps working unchanged.
   `accord-theme:…` code you can paste to a friend, and import theirs.
 - **Interface font choice** (Settings → Appearance): System, Rounded or Serif
   — all native system families, nothing downloaded.
+- **Scheduled Do Not Disturb** (Settings → Notifications): silence sounds and
+  notifications during a chosen time range (spanning midnight supported).
 
 ### Fixed
 
