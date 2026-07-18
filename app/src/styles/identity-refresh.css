@@ -1,0 +1,460 @@
+:root {
+  --accord-iris: 124 105 255;
+  --accord-cyan: 91 210 230;
+  --accord-mint: 81 220 173;
+  --accord-edge: rgb(var(--color-header) / 0.1);
+  --accord-edge-strong: rgb(var(--color-header) / 0.16);
+  --accord-surface-glow: rgb(var(--accord-iris) / 0.14);
+  --color-blurple: 124 105 255;
+  --color-blurple-hover: 105 88 235;
+  --color-link: 91 210 230;
+  --radius-xs: 7px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --glass-border: rgb(var(--color-header) / 0.1);
+  --glass-highlight: inset 0 1px 0 rgb(var(--color-header) / 0.07);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.22), 0 8px 24px rgb(0 0 0 / 0.08);
+  --shadow-2: 0 10px 30px rgb(0 0 0 / 0.24), 0 2px 8px rgb(0 0 0 / 0.18);
+  --shadow-3: 0 24px 72px rgb(0 0 0 / 0.42), 0 4px 18px rgb(0 0 0 / 0.22);
+  --ambient-a: var(--accord-iris);
+  --ambient-b: var(--accord-cyan);
+  --ambient-alpha-a: 0.14;
+  --ambient-alpha-b: 0.08;
+}
+
+:root[data-theme='dark'],
+:root:not([data-theme]) {
+  --color-rail: 8 11 19;
+  --color-sidebar: 17 22 35;
+  --color-chat: 22 28 43;
+  --color-chat-hover: 30 37 56;
+  --color-input: 31 39 59;
+  --color-modal: 23 29 45;
+  --color-tooltip: 6 9 16;
+  --color-norm: 220 226 239;
+  --color-muted: 160 171 194;
+  --color-faint: 132 145 171;
+  --color-header: 247 249 255;
+  --color-green: 81 220 173;
+  --color-red: 250 102 113;
+  --color-yellow: 246 190 82;
+}
+
+:root[data-theme='light'] {
+  --accord-iris: 91 73 214;
+  --accord-cyan: 20 153 179;
+  --accord-mint: 20 149 108;
+  --color-rail: 225 230 240;
+  --color-sidebar: 241 244 250;
+  --color-chat: 250 251 254;
+  --color-chat-hover: 231 235 244;
+  --color-input: 235 239 247;
+  --color-modal: 250 251 254;
+  --color-tooltip: 20 25 37;
+  --color-norm: 42 49 66;
+  --color-muted: 79 89 111;
+  --color-faint: 99 110 133;
+  --color-header: 20 25 37;
+  --color-blurple: 91 73 214;
+  --color-blurple-hover: 73 57 190;
+  --color-link: 16 126 151;
+  --color-green: 20 149 108;
+  --color-red: 205 61 78;
+  --color-yellow: 154 99 8;
+  --accord-edge: rgb(var(--color-header) / 0.1);
+  --accord-edge-strong: rgb(var(--color-header) / 0.16);
+  --glass-border: rgb(var(--color-header) / 0.11);
+  --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 0.9);
+  --ambient-alpha-a: 0.1;
+  --ambient-alpha-b: 0.08;
+}
+
+body {
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.accord-shell {
+  position: relative;
+  isolation: isolate;
+  gap: 7px;
+  overflow: hidden;
+  padding: 8px;
+  background-color: rgb(var(--color-rail));
+  background-image:
+    radial-gradient(
+      48rem 32rem at 4% -10%,
+      rgb(var(--accord-iris) / 0.18),
+      transparent 62%
+    ),
+    radial-gradient(
+      42rem 34rem at 100% 112%,
+      rgb(var(--accord-cyan) / 0.1),
+      transparent 66%
+    ),
+    linear-gradient(
+      145deg,
+      rgb(var(--color-rail)),
+      color-mix(in srgb, rgb(var(--color-rail)) 92%, rgb(var(--accord-iris)) 8%)
+    );
+}
+
+.accord-shell::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgb(var(--color-header) / 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--color-header) / 0.018) 1px, transparent 1px);
+  background-size: 28px 28px;
+  content: '';
+  pointer-events: none;
+}
+
+.accord-shell > .accord-rail,
+.accord-shell > .accord-sidebar,
+.accord-shell > .accord-stage,
+.accord-shell > [role='separator'] {
+  position: relative;
+  z-index: 1;
+}
+
+.accord-rail,
+.accord-sidebar,
+.accord-stage {
+  border: 1px solid var(--accord-edge);
+  background-clip: padding-box;
+}
+
+.accord-rail {
+  width: 70px;
+  border-radius: 23px;
+  background-color: rgb(var(--color-rail) / 0.86);
+  box-shadow:
+    var(--glass-highlight),
+    0 18px 50px rgb(0 0 0 / 0.18);
+}
+
+.accord-rail button[aria-current='page'] {
+  background-image: linear-gradient(
+    145deg,
+    rgb(var(--accord-iris)),
+    rgb(var(--accord-cyan))
+  );
+  box-shadow:
+    0 8px 24px rgb(var(--accord-iris) / 0.3),
+    inset 0 1px 0 rgb(255 255 255 / 0.26);
+}
+
+.accord-rail button:not([aria-current='page']):hover {
+  box-shadow: inset 0 0 0 1px rgb(var(--accord-cyan) / 0.22);
+}
+
+.accord-rail > [role='separator'] {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(var(--accord-cyan) / 0.56),
+    transparent
+  );
+}
+
+.accord-sidebar {
+  border-radius: 23px;
+  background-color: rgb(var(--color-sidebar) / 0.9);
+  box-shadow:
+    var(--glass-highlight),
+    0 18px 50px rgb(0 0 0 / 0.14);
+}
+
+.accord-server-header {
+  border-color: var(--accord-edge);
+  background-color: rgb(var(--color-sidebar) / 0.72);
+}
+
+.accord-server-header::after {
+  position: absolute;
+  inset: auto 16px 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--accord-iris) / 0.72),
+    rgb(var(--accord-cyan) / 0.18),
+    transparent
+  );
+  content: '';
+  pointer-events: none;
+}
+
+.accord-user-panel {
+  margin: 0 7px 7px;
+  overflow: hidden;
+  border: 1px solid var(--accord-edge);
+  border-radius: 17px;
+  background: linear-gradient(
+    135deg,
+    rgb(var(--accord-iris) / 0.1),
+    rgb(var(--color-rail) / 0.8)
+  );
+  box-shadow:
+    var(--glass-highlight),
+    0 10px 30px rgb(0 0 0 / 0.16);
+}
+
+.accord-user-panel > div:last-child {
+  background-color: transparent;
+}
+
+.accord-stage {
+  overflow: clip;
+  border-radius: 24px;
+  background-color: rgb(var(--color-chat) / 0.95);
+  box-shadow:
+    var(--glass-highlight),
+    0 24px 64px rgb(0 0 0 / 0.17);
+}
+
+.accord-conversation {
+  background: linear-gradient(180deg, rgb(var(--color-chat) / 0.3), transparent 22%);
+}
+
+.accord-chat-header {
+  height: 56px;
+  border-color: var(--accord-edge);
+  background-color: rgb(var(--color-chat) / 0.78);
+  box-shadow: inset 0 -1px 0 rgb(var(--color-header) / 0.025);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.accord-chat-header::before {
+  width: 4px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(var(--accord-cyan)), rgb(var(--accord-iris)));
+  box-shadow: 0 0 16px rgb(var(--accord-cyan) / 0.38);
+  content: '';
+}
+
+.accord-members {
+  border-left: 1px solid var(--accord-edge);
+  background-color: rgb(var(--color-sidebar) / 0.78);
+}
+
+.accord-members button {
+  border: 1px solid transparent;
+}
+
+.accord-members button:hover {
+  border-color: rgb(var(--accord-cyan) / 0.14);
+  background-color: rgb(var(--color-chat-hover) / 0.68);
+}
+
+.accord-composer-zone {
+  padding: 8px 18px 4px;
+  background: linear-gradient(180deg, transparent, rgb(var(--color-chat) / 0.74) 48%);
+}
+
+.accord-composer {
+  min-height: 52px;
+  border-color: var(--accord-edge);
+  border-radius: 18px;
+  background-color: rgb(var(--color-input) / 0.82);
+  box-shadow:
+    var(--glass-highlight),
+    0 12px 34px rgb(0 0 0 / 0.14);
+  backdrop-filter: blur(16px) saturate(1.12);
+  -webkit-backdrop-filter: blur(16px) saturate(1.12);
+}
+
+.accord-composer:focus-within {
+  border-color: rgb(var(--accord-cyan) / 0.52);
+  box-shadow:
+    var(--glass-highlight),
+    0 0 0 3px rgb(var(--accord-iris) / 0.1),
+    0 14px 38px rgb(0 0 0 / 0.18);
+}
+
+.accord-typing {
+  height: 25px;
+  margin: 0 20px;
+  padding: 0 7px;
+}
+
+.accord-typing [role='status'] {
+  color: rgb(var(--color-muted));
+}
+
+.accord-typing .typing-dot {
+  width: 5px;
+  height: 5px;
+  background: linear-gradient(180deg, rgb(var(--accord-cyan)), rgb(var(--accord-iris)));
+}
+
+.msg-mention,
+.msg-mention:hover {
+  margin-inline: 0.75rem;
+  padding-inline: 0.875rem;
+  border: 1px solid rgb(var(--color-yellow) / 0.18);
+  border-radius: 15px;
+  background:
+    linear-gradient(
+      90deg,
+      rgb(var(--color-yellow) / 0.13),
+      rgb(var(--accord-iris) / 0.055) 70%,
+      transparent
+    ),
+    rgb(var(--color-chat-hover) / 0.22);
+  box-shadow:
+    inset 3px 0 0 rgb(var(--color-yellow)),
+    0 9px 28px rgb(var(--color-yellow) / 0.045);
+}
+
+.msg-mention > button:first-of-type,
+.msg-mention > span:first-of-type {
+  position: relative;
+  z-index: 1;
+}
+
+.server-menu-surface,
+.accord-menu {
+  border: 1px solid var(--accord-edge-strong);
+  border-radius: 18px;
+  background-color: rgb(var(--color-modal) / 0.96);
+  background-image: radial-gradient(
+    22rem 10rem at 5% 0%,
+    rgb(var(--accord-iris) / 0.14),
+    transparent 68%
+  );
+  box-shadow:
+    var(--glass-highlight),
+    0 24px 70px rgb(0 0 0 / 0.42);
+}
+
+.server-menu-surface {
+  width: min(18rem, calc(100vw - 6rem));
+}
+
+.server-menu-surface button,
+.accord-menu button {
+  border: 1px solid transparent;
+}
+
+.server-menu-surface button:hover,
+.server-menu-surface button:focus-visible,
+.accord-menu button:hover,
+.accord-menu button:focus-visible {
+  border-color: rgb(var(--accord-cyan) / 0.12);
+  background-color: rgb(var(--color-chat-hover) / 0.72);
+}
+
+.accord-settings {
+  width: min(1180px, 94vw);
+  border: 1px solid var(--accord-edge-strong);
+  border-radius: 28px;
+  background-color: rgb(var(--color-chat));
+  box-shadow:
+    var(--glass-highlight),
+    0 34px 100px rgb(0 0 0 / 0.52);
+}
+
+.accord-settings::before {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--accord-iris)),
+    rgb(var(--accord-cyan)),
+    rgb(var(--accord-mint))
+  );
+  content: '';
+  pointer-events: none;
+}
+
+.accord-settings-nav {
+  border-color: var(--accord-edge);
+  background:
+    radial-gradient(
+      24rem 18rem at 0% 0%,
+      rgb(var(--accord-iris) / 0.12),
+      transparent 70%
+    ),
+    rgb(var(--color-sidebar));
+}
+
+.accord-settings-nav button[aria-current='page'] {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--accord-iris) / 0.19),
+    rgb(var(--accord-cyan) / 0.07)
+  );
+  box-shadow:
+    inset 3px 0 0 rgb(var(--accord-cyan)),
+    inset 0 0 0 1px rgb(var(--accord-iris) / 0.16);
+}
+
+.accord-settings-content {
+  max-width: 780px;
+}
+
+.profile-card-shell__surface {
+  border-color: var(--accord-edge-strong);
+  box-shadow:
+    var(--glass-highlight),
+    0 30px 90px rgb(0 0 0 / 0.48);
+}
+
+.profile-card-surface {
+  border-color: var(--accord-edge);
+  background-color: rgb(var(--color-sidebar) / 0.8);
+}
+
+@media (max-width: 760px) {
+  .accord-shell {
+    gap: 3px;
+    padding: 4px;
+  }
+
+  .accord-rail {
+    width: 64px;
+    border-radius: 19px;
+  }
+
+  .accord-sidebar,
+  .accord-stage {
+    border-radius: 19px;
+  }
+
+  .accord-composer-zone {
+    padding-inline: 10px;
+  }
+
+  .accord-typing {
+    margin-inline: 12px;
+  }
+}
+
+@media (max-width: 560px) {
+  .accord-shell {
+    padding: 0;
+  }
+
+  .accord-rail,
+  .accord-sidebar,
+  .accord-stage {
+    border-radius: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accord-composer,
+  .accord-rail button {
+    transition-duration: 0.01ms;
+  }
+}

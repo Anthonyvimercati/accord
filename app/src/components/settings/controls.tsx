@@ -83,7 +83,7 @@ export function ToggleRow({
  * préréglage pour le profil global et la bannière de serveur.
  */
 export const PRESET_PROFILE_COLORS: readonly number[] = [
-  0x5865f2, // Blurple
+  0x7c69ff,
   0x3ba55c, // Vert
   0xfaa61a, // Or
   0xed4245, // Rouge
@@ -158,7 +158,7 @@ export function ColorSwatchPicker({
   // Repli sur le blurple de la palette (même valeur que le token design
   // system --color-blurple) quand aucune couleur personnalisée n'est encore
   // choisie — l'input natif `type=color` exige un littéral hexadécimal.
-  const defaultCustomColor = profileColorCss(PRESET_PROFILE_COLORS[0]) ?? '#5865f2';
+  const defaultCustomColor = profileColorCss(PRESET_PROFILE_COLORS[0]) ?? '#7c69ff';
   const [customDraft, setCustomDraft] = useState<string>(
     () => profileColorCss(value) ?? defaultCustomColor,
   );

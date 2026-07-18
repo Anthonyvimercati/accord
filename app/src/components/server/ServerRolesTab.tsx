@@ -38,7 +38,7 @@ const PERM_ITEMS: Array<{ bit: number; label: (t: Dict) => string }> = [
 ];
 
 /** Couleur par défaut du sélecteur quand le rôle n'a pas de couleur. */
-const DEFAULT_PICKER_COLOR = 0x5865f2;
+const DEFAULT_PICKER_COLOR = 0x7c69ff;
 
 /** Éditeur d'un rôle : nom, couleur, permissions, membres, suppression. */
 function RoleEditor({
