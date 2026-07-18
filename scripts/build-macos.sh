@@ -67,7 +67,7 @@ Signature ad-hoc complète (aucune identité stable trouvée).
   L'accord micro et pare-feu persiste pour CE build, mais macOS redemandera
   après chaque REBUILD (empreinte différente). Pour une identité stable
   locale (une seule fois) :
-    voir DISTRIBUTION.md § « Signature locale stable (macOS) ».
+    voir docs/DISTRIBUTION.md § « Signature locale stable (macOS) ».
 AVERTISSEMENT
 fi
 

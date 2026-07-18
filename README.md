@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="accord-logo.svg" alt="" width="104" height="104" />
+  <img src="docs/accord-logo.svg" alt="" width="104" height="104" />
 </p>
 
 <h1 align="center">Accord</h1>
@@ -122,9 +122,9 @@ external audit yet** — treat it accordingly for high-stakes use.
 |----------|----------|
 | [SECURITY.md](SECURITY.md) | Threat model — guarantees and limits |
 | [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) | Accepted trade-offs, in depth |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Layer architecture |
-| [SPEC.md](SPEC.md) | Wire protocol |
-| [API.md](API.md) | UI ↔ node API |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layer architecture |
+| [docs/SPEC.md](docs/SPEC.md) | Wire protocol |
+| [docs/API.md](docs/API.md) | UI ↔ node API |
 | [docs/DEV.md](docs/DEV.md) | Developer guide |
 
 ## Authenticity & disclaimer

@@ -6,5 +6,5 @@ export const APP_VERSION = __APP_VERSION__;
 /** Licence du projet. */
 export const APP_LICENSE = 'MIT';
 
-/** Fichier listant les licences des dépendances tierces (racine du dépôt). */
-export const THIRD_PARTY_FILE = 'THIRD_PARTY.md';
+/** Fichier listant les licences des dépendances tierces (docs/ du dépôt). */
+export const THIRD_PARTY_FILE = 'docs/THIRD_PARTY.md';

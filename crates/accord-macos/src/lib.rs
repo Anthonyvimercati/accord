@@ -6,7 +6,7 @@
 //! sans jamais ouvrir de flux de capture. L'invite système n'existe qu'à
 //! l'état « indéterminé » ; lire l'état réel ici permet à l'UI de ne jamais
 //! re-déclencher l'invite à mauvais escient (redemandes en boucle sur un
-//! bundle mal signé, voir DISTRIBUTION.md § signature locale stable).
+//! bundle mal signé, voir docs/DISTRIBUTION.md § signature locale stable).
 //!
 //! Hors macOS, les deux fonctions rendent des valeurs neutres
 //! (`"unsupported"` / erreur explicite) — aucun lien AVFoundation n'est émis.
