@@ -2,6 +2,28 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.8.0] — 2026-07-18
+
+### Changed
+
+- **Faster message history**: history pages now fetch reactions, attachments and
+  mentions in batched `IN (…)` queries (3 queries per page instead of 3 per
+  message), with cached prepared statements — large threads and busy channels
+  load noticeably quicker.
+- **Snappier local database**: SQLCipher tuned for a desktop client —
+  `synchronous = NORMAL` under WAL (safe, no corruption), a 16 MiB page cache
+  and in-memory temp store — so sending a message no longer waits on a full
+  fsync.
+- **No more full outbox scan**: a new `outbox(dest, created_ms)` index (schema
+  v10, idempotent migration) makes opening a conversation O(matches) instead of
+  scanning the whole pending-message table on every reconnect.
+- **Lower first-contact latency**: the Kademlia lookup now fans out its α=3
+  probe batch concurrently — a round costs the slowest peer, not the sum — so a
+  dead peer no longer serializes the others.
+- **More resilient voice**: Opus now uses in-band FEC + DTX; a lost packet is
+  reconstructed from the next one (forward error correction) instead of being
+  masked, improving call quality on lossy links.
+
 ## [1.7.0] — 2026-07-18
 
 ### Added
