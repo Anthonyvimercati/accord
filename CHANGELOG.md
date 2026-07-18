@@ -45,6 +45,10 @@ still on 2.3.x keeps working unchanged.
   pick your chat background, side-panel and accent colors on a dark or light
   base; the rest of the palette (hovers, inputs, rail, tooltip) is derived
   automatically and applied live. The gallery tile previews your colors.
+- **Share a theme by code**: export your custom theme to a compact
+  `accord-theme:…` code you can paste to a friend, and import theirs.
+- **Interface font choice** (Settings → Appearance): System, Rounded or Serif
+  — all native system families, nothing downloaded.
 
 ### Fixed
 
