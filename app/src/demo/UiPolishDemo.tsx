@@ -293,7 +293,7 @@ const GROUP_MESSAGES: GroupMessage[] = [
     deleted: false,
     body: {
       type: 'text',
-      text: 'Je teste la fenêtre minimale et les textes longs. Pour l’instant tout reste stable — même avec les panneaux ouverts.',
+      text: 'Je teste la fenêtre minimale et les textes longs. Pour l’instant tout reste stable — même avec les panneaux ouverts.\n```js\nconst stable = true;\n```',
       reply_to: null,
       attachments: 0,
     },
