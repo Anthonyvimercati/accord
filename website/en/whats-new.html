@@ -34,6 +34,7 @@
       <h2 style="margin-top:0.4rem">What changes, release after release</h2>
       <p>Accord updates itself: a banner tells you inside the app, one click installs the new version. Here is what each recent release brings you.</p>
 
+      <div data-releases>
       <article class="release reveal">
         <div class="release__head">
           <span class="release__version">3.2.0</span>
@@ -84,6 +85,8 @@
           <li><strong>Smooth scrolling</strong> through long conversations, even with thousands of loaded messages.</li>
         </ul>
       </article>
+      </div>
+
 
       <p style="margin-top:2.2rem;color:var(--faint);font-size:0.9rem">The full version-by-version history lives in the <a href="https://github.com/Gomouu/accord/blob/main/CHANGELOG.md" style="color:var(--muted);text-decoration:underline">project changelog</a>.</p>
       <p style="margin-top:1.6rem"><a class="btn btn--primary" href="index.html#download">Download the latest version</a></p>
@@ -110,5 +113,6 @@
     }, { threshold: 0.12 });
     document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
   </script>
+  <script src="../releases.js" defer></script>
 </body>
 </html>
