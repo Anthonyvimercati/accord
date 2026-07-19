@@ -27,6 +27,9 @@ still on 2.3.x keeps working unchanged.
   copies the whole loaded thread to the clipboard as a clean Markdown
   transcript — messages grouped by day, deleted messages redacted (never their
   content), attachments listed by name.
+- **"Back to latest" button**: when you scroll up in a thread, a floating
+  button appears at the bottom-right to jump straight back to the most recent
+  message (one click), and disappears once you're at the bottom.
 - **Project website + French user guide** (GitHub Pages): a download landing
   page and a step-by-step guide (install, peer-to-peer connection,
   troubleshooting), deployed from `website/`.

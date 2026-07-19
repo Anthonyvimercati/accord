@@ -265,6 +265,28 @@ describe('MessageList — rendu', () => {
     expect(log.scrollTop).toBe(1_200);
   });
 
+  it('montre « revenir en bas » quand on remonte, le masque au retour', () => {
+    render(
+      <MessageList
+        messages={[textMsg('m1', BASE_MS, 'premier'), textMsg('m2', BASE_MS + 1_000, 'récent')]}
+      />,
+    );
+    const log = screen.getByRole('log');
+    expect(screen.queryByRole('button', { name: 'Revenir en bas' })).toBeNull();
+
+    Object.defineProperties(log, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollTop: { configurable: true, writable: true, value: 100 },
+    });
+    fireEvent.scroll(log);
+    const bouton = screen.getByRole('button', { name: 'Revenir en bas' });
+    expect(bouton).toBeInTheDocument();
+
+    fireEvent.click(bouton);
+    expect(screen.queryByRole('button', { name: 'Revenir en bas' })).toBeNull();
+  });
+
   it('préserve aussi l’ancre si un message arrive pendant la pagination', () => {
     const loadOlder = vi.fn();
     const premier = textMsg('m1', BASE_MS, 'premier');

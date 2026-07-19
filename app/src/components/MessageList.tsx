@@ -226,6 +226,8 @@ export function MessageList({
   const lastIdRef = useRef<string | null>(null);
   const scrollConversationRef = useRef<string | null>(null);
   const followsBottomRef = useRef(true);
+  /** Vrai tant que le fil est collé au bas (masque le bouton « revenir en bas »). */
+  const [atBottom, setAtBottom] = useState(true);
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
   /** Message en cours d'édition en place (null : aucun). */
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -307,6 +309,7 @@ export function MessageList({
     // ref empêche toute boucle) pour ne jamais rendre l'ancienne fenêtre.
     fenetreConvRef.current = conversationKey;
     if (fenetre !== FENETRE_INITIALE) setFenetre(FENETRE_INITIALE);
+    if (!atBottom) setAtBottom(true);
   }
   // La cible d'un saut et le séparateur non-lus doivent être RENDUS pour être
   // atteignables : la fenêtre s'étend jusqu'à eux, synchroniquement.
@@ -389,8 +392,10 @@ export function MessageList({
   const handleScroll = (): void => {
     const el = containerRef.current;
     if (!el) return;
-    followsBottomRef.current =
+    const colleEnBas =
       el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_BOTTOM_THRESHOLD_PX;
+    followsBottomRef.current = colleEnBas;
+    setAtBottom(colleEnBas);
     if (el.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
     // D'abord étendre la fenêtre de rendu sur l'historique DÉJÀ chargé (avec
     // ancrage) ; ne charger une page plus ancienne qu'une fois tout rendu.
@@ -460,6 +465,23 @@ export function MessageList({
   };
 
   const selectionActive = selection?.active === true;
+
+  /**
+   * Revient au message le plus récent. La queue du fil est toujours rendue
+   * (la fenêtre ne s'étend que vers le haut), donc un simple défilement du
+   * conteneur suffit — pas besoin de retoucher `fenetre`.
+   */
+  const jumpToBottom = (): void => {
+    const el = containerRef.current;
+    if (!el) return;
+    followsBottomRef.current = true;
+    setAtBottom(true);
+    try {
+      el.scrollTo({ top: el.scrollHeight, behavior: messageScrollBehavior() });
+    } catch {
+      el.scrollTop = el.scrollHeight;
+    }
+  };
 
   /** Défile jusqu'au séparateur « nouveaux messages » (bouton de saut). */
   const jumpToUnread = (): void => {
@@ -841,6 +863,29 @@ export function MessageList({
           className="glass-strong popover-enter absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-medium text-red shadow-1 transition-transform duration-fast hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
         >
           {t.unread.jumpToUnread} ↓
+        </button>
+      )}
+      {!atBottom && visible.length > 0 && (
+        <button
+          type="button"
+          onClick={jumpToBottom}
+          aria-label={t.unread.jumpToBottom}
+          title={t.unread.jumpToBottom}
+          className="glass-strong popover-enter absolute bottom-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full text-header shadow-2 transition-transform duration-fast hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M12 5v14M19 12l-7 7-7-7" />
+          </svg>
         </button>
       )}
       {forwarding !== null && (

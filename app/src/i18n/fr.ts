@@ -1140,6 +1140,7 @@ export const fr = {
   unread: {
     newMessages: 'Nouveaux messages',
     jumpToUnread: 'Sauter aux nouveaux',
+    jumpToBottom: 'Revenir en bas',
   },
   // Mode sélection de messages pour la suppression groupée (modération,
   // MANAGE_MESSAGES). Borne du nœud : 100 messages par opération.

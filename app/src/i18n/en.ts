@@ -1122,6 +1122,7 @@ export const en: Dict = {
   unread: {
     newMessages: 'New messages',
     jumpToUnread: 'Jump to new',
+    jumpToBottom: 'Back to latest',
   },
   purge: {
     select: 'Select messages',
