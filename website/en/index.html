@@ -8,6 +8,7 @@
   <meta property="og:title" content="Accord — like Discord, but serverless" />
   <meta property="og:description" content="Peer-to-peer desktop messaging, end-to-end encrypted. Nobody can host, read, sell or lose your conversations." />
   <meta property="og:url" content="https://accord-chat.duckdns.org/en/" />
+  <meta property="og:image" content="https://accord-chat.duckdns.org/assets/capture-serveur.jpg" />
   <meta name="theme-color" content="#08090f" />
   <link rel="icon" href="../assets/logo.svg" />
   <link rel="canonical" href="https://accord-chat.duckdns.org/en/" />
@@ -21,7 +22,7 @@
       <a class="brand" href="index.html"><img src="../assets/logo.svg" alt="" /> Accord</a>
       <nav class="nav__links">
         <a href="#features">Features</a>
-        <a href="#security">Security</a>
+        <a href="#why">Why Accord</a>
         <a href="guide.html">Guide</a>
         <a href="whats-new.html">What's new</a>
         <a href="https://github.com/Gomouu/accord">GitHub</a>
@@ -33,21 +34,34 @@
 
   <main>
     <section class="hero wrap">
+      <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
       <img class="hero__logo" src="../assets/logo.svg" alt="Accord logo" width="92" height="92" />
       <span class="pill"><span class="dot"></span> Peer-to-peer · end-to-end encrypted · open source</span>
-      <h1>Like Discord.<br /><span class="grad">Without the server.</span></h1>
+      <h1>Like Discord.<br /><span class="grad grad--anim">Without the server.</span></h1>
       <p class="lead">Friends, direct messages, servers, voice channels — and nothing in between. Your messages travel straight from one app to the other. Nobody can host them, read them, sell them or lose them.</p>
       <div class="hero__cta">
-        <a class="btn btn--primary" href="#download">Download Accord <span class="btn__sub">macOS · Windows · Linux</span></a>
+        <a class="btn btn--primary" data-hero-dl href="#download">Download Accord <span class="btn__sub">macOS · Windows · Linux</span></a>
         <a class="btn btn--ghost" href="guide.html">Play it with a friend →</a>
       </div>
     </section>
 
     <section class="wrap" style="padding-top:0" aria-label="Preview">
-      <div class="showcase">
+      <div class="showcase showcase--hero">
+        <span class="chip chip--1">🔒 End-to-end encrypted</span>
+        <span class="chip chip--2">🛰️ Zero central servers</span>
+        <span class="chip chip--3">⚡ Direct peer connections</span>
         <div class="showcase__frame reveal">
-          <img src="../assets/capture-serveur.jpg" alt="An Accord server with text channels, messages and a role-based member list" width="1160" />
+          <img src="../assets/capture-serveur.jpg" alt="An Accord server with text channels, messages and a role-based member list" width="1160" fetchpriority="high" />
         </div>
+      </div>
+    </section>
+
+    <section class="wrap" aria-label="Key numbers" style="padding-top:0">
+      <div class="metrics">
+        <div class="metric reveal"><b>0</b><span>central servers</span></div>
+        <div class="metric reveal" style="--d:.08s"><b data-count="24">0</b><span>themes, including animated worlds</span></div>
+        <div class="metric reveal" style="--d:.16s"><b data-count="3">0</b><span>platforms: macOS, Windows, Linux</span></div>
+        <div class="metric reveal" style="--d:.24s"><b data-count="100" data-suffix="%">0</b><span>open source, MIT licensed</span></div>
       </div>
     </section>
 
@@ -65,7 +79,16 @@
             <h3>Messages, reactions, threads, replies</h3>
             <p>Direct messages and servers with channels, emoji reactions, threads, quoted replies, mentions, pins, polls, instant search across your whole history. Markdown all the way to tables and syntax-highlighted code.</p>
           </div>
-          <img src="../assets/capture-mp.jpg" alt="A private conversation in Accord" />
+          <img src="../assets/capture-mp.jpg" alt="A private conversation in Accord" loading="lazy" />
+        </article>
+
+        <article class="card card--feature reveal">
+          <div class="card__body">
+            <div class="card__icon">⌨️</div>
+            <h3>Type fast, type well</h3>
+            <p>Hit <code>:</code> plus two letters and autocomplete suggests Unicode emojis and your servers' custom emojis. <strong>@mentions</strong>, quick reactions learned from your habits, drafts kept per conversation — the composer works for you.</p>
+          </div>
+          <img src="../assets/capture-emoji.jpg" alt="The emoji autocomplete open in Accord's composer" loading="lazy" style="object-position: bottom" />
         </article>
 
         <article class="card card--third reveal">
@@ -73,12 +96,12 @@
           <h3>Crisp voice</h3>
           <p>Voice channels with echo cancellation, voice mixing and crackle suppression. Per-person volume, push-to-talk.</p>
         </article>
-        <article class="card card--third reveal">
+        <article class="card card--third reveal" style="--d:.08s">
           <div class="card__icon">🖼️</div>
           <h3>Smooth media</h3>
           <p>Drag &amp; drop images and videos, built-in player, previews up to whatever size you choose.</p>
         </article>
-        <article class="card card--third reveal">
+        <article class="card card--third reveal" style="--d:.16s">
           <div class="card__icon">🎨</div>
           <h3>24 living themes</h3>
           <p>A gallery of themes, including animated worlds, with an adaptive "Liquid Glass" interface.</p>
@@ -89,7 +112,7 @@
           <h3>Roles &amp; moderation</h3>
           <p>Fine-grained per-channel permissions, kick, ban, audit log — your servers truly belong to you.</p>
         </article>
-        <article class="card card--half reveal">
+        <article class="card card--half reveal" style="--d:.08s">
           <div class="card__icon">⬆️</div>
           <h3>Built-in updates</h3>
           <p>A banner tells you the moment a release ships; one click installs it. Cryptographically signed.</p>
@@ -97,15 +120,145 @@
       </div>
     </section>
 
-    <section class="wrap" aria-label="Themes">
+    <section class="wrap" aria-label="Themes" style="padding-top:0">
       <div class="showcase">
         <div class="showcase__frame reveal">
-          <img src="../assets/capture-themes.jpg" alt="Accord's theme gallery" width="1160" />
+          <img src="../assets/capture-themes.jpg" alt="Accord's theme gallery" width="1160" loading="lazy" />
+        </div>
+      </div>
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee__track">
+          <span class="theme-chip" style="--sw:#313338"><i></i>Dark</span>
+          <span class="theme-chip" style="--sw:#eef1f5"><i></i>Light</span>
+          <span class="theme-chip" style="--sw:#0b1023"><i></i>Midnight</span>
+          <span class="theme-chip" style="--sw:#5b70f4"><i></i>Blurple Storm</span>
+          <span class="theme-chip" style="--sw:#1e4030"><i></i>Forest</span>
+          <span class="theme-chip" style="--sw:#ff7847"><i></i>Sunset</span>
+          <span class="theme-chip" style="--sw:#125a78"><i></i>Ocean</span>
+          <span class="theme-chip" style="--sw:#a12945"><i></i>Crimson</span>
+          <span class="theme-chip" style="--sw:#1d5a60"><i></i>Boreal</span>
+          <span class="theme-chip" style="--sw:#f5e9c9"><i></i>Solar Paper</span>
+          <span class="theme-chip" style="--sw:#3a3f30"><i></i>Topography</span>
+          <span class="theme-chip" style="--sw:#1f3b2d"><i></i>Ghost Signal</span>
+          <span class="theme-chip" style="--sw:#6b3fa0"><i></i>Living Nebula</span>
+          <span class="theme-chip" style="--sw:#ff2fb3"><i></i>Retro Neon</span>
+          <span class="theme-chip" style="--sw:#f6c9d8"><i></i>Hanami</span>
+          <span class="theme-chip" style="--sw:#7a5fd0"><i></i>Wisteria Night</span>
+          <span class="theme-chip" style="--sw:#2e6b58"><i></i>Lotus Pond</span>
+          <span class="theme-chip" style="--sw:#23252b"><i></i>Manga Ink</span>
+          <span class="theme-chip" style="--sw:#f9a8c9"><i></i>Shōjo Bloom</span>
+          <span class="theme-chip" style="--sw:#0a2438"><i></i>Abyss</span>
+          <span class="theme-chip" style="--sw:#c9581f"><i></i>Ember Forge</span>
+          <span class="theme-chip" style="--sw:#bcd8e8"><i></i>Polar Glass</span>
+          <span class="theme-chip" style="--sw:#1c5f38"><i></i>Living Circuit</span>
+          <span class="theme-chip" style="--sw:#cbb7f0"><i></i>Pastel Dream</span>
+          <span class="theme-chip" style="--sw:#313338"><i></i>Dark</span>
+          <span class="theme-chip" style="--sw:#eef1f5"><i></i>Light</span>
+          <span class="theme-chip" style="--sw:#0b1023"><i></i>Midnight</span>
+          <span class="theme-chip" style="--sw:#5b70f4"><i></i>Blurple Storm</span>
+          <span class="theme-chip" style="--sw:#1e4030"><i></i>Forest</span>
+          <span class="theme-chip" style="--sw:#ff7847"><i></i>Sunset</span>
+          <span class="theme-chip" style="--sw:#125a78"><i></i>Ocean</span>
+          <span class="theme-chip" style="--sw:#a12945"><i></i>Crimson</span>
+          <span class="theme-chip" style="--sw:#1d5a60"><i></i>Boreal</span>
+          <span class="theme-chip" style="--sw:#f5e9c9"><i></i>Solar Paper</span>
+          <span class="theme-chip" style="--sw:#3a3f30"><i></i>Topography</span>
+          <span class="theme-chip" style="--sw:#1f3b2d"><i></i>Ghost Signal</span>
+          <span class="theme-chip" style="--sw:#6b3fa0"><i></i>Living Nebula</span>
+          <span class="theme-chip" style="--sw:#ff2fb3"><i></i>Retro Neon</span>
+          <span class="theme-chip" style="--sw:#f6c9d8"><i></i>Hanami</span>
+          <span class="theme-chip" style="--sw:#7a5fd0"><i></i>Wisteria Night</span>
+          <span class="theme-chip" style="--sw:#2e6b58"><i></i>Lotus Pond</span>
+          <span class="theme-chip" style="--sw:#23252b"><i></i>Manga Ink</span>
+          <span class="theme-chip" style="--sw:#f9a8c9"><i></i>Shōjo Bloom</span>
+          <span class="theme-chip" style="--sw:#0a2438"><i></i>Abyss</span>
+          <span class="theme-chip" style="--sw:#c9581f"><i></i>Ember Forge</span>
+          <span class="theme-chip" style="--sw:#bcd8e8"><i></i>Polar Glass</span>
+          <span class="theme-chip" style="--sw:#1c5f38"><i></i>Living Circuit</span>
+          <span class="theme-chip" style="--sw:#cbb7f0"><i></i>Pastel Dream</span>
         </div>
       </div>
     </section>
 
-    <section id="security" class="wrap">
+    <section class="wrap" aria-labelledby="how-title">
+      <div class="how">
+        <div>
+          <div class="section-head reveal" style="margin-bottom:1.8rem">
+            <span class="eyebrow">Ready in two minutes</span>
+            <h2 id="how-title">Three steps, zero accounts</h2>
+            <p>No email, no phone number, no password to remember. Your identity is born on your machine.</p>
+          </div>
+          <ol class="steps">
+            <li class="reveal"><strong>Install Accord.</strong> One file to open — the app keeps itself up to date from then on.</li>
+            <li class="reveal" style="--d:.08s"><strong>Swap friend codes.</strong> A short code to send over any channel you like — once is enough.</li>
+            <li class="reveal" style="--d:.16s"><strong>Talk.</strong> DMs, servers, voice: everything flows directly between your machines, end-to-end encrypted.</li>
+          </ol>
+        </div>
+        <div class="showcase" style="margin-top:0">
+          <div class="showcase__frame reveal">
+            <img src="../assets/capture-amis.jpg" alt="Accord's Friends view with the friend list and the Add friend button" loading="lazy" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="why" class="wrap">
+      <div class="section-head center reveal">
+        <span class="eyebrow">The real difference</span>
+        <h2>Why not just Discord?</h2>
+        <p>Because "free" there means "your conversations live on someone else's computers". Here is what a peer-to-peer architecture changes.</p>
+      </div>
+      <div class="compare-wrap reveal">
+        <table class="compare">
+          <thead>
+            <tr>
+              <th scope="col"></th>
+              <th scope="col" class="col-accord">Accord</th>
+              <th scope="col">Discord</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Central server</th>
+              <td class="col-accord"><span class="yes">None</span> — peers connect directly</td>
+              <td>Required, owned by a company</td>
+            </tr>
+            <tr>
+              <th scope="row">End-to-end encrypted messages</th>
+              <td class="col-accord"><span class="yes">✓</span> By default, everywhere</td>
+              <td><span class="no">✗</span> Messages are readable platform-side</td>
+            </tr>
+            <tr>
+              <th scope="row">Account, email, phone</th>
+              <td class="col-accord"><span class="yes">Nothing</span> — a local identity, yours</td>
+              <td>Account required, personal data attached</td>
+            </tr>
+            <tr>
+              <th scope="row">Your data</th>
+              <td class="col-accord"><span class="yes">At home</span>, only on your machines</td>
+              <td>On their servers, under their terms</td>
+            </tr>
+            <tr>
+              <th scope="row">Source code</th>
+              <td class="col-accord"><span class="yes">✓</span> Open and auditable (MIT)</td>
+              <td><span class="no">✗</span> Closed</td>
+            </tr>
+            <tr>
+              <th scope="row">Price</th>
+              <td class="col-accord"><span class="yes">Free</span>, no paid tier</td>
+              <td>Free + a Nitro subscription for the "extras"</td>
+            </tr>
+            <tr>
+              <th scope="row">If the service shuts down</th>
+              <td class="col-accord"><span class="yes">Nothing changes</span> — there is no service</td>
+              <td>History and communities are gone</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="security" class="wrap" style="padding-top:0">
       <div class="strip reveal">
         <div class="section-head" style="margin-bottom:0">
           <span class="eyebrow">Private by design</span>
@@ -120,33 +273,81 @@
       </div>
     </section>
 
+    <section id="faq" class="wrap" aria-labelledby="faq-title">
+      <div class="section-head center reveal">
+        <span class="eyebrow">Honest questions</span>
+        <h2 id="faq-title">Everything people ask us</h2>
+      </div>
+      <div class="faq">
+        <details class="reveal">
+          <summary>"Serverless" — really?</summary>
+          <p class="faq__body">Really. Peers find each other through a distributed hash table (Kademlia), then connect directly. If a strict firewall blocks the direct path, another peer can relay bytes — end-to-end encrypted, so unreadable to the relay.</p>
+        </details>
+        <details class="reveal" style="--d:.06s">
+          <summary>What if my friend is offline?</summary>
+          <p class="faq__body">Your messages stay on your machine and sync automatically as soon as you are both online. In a server, any connected member is enough to propagate the history.</p>
+        </details>
+        <details class="reveal" style="--d:.12s">
+          <summary>Is it actually free?</summary>
+          <p class="faq__body">Yes. No account, no subscription, no ads, no telemetry. The code is MIT-licensed — there is literally no infrastructure to pay for.</p>
+        </details>
+        <details class="reveal" style="--d:.18s">
+          <summary>How do friends find each other?</summary>
+          <p class="faq__body">Everyone has a short friend code, exchanged once over any channel you like. After that, your apps recognize and find each other on their own. The <a href="guide.html#connect">guide</a> shows it all in pictures.</p>
+        </details>
+        <details class="reveal" style="--d:.24s">
+          <summary>What if I lose my machine?</summary>
+          <p class="faq__body">Your identity fits in a recovery phrase shown when your account is created. Write it down: it lets you restore your identity on a new machine.</p>
+        </details>
+      </div>
+    </section>
+
     <section id="download" class="wrap">
       <div class="section-head center reveal">
         <span class="eyebrow">Free &amp; open source</span>
         <h2>Download Accord</h2>
-        <p>Grab the latest release for your system. Universal on Mac (Apple Silicon &amp; Intel).</p>
+        <p>Grab the latest release for your system — the download starts right away.</p>
       </div>
+      <p class="dl-fresh reveal">Latest release: <b>v<span data-version>…</span></b> · published <span data-reldate>…</span></p>
       <div class="dl-grid">
-        <div class="dl-card reveal">
+        <div class="dl-card reveal" data-card="mac">
           <div class="os">🍎</div>
           <h3>macOS</h3>
-          <p>Apple Silicon &amp; Intel · universal .dmg</p>
-          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+          <p>Apple Silicon (M1 and up) · .dmg</p>
+          <a class="btn btn--primary" data-dl="mac" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+          <span class="dl-meta"></span>
+          <p class="dl-alt" data-alt="mac"></p>
         </div>
-        <div class="dl-card reveal">
+        <div class="dl-card reveal" style="--d:.08s" data-card="win">
           <div class="os">🪟</div>
           <h3>Windows</h3>
-          <p>.msi / .exe installer</p>
-          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+          <p>.exe installer</p>
+          <a class="btn btn--primary" data-dl="win" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+          <span class="dl-meta"></span>
+          <p class="dl-alt" data-alt="win"></p>
         </div>
-        <div class="dl-card reveal">
+        <div class="dl-card reveal" style="--d:.16s" data-card="linux">
           <div class="os">🐧</div>
           <h3>Linux</h3>
-          <p>AppImage / .deb</p>
-          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+          <p>Universal AppImage</p>
+          <a class="btn btn--primary" data-dl="linux" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+          <span class="dl-meta"></span>
+          <p class="dl-alt" data-alt="linux"></p>
         </div>
       </div>
-      <p style="text-align:center;color:var(--faint);margin-top:1.4rem;font-size:0.9rem">First launch: see the <a href="guide.html" style="color:var(--muted);text-decoration:underline">setup guide</a>. New to peer-to-peer? <a href="guide.html#connect" style="color:var(--muted);text-decoration:underline">How to connect to a friend</a>.</p>
+      <p style="text-align:center;color:var(--faint);margin-top:1.4rem;font-size:0.9rem">First launch: see the <a href="guide.html" style="color:var(--muted);text-decoration:underline">setup guide</a>. All builds live on <a href="https://github.com/Gomouu/accord/releases" style="color:var(--muted);text-decoration:underline">GitHub</a>.</p>
+    </section>
+
+    <section class="wrap" aria-label="Final call" style="padding-top:0">
+      <div class="cta-band reveal">
+        <span class="eyebrow">Better with a friend</span>
+        <h2>Ready to talk without a middleman?</h2>
+        <p>Install Accord, send someone your friend code, and keep your conversations to yourselves. For good.</p>
+        <div class="hero__cta">
+          <a class="btn btn--primary" href="#download">Download Accord</a>
+          <a class="btn btn--ghost" href="guide.html">Read the guide →</a>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -164,11 +365,6 @@
     </div>
   </footer>
 
-  <script>
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-    }, { threshold: 0.12 });
-    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
-  </script>
+  <script src="../site.js" defer></script>
 </body>
 </html>

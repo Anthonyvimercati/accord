@@ -8,6 +8,7 @@
   <meta property="og:title" content="Accord — comme Discord, mais sans serveur" />
   <meta property="og:description" content="Messagerie de bureau pair-à-pair, chiffrée de bout en bout. Personne ne peut héberger, lire ni perdre vos conversations." />
   <meta property="og:url" content="https://accord-chat.duckdns.org/" />
+  <meta property="og:image" content="https://accord-chat.duckdns.org/assets/capture-serveur.jpg" />
   <meta name="theme-color" content="#08090f" />
   <link rel="icon" href="assets/logo.svg" />
   <link rel="canonical" href="https://accord-chat.duckdns.org/" />
@@ -21,7 +22,7 @@
       <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" /> Accord</a>
       <nav class="nav__links">
         <a href="#fonctions">Fonctions</a>
-        <a href="#securite">Sécurité</a>
+        <a href="#avantages">Avantages</a>
         <a href="guide.html">Guide</a>
         <a href="nouveautes.html">Nouveautés</a>
         <a href="https://github.com/Gomouu/accord">GitHub</a>
@@ -33,21 +34,34 @@
 
   <main>
     <section class="hero wrap">
+      <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
       <img class="hero__logo" src="assets/logo.svg" alt="Logo Accord" width="92" height="92" />
       <span class="pill"><span class="dot"></span> Pair-à-pair · chiffré de bout en bout · open source</span>
-      <h1>Comme Discord.<br /><span class="grad">Sans serveur.</span></h1>
+      <h1>Comme Discord.<br /><span class="grad grad--anim">Sans serveur.</span></h1>
       <p class="lead">Amis, messages privés, serveurs, salons vocaux — mais rien au milieu. Vos messages voyagent directement d'une app à l'autre. Personne ne peut les héberger, les lire, les vendre ou les perdre.</p>
       <div class="hero__cta">
-        <a class="btn btn--primary" href="#telecharger">Télécharger Accord <span class="btn__sub">macOS · Windows · Linux</span></a>
+        <a class="btn btn--primary" data-hero-dl href="#telecharger">Télécharger Accord <span class="btn__sub">macOS · Windows · Linux</span></a>
         <a class="btn btn--ghost" href="guide.html">Jouer à deux →</a>
       </div>
     </section>
 
     <section class="wrap" style="padding-top:0" aria-label="Aperçu">
-      <div class="showcase">
+      <div class="showcase showcase--hero">
+        <span class="chip chip--1">🔒 Chiffré de bout en bout</span>
+        <span class="chip chip--2">🛰️ Zéro serveur central</span>
+        <span class="chip chip--3">⚡ Connexion directe entre pairs</span>
         <div class="showcase__frame reveal">
-          <img src="assets/capture-serveur.jpg" alt="Un serveur Accord avec des salons textuels, des messages et une liste de membres par rôle" width="1160" />
+          <img src="assets/capture-serveur.jpg" alt="Un serveur Accord avec des salons textuels, des messages et une liste de membres par rôle" width="1160" fetchpriority="high" />
         </div>
+      </div>
+    </section>
+
+    <section class="wrap" aria-label="Chiffres clés" style="padding-top:0">
+      <div class="metrics">
+        <div class="metric reveal"><b>0</b><span>serveur central</span></div>
+        <div class="metric reveal" style="--d:.08s"><b data-count="24">0</b><span>thèmes, dont des univers animés</span></div>
+        <div class="metric reveal" style="--d:.16s"><b data-count="3">0</b><span>plateformes : macOS, Windows, Linux</span></div>
+        <div class="metric reveal" style="--d:.24s"><b data-count="100" data-suffix="&nbsp;%">0</b><span>open source, licence MIT</span></div>
       </div>
     </section>
 
@@ -65,7 +79,16 @@
             <h3>Messages, réactions, fils, réponses</h3>
             <p>Messages privés et serveurs à salons, réactions emoji, fils de discussion, réponses citées, mentions, épingles, sondages, recherche instantanée sur tout l'historique. L'édition Markdown va jusqu'aux tableaux et à la coloration du code.</p>
           </div>
-          <img src="assets/capture-mp.jpg" alt="Conversation privée dans Accord" />
+          <img src="assets/capture-mp.jpg" alt="Conversation privée dans Accord" loading="lazy" />
+        </article>
+
+        <article class="card card--feature reveal">
+          <div class="card__body">
+            <div class="card__icon">⌨️</div>
+            <h3>Écrivez vite, écrivez bien</h3>
+            <p>Tapez <code>:</code> et deux lettres : l'autocomplétion propose émojis Unicode et émojis personnalisés de vos serveurs. Mentions <strong>@pseudo</strong>, réactions rapides apprises de vos habitudes, brouillons conservés par conversation — le composeur travaille pour vous.</p>
+          </div>
+          <img src="assets/capture-emoji.jpg" alt="L'autocomplétion d'émojis ouverte dans le composeur d'Accord" loading="lazy" style="object-position: bottom" />
         </article>
 
         <article class="card card--third reveal">
@@ -73,12 +96,12 @@
           <h3>Vocal net</h3>
           <p>Salons vocaux avec annulation d'écho, mixage des voix et anti-grésillements. Volume par personne, push-to-talk.</p>
         </article>
-        <article class="card card--third reveal">
+        <article class="card card--third reveal" style="--d:.08s">
           <div class="card__icon">🖼️</div>
           <h3>Médias fluides</h3>
           <p>Glisser-déposer d'images et de vidéos, lecteur intégré, aperçu jusqu'à la taille de votre choix.</p>
         </article>
-        <article class="card card--third reveal">
+        <article class="card card--third reveal" style="--d:.16s">
           <div class="card__icon">🎨</div>
           <h3>24 thèmes vivants</h3>
           <p>Une galerie de thèmes, dont des univers animés, avec une interface « Liquid Glass » adaptative.</p>
@@ -89,7 +112,7 @@
           <h3>Rôles & modération</h3>
           <p>Permissions fines par salon, expulsion, bannissement, journal d'audit — vos serveurs vous appartiennent vraiment.</p>
         </article>
-        <article class="card card--half reveal">
+        <article class="card card--half reveal" style="--d:.08s">
           <div class="card__icon">⬆️</div>
           <h3>Mises à jour intégrées</h3>
           <p>Une bannière prévient dès qu'une version sort, un clic l'installe. Signée cryptographiquement.</p>
@@ -97,15 +120,145 @@
       </div>
     </section>
 
-    <section class="wrap" aria-label="Thèmes">
+    <section class="wrap" aria-label="Thèmes" style="padding-top:0">
       <div class="showcase">
         <div class="showcase__frame reveal">
-          <img src="assets/capture-themes.jpg" alt="La galerie de thèmes d'Accord" width="1160" />
+          <img src="assets/capture-themes.jpg" alt="La galerie de thèmes d'Accord" width="1160" loading="lazy" />
+        </div>
+      </div>
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee__track">
+          <span class="theme-chip" style="--sw:#313338"><i></i>Sombre</span>
+          <span class="theme-chip" style="--sw:#eef1f5"><i></i>Clair</span>
+          <span class="theme-chip" style="--sw:#0b1023"><i></i>Minuit</span>
+          <span class="theme-chip" style="--sw:#5b70f4"><i></i>Blurple Storm</span>
+          <span class="theme-chip" style="--sw:#1e4030"><i></i>Forêt</span>
+          <span class="theme-chip" style="--sw:#ff7847"><i></i>Crépuscule</span>
+          <span class="theme-chip" style="--sw:#125a78"><i></i>Océan</span>
+          <span class="theme-chip" style="--sw:#a12945"><i></i>Cerise</span>
+          <span class="theme-chip" style="--sw:#1d5a60"><i></i>Boréal</span>
+          <span class="theme-chip" style="--sw:#f5e9c9"><i></i>Papier solaire</span>
+          <span class="theme-chip" style="--sw:#3a3f30"><i></i>Topographie</span>
+          <span class="theme-chip" style="--sw:#1f3b2d"><i></i>Signal fantôme</span>
+          <span class="theme-chip" style="--sw:#6b3fa0"><i></i>Nébuleuse vivante</span>
+          <span class="theme-chip" style="--sw:#ff2fb3"><i></i>Néon rétro</span>
+          <span class="theme-chip" style="--sw:#f6c9d8"><i></i>Hanami</span>
+          <span class="theme-chip" style="--sw:#7a5fd0"><i></i>Glycines nocturnes</span>
+          <span class="theme-chip" style="--sw:#2e6b58"><i></i>Bassin de lotus</span>
+          <span class="theme-chip" style="--sw:#23252b"><i></i>Encre manga</span>
+          <span class="theme-chip" style="--sw:#f9a8c9"><i></i>Shōjo floral</span>
+          <span class="theme-chip" style="--sw:#0a2438"><i></i>Abysses</span>
+          <span class="theme-chip" style="--sw:#c9581f"><i></i>Forge ardente</span>
+          <span class="theme-chip" style="--sw:#bcd8e8"><i></i>Verre polaire</span>
+          <span class="theme-chip" style="--sw:#1c5f38"><i></i>Circuit vivant</span>
+          <span class="theme-chip" style="--sw:#cbb7f0"><i></i>Songe pastel</span>
+          <span class="theme-chip" style="--sw:#313338"><i></i>Sombre</span>
+          <span class="theme-chip" style="--sw:#eef1f5"><i></i>Clair</span>
+          <span class="theme-chip" style="--sw:#0b1023"><i></i>Minuit</span>
+          <span class="theme-chip" style="--sw:#5b70f4"><i></i>Blurple Storm</span>
+          <span class="theme-chip" style="--sw:#1e4030"><i></i>Forêt</span>
+          <span class="theme-chip" style="--sw:#ff7847"><i></i>Crépuscule</span>
+          <span class="theme-chip" style="--sw:#125a78"><i></i>Océan</span>
+          <span class="theme-chip" style="--sw:#a12945"><i></i>Cerise</span>
+          <span class="theme-chip" style="--sw:#1d5a60"><i></i>Boréal</span>
+          <span class="theme-chip" style="--sw:#f5e9c9"><i></i>Papier solaire</span>
+          <span class="theme-chip" style="--sw:#3a3f30"><i></i>Topographie</span>
+          <span class="theme-chip" style="--sw:#1f3b2d"><i></i>Signal fantôme</span>
+          <span class="theme-chip" style="--sw:#6b3fa0"><i></i>Nébuleuse vivante</span>
+          <span class="theme-chip" style="--sw:#ff2fb3"><i></i>Néon rétro</span>
+          <span class="theme-chip" style="--sw:#f6c9d8"><i></i>Hanami</span>
+          <span class="theme-chip" style="--sw:#7a5fd0"><i></i>Glycines nocturnes</span>
+          <span class="theme-chip" style="--sw:#2e6b58"><i></i>Bassin de lotus</span>
+          <span class="theme-chip" style="--sw:#23252b"><i></i>Encre manga</span>
+          <span class="theme-chip" style="--sw:#f9a8c9"><i></i>Shōjo floral</span>
+          <span class="theme-chip" style="--sw:#0a2438"><i></i>Abysses</span>
+          <span class="theme-chip" style="--sw:#c9581f"><i></i>Forge ardente</span>
+          <span class="theme-chip" style="--sw:#bcd8e8"><i></i>Verre polaire</span>
+          <span class="theme-chip" style="--sw:#1c5f38"><i></i>Circuit vivant</span>
+          <span class="theme-chip" style="--sw:#cbb7f0"><i></i>Songe pastel</span>
         </div>
       </div>
     </section>
 
-    <section id="securite" class="wrap">
+    <section class="wrap" aria-labelledby="how-title">
+      <div class="how">
+        <div>
+          <div class="section-head reveal" style="margin-bottom:1.8rem">
+            <span class="eyebrow">Prêt en deux minutes</span>
+            <h2 id="how-title">Trois étapes, zéro compte</h2>
+            <p>Pas d'e-mail, pas de numéro de téléphone, pas de mot de passe à retenir. Votre identité naît sur votre machine.</p>
+          </div>
+          <ol class="steps">
+            <li class="reveal"><strong>Installez Accord.</strong> Un fichier à ouvrir, et l'app se tient à jour toute seule ensuite.</li>
+            <li class="reveal" style="--d:.08s"><strong>Échangez vos codes amis.</strong> Un code court à envoyer par le canal de votre choix — il suffit d'une fois.</li>
+            <li class="reveal" style="--d:.16s"><strong>Discutez.</strong> MP, serveurs, vocal : tout passe en direct entre vos machines, chiffré de bout en bout.</li>
+          </ol>
+        </div>
+        <div class="showcase" style="margin-top:0">
+          <div class="showcase__frame reveal">
+            <img src="assets/capture-amis.jpg" alt="La vue Amis d'Accord avec la liste d'amis et le bouton Ajouter un ami" loading="lazy" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="avantages" class="wrap">
+      <div class="section-head center reveal">
+        <span class="eyebrow">La vraie différence</span>
+        <h2>Pourquoi pas simplement Discord ?</h2>
+        <p>Parce que « gratuit » y signifie « vos conversations vivent chez quelqu'un d'autre ». Voici ce que change l'architecture pair-à-pair.</p>
+      </div>
+      <div class="compare-wrap reveal">
+        <table class="compare">
+          <thead>
+            <tr>
+              <th scope="col"></th>
+              <th scope="col" class="col-accord">Accord</th>
+              <th scope="col">Discord</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Serveur central</th>
+              <td class="col-accord"><span class="yes">Aucun</span> — les pairs se connectent en direct</td>
+              <td>Obligatoire, propriété d'une entreprise</td>
+            </tr>
+            <tr>
+              <th scope="row">Chiffrement de bout en bout des messages</th>
+              <td class="col-accord"><span class="yes">✓</span> Par défaut, partout</td>
+              <td><span class="no">✗</span> Les messages sont lisibles côté plateforme</td>
+            </tr>
+            <tr>
+              <th scope="row">Compte, e-mail, téléphone</th>
+              <td class="col-accord"><span class="yes">Rien</span> — une identité locale, à vous</td>
+              <td>Compte requis, données personnelles associées</td>
+            </tr>
+            <tr>
+              <th scope="row">Vos données</th>
+              <td class="col-accord"><span class="yes">Chez vous</span>, uniquement sur vos machines</td>
+              <td>Sur leurs serveurs, selon leurs conditions</td>
+            </tr>
+            <tr>
+              <th scope="row">Code source</th>
+              <td class="col-accord"><span class="yes">✓</span> Ouvert et auditable (MIT)</td>
+              <td><span class="no">✗</span> Fermé</td>
+            </tr>
+            <tr>
+              <th scope="row">Prix</th>
+              <td class="col-accord"><span class="yes">Gratuit</span>, sans niveau payant</td>
+              <td>Gratuit + abonnement Nitro pour les « plus »</td>
+            </tr>
+            <tr>
+              <th scope="row">Si le service ferme</th>
+              <td class="col-accord"><span class="yes">Rien ne change</span> — il n'y a pas de service</td>
+              <td>Historique et communautés perdus</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="securite" class="wrap" style="padding-top:0">
       <div class="strip reveal">
         <div class="section-head" style="margin-bottom:0">
           <span class="eyebrow">Conçu pour être privé</span>
@@ -120,33 +273,81 @@
       </div>
     </section>
 
+    <section id="faq" class="wrap" aria-labelledby="faq-title">
+      <div class="section-head center reveal">
+        <span class="eyebrow">Questions honnêtes</span>
+        <h2 id="faq-title">Tout ce qu'on nous demande</h2>
+      </div>
+      <div class="faq">
+        <details class="reveal">
+          <summary>« Sans serveur », vraiment ?</summary>
+          <p class="faq__body">Vraiment. Les pairs se trouvent via une table de hachage distribuée (Kademlia) puis se connectent directement. Si un pare-feu strict empêche la connexion directe, un autre pair peut relayer des octets — chiffrés de bout en bout, donc illisibles pour lui.</p>
+        </details>
+        <details class="reveal" style="--d:.06s">
+          <summary>Et si mon ami est hors ligne ?</summary>
+          <p class="faq__body">Vos messages restent chez vous et se synchronisent automatiquement dès que vous êtes tous les deux en ligne. Dans un serveur, n'importe quel membre connecté suffit à propager l'historique.</p>
+        </details>
+        <details class="reveal" style="--d:.12s">
+          <summary>C'est vraiment gratuit ?</summary>
+          <p class="faq__body">Oui. Pas de compte, pas d'abonnement, pas de publicité, pas de télémétrie. Le code est publié sous licence MIT — il n'y a littéralement aucune infrastructure à financer.</p>
+        </details>
+        <details class="reveal" style="--d:.18s">
+          <summary>Comment on se retrouve entre amis ?</summary>
+          <p class="faq__body">Chacun a un code ami court, à échanger une seule fois par le canal de votre choix. Ensuite, vos apps se reconnaissent et se retrouvent seules. Le <a href="guide.html#connexion">guide</a> montre tout en images.</p>
+        </details>
+        <details class="reveal" style="--d:.24s">
+          <summary>Et si je perds ma machine ?</summary>
+          <p class="faq__body">Votre identité tient dans une phrase de récupération affichée à la création du compte. Notez-la : elle permet de retrouver votre identité sur une nouvelle machine.</p>
+        </details>
+      </div>
+    </section>
+
     <section id="telecharger" class="wrap">
       <div class="section-head center reveal">
         <span class="eyebrow">Gratuit &amp; open source</span>
         <h2>Télécharger Accord</h2>
-        <p>Prenez la dernière version pour votre système. Universel sur Mac (Apple Silicon &amp; Intel).</p>
+        <p>Prenez la dernière version pour votre système — le téléchargement démarre directement.</p>
       </div>
+      <p class="dl-fresh reveal">Dernière version : <b>v<span data-version>…</span></b> · publiée le <span data-reldate>…</span></p>
       <div class="dl-grid">
-        <div class="dl-card reveal">
+        <div class="dl-card reveal" data-card="mac">
           <div class="os">🍎</div>
           <h3>macOS</h3>
-          <p>Apple Silicon &amp; Intel · .dmg universel</p>
-          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Télécharger</a>
+          <p>Apple Silicon (M1 et plus) · .dmg</p>
+          <a class="btn btn--primary" data-dl="mac" href="https://github.com/Gomouu/accord/releases/latest">Télécharger</a>
+          <span class="dl-meta"></span>
+          <p class="dl-alt" data-alt="mac"></p>
         </div>
-        <div class="dl-card reveal">
+        <div class="dl-card reveal" style="--d:.08s" data-card="win">
           <div class="os">🪟</div>
           <h3>Windows</h3>
-          <p>Installateur .msi / .exe</p>
-          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Télécharger</a>
+          <p>Installateur .exe</p>
+          <a class="btn btn--primary" data-dl="win" href="https://github.com/Gomouu/accord/releases/latest">Télécharger</a>
+          <span class="dl-meta"></span>
+          <p class="dl-alt" data-alt="win"></p>
         </div>
-        <div class="dl-card reveal">
+        <div class="dl-card reveal" style="--d:.16s" data-card="linux">
           <div class="os">🐧</div>
           <h3>Linux</h3>
-          <p>AppImage / .deb</p>
-          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Télécharger</a>
+          <p>AppImage universel</p>
+          <a class="btn btn--primary" data-dl="linux" href="https://github.com/Gomouu/accord/releases/latest">Télécharger</a>
+          <span class="dl-meta"></span>
+          <p class="dl-alt" data-alt="linux"></p>
         </div>
       </div>
-      <p style="text-align:center;color:var(--faint);margin-top:1.4rem;font-size:0.9rem">Premier lancement : voir le <a href="guide.html" style="color:var(--muted);text-decoration:underline">guide d'installation</a>. Nouveau sur le pair-à-pair ? <a href="guide.html#connexion" style="color:var(--muted);text-decoration:underline">Comment se connecter à un ami</a>.</p>
+      <p style="text-align:center;color:var(--faint);margin-top:1.4rem;font-size:0.9rem">Premier lancement : voir le <a href="guide.html" style="color:var(--muted);text-decoration:underline">guide d'installation</a>. Toutes les versions sont sur <a href="https://github.com/Gomouu/accord/releases" style="color:var(--muted);text-decoration:underline">GitHub</a>.</p>
+    </section>
+
+    <section class="wrap" aria-label="Appel final" style="padding-top:0">
+      <div class="cta-band reveal">
+        <span class="eyebrow">À deux, c'est mieux</span>
+        <h2>Prêt à discuter sans intermédiaire ?</h2>
+        <p>Installez Accord, envoyez votre code ami à quelqu'un, et gardez vos conversations pour vous. Pour de bon.</p>
+        <div class="hero__cta">
+          <a class="btn btn--primary" href="#telecharger">Télécharger Accord</a>
+          <a class="btn btn--ghost" href="guide.html">Lire le guide →</a>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -164,11 +365,6 @@
     </div>
   </footer>
 
-  <script>
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-    }, { threshold: 0.12 });
-    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
-  </script>
+  <script src="site.js" defer></script>
 </body>
 </html>
