@@ -195,6 +195,14 @@ describe('MessageList — rendu', () => {
     expect(screen.getByText('aabbcc')).toBeInTheDocument();
   });
 
+  it('expose la date et l’heure complètes en infobulle de l’horodatage', () => {
+    render(<MessageList messages={[textMsg('m1', BASE_MS, 'bonjour')]} />);
+
+    const stamp = screen.getByText('08/07/2026');
+    expect(stamp.getAttribute('title')).toMatch(/2026/);
+    expect(stamp.getAttribute('title')).toMatch(/10:00|10 h/);
+  });
+
   it('regroupe les messages consécutifs du même auteur (nom affiché une fois)', () => {
     const messages = [
       textMsg('m1', BASE_MS, 'premier'),

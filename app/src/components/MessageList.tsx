@@ -2,7 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { GroupThread } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
-import { formatDay, formatTimestamp, formatTimestampCompact } from '../lib/format';
+import {
+  formatDay,
+  formatEventDateTime,
+  formatTimestamp,
+  formatTimestampCompact,
+} from '../lib/format';
 import { extractInviteLink } from '../lib/invite';
 import { isEditableTarget, useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
@@ -637,7 +642,10 @@ export function MessageList({
                   />
                 )}
                 {grouped ? (
-                  <div className="w-10 shrink-0 overflow-hidden whitespace-nowrap pt-1 text-right text-[10px] leading-5 tracking-tight text-faint opacity-0 group-hover:opacity-100">
+                  <div
+                    className="w-10 shrink-0 overflow-hidden whitespace-nowrap pt-1 text-right text-[10px] leading-5 tracking-tight text-faint opacity-0 group-hover:opacity-100"
+                    title={formatEventDateTime(m.sent_ms, lang, timeFormat)}
+                  >
                     {formatTimestampCompact(m.sent_ms, lang, undefined, timeFormat)}
                   </div>
                 ) : (
@@ -702,7 +710,10 @@ export function MessageList({
                         >
                           {name}
                         </button>
-                        <span className="shrink-0 whitespace-nowrap text-xs text-faint">
+                        <span
+                          className="shrink-0 whitespace-nowrap text-xs text-faint"
+                          title={formatEventDateTime(m.sent_ms, lang, timeFormat)}
+                        >
                           {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
                         </span>
                         {pinned && (

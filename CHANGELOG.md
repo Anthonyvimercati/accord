@@ -30,6 +30,8 @@ still on 2.3.x keeps working unchanged.
 - **"Back to latest" button**: when you scroll up in a thread, a floating
   button appears at the bottom-right to jump straight back to the most recent
   message (one click), and disappears once you're at the bottom.
+- **Full date on hover**: hovering a message timestamp now shows the complete
+  date and time as a tooltip.
 - **Project website + French user guide** (GitHub Pages): a download landing
   page and a step-by-step guide (install, peer-to-peer connection,
   troubleshooting), deployed from `website/`.
