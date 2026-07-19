@@ -1057,8 +1057,13 @@ impl Endpoint {
             let sid = established.session_id;
             // Le pending initiateur a déjà été retiré en tête de `on_welcome`
             // (sa file est scellée dans `to_send` ci-dessus) : `install_session`
-            // ne trouve donc rien à re-sceller ici. On l'affirme.
-            debug_assert!(Self::install_session(&mut st, session, sid).is_empty());
+            // ne trouve donc rien à re-sceller ici. ATTENTION : l'appel doit
+            // rester HORS de `debug_assert!` — son argument n'est pas évalué en
+            // release, et la session ne serait alors JAMAIS installée (régression
+            // 3.0.0→3.3.0 : aucune session initiateur en production, plus aucun
+            // message échangé dès que les deux pairs doivent se recomposer).
+            let file_residuelle = Self::install_session(&mut st, session, sid);
+            debug_assert!(file_residuelle.is_empty());
             tracing::debug!(
                 pair = %hex4(&established.peer_static),
                 %peer_addr,

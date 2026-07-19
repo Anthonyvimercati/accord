@@ -82,8 +82,12 @@ jobs:
       - name: Rust format check
         run: cargo fmt --all --check
 
+      # `debug_assert_with_mut_call` (nursery) : interdit tout appel mutant dans
+      # un `debug_assert!` — son argument n'est PAS évalué en release. Cette
+      # classe de bug a produit la 3.0.0→3.3.0 sans sessions initiateur (aucun
+      # message échangé en production, tests debug tous verts).
       - name: Rust clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings -D clippy::debug_assert_with_mut_call
 
       # Tests unitaires seulement (`--lib`) : déterministes et hermétiques. Les
       # tests d'intégration e2e (`crates/*/tests/*.rs`) lancent de vrais nœuds
@@ -93,6 +97,17 @@ jobs:
       # `ci.sh` (`cargo test --workspace`), pas comme bloqueur de release.
       - name: Rust tests (unit)
         run: cargo test --workspace --lib --quiet
+
+      # Le transport en PROFIL RELEASE : ces e2e SimNet sont hermétiques (réseau
+      # simulé en mémoire, pas d'UDP réel — `tcp_link_e2e` reste exclu, il ouvre
+      # de vraies sockets) et le comportement du code peut diverger entre profils
+      # (`debug_assert!` non évalué en release — cause de la régression 3.0.0).
+      # Ce pas aurait bloqué la 3.0.0.
+      - name: Rust tests transport (release)
+        run: >
+          cargo test -p accord-transport --release --quiet
+          --test handshake_e2e --test hole_punch_e2e
+          --test relay_e2e --test relay_tunnel_e2e
 
       # Licences + bannissements + avis de sécurité (config: deny.toml racine).
       - name: cargo deny

@@ -573,3 +573,51 @@ async fn redemarrage_silencieux_prefere_la_session_fraiche() {
         "la résolution identité → session vise la session cadavre"
     );
 }
+
+/// Régression 3.0.0 : l'installation de la session initiateur vivait dans un
+/// `debug_assert!` — argument NON évalué en profil release. Tests debug tous
+/// verts, mais l'app publiée jetait chaque session qu'elle initiait : plus
+/// aucun message échangé dès que les deux pairs devaient recomposer leurs
+/// sessions (churn de reconnexion infini, `direct_session_addr` toujours
+/// vide). Ce test verrouille l'invariant DANS LES DEUX PROFILS — il tourne
+/// aussi en release via le pas CI « Rust tests transport (release) ».
+#[tokio::test]
+async fn initiateur_installe_sa_session_et_peut_emettre() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(11, NetConditions::default());
+    let alice = spawn_node(&net, &clock, "10.0.11.1:4000");
+    let mut bob = spawn_node(&net, &clock, "10.0.11.2:4000");
+    let bob_pub = bob.static_pub;
+
+    // Alice initie ; le WELCOME de Bob doit installer la session côté Alice.
+    let ping = ChannelMsg::Control(ControlMsg::Ping { token: 7 });
+    alice.ep.send(bob.addr, &ping).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if alice.ep.direct_session_addr(&bob_pub).is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("la session initiateur doit être visible par identité");
+
+    // Et un envoi POST-établissement (hors file du pending) doit être livré.
+    let msg = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 0,
+        custom: Some("post-handshake".into()),
+    });
+    alice
+        .ep
+        .send_to(bob.addr, Some(bob_pub), &msg)
+        .await
+        .unwrap();
+    let got = recv_message(&mut bob).await;
+    match got {
+        ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence { custom, .. }) => {
+            assert_eq!(custom, Some("post-handshake".into()));
+        }
+        other => panic!("message inattendu: {other:?}"),
+    }
+}
