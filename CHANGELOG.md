@@ -2,6 +2,45 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [3.4.0] — 2026-07-19
+
+### Fixed
+
+- **Critical: messages could no longer be exchanged at all** (regression
+  introduced in 3.0.0). The transport installed initiator-side sessions inside
+  a `debug_assert!` — whose argument is **not evaluated in release builds** —
+  so the shipped app silently discarded every session it initiated. Both peers
+  on 3.x could complete handshakes forever without ever being able to talk
+  (infinite reconnection churn, every outgoing send failing). Debug-profile
+  tests were all green, which is why CI never caught it. If you and your
+  friends saw messages stop after updating to 3.x: this was it — update both
+  sides to 3.4.0.
+- **Update notes are now rendered** (headings, bold, lists, code) in
+  Settings → Updates instead of showing raw Markdown markup.
+
+### Added
+
+- **Support log file**: set the `ACCORD_LOG_FILE` environment variable to
+  capture the app's journal to a file (a GUI app's stdout is lost), plus
+  precise transport diagnostics: every failed send now logs its reason, and
+  every established session logs its role, address and tunnel flag.
+
+### CI
+
+- **Release-profile transport tests**: the hermetic SimNet end-to-end suites
+  now also run compiled in release mode — code behavior can diverge between
+  profiles (`debug_assert!` is compiled out), which is exactly how the 3.0.0
+  regression escaped. This step alone would have blocked it (9/11 tests fail
+  with the bug present).
+- **`clippy::debug_assert_with_mut_call` enforced**: any state-mutating call
+  inside a `debug_assert!`/`debug_assert_eq!` is now a hard CI failure.
+
+### Changed
+
+- `mdns-sd` 0.20.1 → 0.20.2 (LAN discovery; note: a malformed mDNS
+  announcement from another device can still crash the discovery thread
+  upstream — tracked separately, does not affect remote friends).
+
 ## [3.3.0] — 2026-07-19
 
 ### Added
