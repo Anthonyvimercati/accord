@@ -2,7 +2,7 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
-## [3.0.0] — 2026-07-18
+## [3.0.0] — 2026-07-19
 
 A reliability, diagnostics and authoring release. Fully backward-compatible on
 the wire with 2.x — every new capability is local or negotiated, so a friend
