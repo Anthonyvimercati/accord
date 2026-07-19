@@ -2,6 +2,22 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- **Emoji autocomplete in the composer**: type `:` followed by at least two
+  letters (e.g. `:fire`, `:chat`) and a suggestion popup opens — Unicode emojis
+  matched by their French/English keywords plus the current server's custom
+  emojis (aggregated across your servers in DMs), keyboard navigation
+  (arrows, Enter/Tab to insert, Esc to close), mentions keep priority.
+- **Personalized quick reactions**: the hover reaction bar now offers your
+  most recent emojis first (shared with the emoji picker), topped up with the
+  classic defaults.
+- **Draft indicator**: conversations and channels where you left an unsent
+  message show a small pencil in the sidebar, live-updated as you type and
+  restored on restart.
+
 ## [3.2.0] — 2026-07-19
 
 ### Changed

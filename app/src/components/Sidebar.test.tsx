@@ -10,6 +10,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Contact, GroupStateJson } from '../lib/api';
 import { lireFichier } from '../lib/files';
 import { useContextMenu } from '../stores/contextMenu';
+import { useDrafts } from '../stores/drafts';
 import { useFriends } from '../stores/friends';
 import { PERMISSIONS, useGroups } from '../stores/groups';
 import { useMute } from '../stores/mute';
@@ -105,6 +106,7 @@ beforeEach(() => {
   useFriends.setState({ contacts: [] });
   useGroups.setState({ ids: [], states: {}, unread: {} });
   useMute.setState({ serverLevels: {}, channelLevels: {} });
+  useDrafts.setState({ keys: {} });
 });
 
 describe('Sidebar — non-lus des conversations privées', () => {
@@ -363,6 +365,28 @@ describe('Sidebar — menu du nom de serveur', () => {
       groupId: 'g1',
       initialTab: 'channels',
     });
+  });
+
+  it('affiche le crayon « brouillon » sur une conversation non active', () => {
+    useUi.setState({ view: { kind: 'friends' } });
+    useFriends.setState({ contacts: [contact('alice-pk', 'Alice')] });
+    useDrafts.setState({ keys: { 'draft:dm:alice-pk': true } });
+
+    render(<Sidebar />);
+
+    expect(screen.getByRole('img', { name: 'Brouillon en cours' })).toBeInTheDocument();
+  });
+
+  it('masque le crayon quand la conversation est celle affichée', () => {
+    useFriends.setState({ contacts: [contact('alice-pk', 'Alice')] });
+    useDrafts.setState({ keys: { 'draft:dm:alice-pk': true } });
+    useUi.setState({ view: { kind: 'dm', peer: 'alice-pk' } });
+
+    render(<Sidebar />);
+
+    expect(
+      screen.queryByRole('img', { name: 'Brouillon en cours' }),
+    ).not.toBeInTheDocument();
   });
 
   it('« Modifier mon profil de serveur » ouvre les paramètres sur l’onglet Membres', () => {

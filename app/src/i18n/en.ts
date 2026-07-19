@@ -158,6 +158,7 @@ export const en: Dict = {
     forwarded: 'Message forwarded!',
     forwardFailed: 'Forward failed',
     empty: 'No messages yet — write the first one!',
+    draftBadge: 'Draft in progress',
   },
   transcript: {
     copyConversation: 'Copy conversation',
@@ -563,6 +564,7 @@ export const en: Dict = {
     recents: 'Recent',
     more: 'More emojis',
     search: 'Search an emoji',
+    autocompleteLabel: 'Emoji suggestions',
     customSection: 'Server emojis',
     customSectionDm: 'Your custom emojis',
     stickersSection: 'Stickers',

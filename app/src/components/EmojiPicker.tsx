@@ -13,7 +13,7 @@ import {
   type EmojiUnicode,
 } from '../lib/emoji';
 import { aggregateEmojis, useGroups, type AggregatedEmoji } from '../stores/groups';
-import { addRecent, readRecents, writeRecents } from '../lib/emojiRecents';
+import { useEmojiRecents } from '../stores/recents';
 import { bouclerTab } from '../lib/focus';
 import { interpolate } from '../i18n';
 import type { Dict } from '../i18n';
@@ -77,9 +77,10 @@ export function EmojiPicker({
   const ref = useRef<HTMLDivElement>(null);
   const rechercheRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
-  // Émojis récents (Unicode + custom), lus une fois au montage puis mis à jour
-  // localement à chaque choix ; persistés en localStorage.
-  const [recents, setRecents] = useState<EmojiPick[]>(() => readRecents());
+  // Émojis récents (Unicode + custom) : store partagé avec la barre de
+  // réactions rapides (voir `stores/recents`), persisté en localStorage.
+  const recents = useEmojiRecents((s) => s.list);
+  const addRecentPick = useEmojiRecents((s) => s.add);
   const ids = useGroups((s) => s.ids);
   const states = useGroups((s) => s.states);
   // Contexte serveur : émojis du groupe courant. MP (`groupId` absent) :
@@ -125,11 +126,9 @@ export function EmojiPicker({
     };
   }, []);
 
-  // Enregistre le choix en tête des récents (local + persistance) puis délègue.
+  // Enregistre le choix en tête des récents (store partagé) puis délègue.
   const handleSelect = (pick: EmojiPick): void => {
-    const next = addRecent(recents, pick);
-    setRecents(next);
-    writeRecents(next);
+    addRecentPick(pick);
     onSelect(pick);
   };
 

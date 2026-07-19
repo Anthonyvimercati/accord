@@ -9,10 +9,12 @@
 import { useState } from 'react';
 import { interpolate } from '../i18n';
 import { valeurReaction } from '../lib/emoji';
+import { quickReactions } from '../lib/emojiRecents';
+import { useEmojiRecents } from '../stores/recents';
 import { useT } from '../stores/ui';
 import { EmojiPicker } from './EmojiPicker';
 
-/** Choix restreint d'emojis courants proposés au survol. */
+/** Choix par défaut de la barre rapide, complété par les émojis récents. */
 export const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🎉'] as const;
 
 interface MessageActionsProps {
@@ -79,6 +81,8 @@ export function MessageActions({
   groupId = null,
 }: MessageActionsProps) {
   const t = useT();
+  const recents = useEmojiRecents((s) => s.list);
+  const quickEmojis = quickReactions(recents, QUICK_EMOJIS);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -114,7 +118,7 @@ export function MessageActions({
           aria-label={t.dm.addReaction}
           className="glass-strong popover-enter absolute bottom-full right-0 mb-1.5 flex gap-0.5 rounded-lg p-1"
         >
-          {QUICK_EMOJIS.map((emoji) => (
+          {quickEmojis.map((emoji) => (
             <button
               key={emoji}
               type="button"

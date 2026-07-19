@@ -255,7 +255,7 @@ describe('MessageInput — envoi', () => {
 });
 
 /** Installe un groupe (deux membres, un rôle) et un contact nommé « Alice ». */
-function setupGroup(): void {
+function setupGroup(over: Partial<GroupStateJson> = {}): void {
   const state = {
     group_id: 'g1',
     name: 'G',
@@ -273,6 +273,7 @@ function setupGroup(): void {
     ],
     invites: [],
     my_permissions: 0,
+    ...over,
   } satisfies GroupStateJson;
   useGroups.setState({ states: { g1: state } });
   useFriends.setState({
@@ -342,6 +343,72 @@ describe('MessageInput — autocomplétion de mentions', () => {
     typeInput('@');
 
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageInput — autocomplétion d’émojis', () => {
+  it('ouvre les suggestions sur `:requete` et insère à Entrée sans envoyer', () => {
+    const onSend = vi.fn();
+    render(<MessageInput placeholder="p" onSend={onSend} />);
+
+    typeInput('bien vu :feu');
+
+    expect(
+      screen.getByRole('listbox', { name: 'Suggestions d’émojis' }),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+
+    expect(screen.getByRole('textbox')).toHaveValue('bien vu 🔥 ');
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('exige au moins deux caractères et ignore les `:` de ponctuation', () => {
+    render(<MessageInput placeholder="p" onSend={vi.fn()} />);
+
+    typeInput('rdv 12:30');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+    typeInput(':f');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('se referme avec Échap sans toucher au texte', () => {
+    render(<MessageInput placeholder="p" onSend={vi.fn()} />);
+
+    typeInput(':feu');
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue(':feu');
+  });
+
+  it('propose les émojis custom du serveur courant en tête', () => {
+    setupGroup({ emojis: [{ name: 'feu_follet', merkle_root: 'r9' }] });
+    render(<MessageInput placeholder="p" onSend={vi.fn()} groupId="g1" />);
+
+    typeInput(':feu');
+
+    const options = screen.getAllByRole('option');
+    expect(options[0]).toHaveTextContent(':feu_follet:');
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Tab' });
+    expect(screen.getByRole('textbox')).toHaveValue(':feu_follet: ');
+  });
+
+  it('laisse la priorité à l’autocomplétion de mentions', () => {
+    setupGroup();
+    render(<MessageInput placeholder="p" onSend={vi.fn()} groupId="g1" />);
+
+    typeInput('@al');
+
+    expect(
+      screen.getByRole('listbox', { name: 'Suggestions de mention' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('listbox', { name: 'Suggestions d’émojis' }),
+    ).not.toBeInTheDocument();
   });
 });
 

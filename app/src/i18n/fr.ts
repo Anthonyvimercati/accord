@@ -159,6 +159,7 @@ export const fr = {
     forwarded: 'Message transféré !',
     forwardFailed: 'Échec du transfert',
     empty: 'Aucun message pour l’instant — écrivez le premier !',
+    draftBadge: 'Brouillon en cours',
   },
   transcript: {
     copyConversation: 'Copier la conversation',
@@ -571,6 +572,7 @@ export const fr = {
     recents: 'Récents',
     more: 'Plus d’émojis',
     search: 'Rechercher un émoji',
+    autocompleteLabel: 'Suggestions d’émojis',
     customSection: 'Émojis du serveur',
     customSectionDm: 'Tes émojis personnalisés',
     stickersSection: 'Stickers',

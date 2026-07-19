@@ -16,7 +16,8 @@ vi.mock('../lib/files', () => ({
 }));
 
 import { EmojiPicker } from './EmojiPicker';
-import { readRecents, writeRecents } from '../lib/emojiRecents';
+import { readRecents } from '../lib/emojiRecents';
+import { useEmojiRecents } from '../stores/recents';
 
 function makeState(over: Partial<GroupStateJson> = {}): GroupStateJson {
   return {
@@ -38,8 +39,9 @@ function makeState(over: Partial<GroupStateJson> = {}): GroupStateJson {
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
-  // Récents isolés entre tests (le choix d'un émoji les persiste désormais).
+  // Récents isolés entre tests : stockage ET store partagé (module-level).
   window.localStorage.clear();
+  useEmojiRecents.setState({ list: [] });
   // Par défaut sans émoji custom (aucune image asynchrone à charger) et
   // aucun serveur rejoint (l'agrégat MP ne doit rien voir fuiter).
   useGroups.setState({ ids: [], states: { g1: makeState({ emojis: [] }) } });
@@ -139,7 +141,7 @@ describe('EmojiPicker — récents', () => {
   });
 
   it('affiche les émojis récents en tête et permet de les réinsérer', () => {
-    writeRecents([{ kind: 'unicode', char: '🎉' }]);
+    useEmojiRecents.setState({ list: [{ kind: 'unicode', char: '🎉' }] });
     const onSelect = vi.fn();
     render(<EmojiPicker groupId="g1" onSelect={onSelect} onClose={vi.fn()} />);
 
@@ -158,7 +160,7 @@ describe('EmojiPicker — récents', () => {
   });
 
   it('filtre aussi les récents par la recherche', () => {
-    writeRecents([{ kind: 'unicode', char: '🎉' }]);
+    useEmojiRecents.setState({ list: [{ kind: 'unicode', char: '🎉' }] });
     render(<EmojiPicker groupId="g1" onSelect={vi.fn()} onClose={vi.fn()} />);
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Rechercher un émoji' }), {

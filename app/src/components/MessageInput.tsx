@@ -32,6 +32,7 @@ import { isTauri } from '../lib/bridge';
 import { lireFichier } from '../lib/files';
 import { containsFiltered } from '../lib/automod';
 import { draftKey, readDraft, writeDraft } from '../lib/drafts';
+import { useDrafts } from '../stores/drafts';
 import { jetonTexteEmoji, type EmojiPick } from '../lib/emoji';
 import {
   findActiveMention,
@@ -51,12 +52,21 @@ import { useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
 import {
+  aggregateEmojis,
   channelKey,
   isChannelReadOnly,
   sortRoles,
   timeoutUntil,
   useGroups,
 } from '../stores/groups';
+import {
+  findActiveEmojiToken,
+  insertEmoji,
+  suggestEmojis,
+  type ActiveEmojiToken,
+  type EmojiSuggestion,
+} from '../lib/emojiSuggest';
+import { EmojiAutocomplete } from './EmojiAutocomplete';
 import { useMessageEdit } from '../stores/messageEdit';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
@@ -246,6 +256,7 @@ export function MessageInput({
   // `setText('')`, ce qui efface donc aussi le brouillon.
   useEffect(() => {
     writeDraft(loadedDraftKeyRef.current, text);
+    useDrafts.getState().noteDraft(loadedDraftKeyRef.current, text.trim() !== '');
   }, [text]);
 
   // Changement de conversation sans démontage : le brouillon sortant est déjà
@@ -295,10 +306,49 @@ export function MessageInput({
   const mentionOpen = suggestions.length > 0;
   const activeIndex = Math.min(mentionIndex, suggestions.length - 1);
 
+  // Autocomplétion émoji `:requete` — même mécanique que les mentions, avec
+  // priorité aux mentions si les deux popups pouvaient s'ouvrir. Les customs
+  // suivent le contexte du sélecteur : ceux du serveur courant, ou l'agrégat
+  // de tous les serveurs rejoints en MP.
+  const [emojiToken, setEmojiToken] = useState<ActiveEmojiToken | null>(null);
+  const [emojiIndex, setEmojiIndex] = useState(0);
+  const groupIds = useGroups((s) => s.ids);
+  const groupStates = useGroups((s) => s.states);
+  const emojiCustoms = useMemo(
+    () =>
+      groupId !== null
+        ? (groupStates[groupId]?.emojis ?? [])
+        : aggregateEmojis(groupIds, groupStates),
+    [groupId, groupIds, groupStates],
+  );
+  const emojiSuggestions =
+    mentionOpen || emojiToken === null
+      ? []
+      : suggestEmojis(emojiToken.query, emojiCustoms);
+  const emojiAcOpen = emojiSuggestions.length > 0;
+  const emojiActiveIndex = Math.min(emojiIndex, emojiSuggestions.length - 1);
+
   /** Recomputes the active mention from the caret without resetting the
    * highlighted index (used on caret moves; typing resets it separately). */
   const syncCaret = (el: HTMLTextAreaElement): void => {
-    setMention(findActiveMention(el.value, el.selectionStart ?? el.value.length));
+    const caret = el.selectionStart ?? el.value.length;
+    setMention(findActiveMention(el.value, caret));
+    setEmojiToken(findActiveEmojiToken(el.value, caret));
+  };
+
+  /** Insère la suggestion d'émoji choisie et referme le popup. */
+  const chooseEmoji = (suggestion: EmojiSuggestion | undefined): void => {
+    if (suggestion === undefined || emojiToken === null) return;
+    const { text: next, caret } = insertEmoji(text, emojiToken, suggestion);
+    setText(next);
+    setEmojiToken(null);
+    const el = textareaRef.current;
+    if (el !== null) {
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(caret, caret);
+      });
+    }
   };
 
   /** Inserts the chosen candidate and closes the popup. */
@@ -823,6 +873,14 @@ export function MessageInput({
             onHover={setMentionIndex}
           />
         )}
+        {emojiAcOpen && !recording && (
+          <EmojiAutocomplete
+            suggestions={emojiSuggestions}
+            activeIndex={emojiActiveIndex}
+            onSelect={chooseEmoji}
+            onHover={setEmojiIndex}
+          />
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -959,13 +1017,14 @@ export function MessageInput({
               rows={1}
               onChange={(e) => {
                 const value = e.target.value;
+                const caret = e.target.selectionStart ?? value.length;
                 setText(value);
                 notifyTyping(value);
                 // Real edits recompute the mention and reset the highlight.
-                setMention(
-                  findActiveMention(value, e.target.selectionStart ?? value.length),
-                );
+                setMention(findActiveMention(value, caret));
                 setMentionIndex(0);
+                setEmojiToken(findActiveEmojiToken(value, caret));
+                setEmojiIndex(0);
               }}
               onClick={(e) => syncCaret(e.currentTarget)}
               onKeyUp={(e) => {
@@ -1002,6 +1061,32 @@ export function MessageInput({
                   if (e.key === 'Escape') {
                     e.preventDefault();
                     setMention(null);
+                    return;
+                  }
+                }
+                // Autocomplétion émoji `:requete` — mêmes touches que les
+                // mentions (jamais ouvertes en même temps, mentions d'abord).
+                if (emojiAcOpen) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setEmojiIndex((i) => (i + 1) % emojiSuggestions.length);
+                    return;
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setEmojiIndex(
+                      (i) => (i - 1 + emojiSuggestions.length) % emojiSuggestions.length,
+                    );
+                    return;
+                  }
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault();
+                    chooseEmoji(emojiSuggestions[emojiActiveIndex]);
+                    return;
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setEmojiToken(null);
                     return;
                   }
                 }

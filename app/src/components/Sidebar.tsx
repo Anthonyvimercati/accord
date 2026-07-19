@@ -11,7 +11,9 @@ import { interpolate } from '../i18n';
 import type { GroupChannel } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { profileCardGradient } from '../lib/color';
+import { draftKey } from '../lib/drafts';
 import { marquerServeurLu } from '../lib/markServerRead';
+import { hasDraft, useDrafts } from '../stores/drafts';
 import { lireFichier } from '../lib/files';
 import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
 import { useCalls } from '../stores/calls';
@@ -134,6 +136,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
   const setView = useUi((s) => s.setView);
   const contacts = useFriends((s) => s.contacts);
   const missedPeers = useCalls((s) => s.missedPeers);
+  const draftKeys = useDrafts((s) => s.keys);
   const friends = contacts.filter((c) => c.state === 'friend');
 
   return (
@@ -229,6 +232,17 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
                 )}
               </span>
               <span className="flex shrink-0 items-center gap-1">
+                {!active &&
+                  hasDraft(draftKeys, draftKey({ kind: 'dm', peer: c.pubkey })) && (
+                    <span
+                      role="img"
+                      aria-label={t.dm.draftBadge}
+                      title={t.dm.draftBadge}
+                      className="text-faint"
+                    >
+                      <DraftIcon />
+                    </span>
+                  )}
                 {missedPeers.has(c.pubkey) && (
                   <span
                     role="img"
@@ -387,6 +401,25 @@ function LockIcon() {
   );
 }
 
+/** Petit crayon « brouillon en cours » des listes de conversations. */
+function DraftIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+    </svg>
+  );
+}
+
 function ChannelRow({
   channel,
   active,
@@ -421,7 +454,15 @@ function ChannelRow({
 }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
+  const draftKeys = useDrafts((s) => s.keys);
   const muted = level === 'none';
+  const channelDraft =
+    !active &&
+    channel.kind !== 'voice' &&
+    hasDraft(
+      draftKeys,
+      draftKey({ kind: 'group', groupId, channelId: channel.channel_id }),
+    );
 
   /**
    * Items du menu contextuel d'un salon : copie d'identifiant, niveau de
@@ -539,6 +580,16 @@ function ChannelRow({
       <span className="min-w-0 truncate">{channel.name}</span>
       {/* Une mention prime sur le simple non-lu (pastille distincte), posée à
           côté du nom (le nom tronque, la pastille ne rétrécit pas). */}
+      {channelDraft && (
+        <span
+          role="img"
+          aria-label={t.dm.draftBadge}
+          title={t.dm.draftBadge}
+          className="shrink-0 text-faint"
+        >
+          <DraftIcon />
+        </span>
+      )}
       {(mentions ?? 0) > 0 ? (
         <MentionBadge count={mentions ?? 0} />
       ) : (

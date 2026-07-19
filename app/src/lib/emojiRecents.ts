@@ -33,6 +33,29 @@ export function addRecent(
   return [pick, ...withoutDup].slice(0, Math.max(0, max));
 }
 
+/**
+ * Barre de réactions rapides : les émojis Unicode récents d'abord (ordre de
+ * récence), complétés par `defaults` jusqu'à `n`, sans doublon. Les émojis
+ * custom des récents sont ignorés ici — la barre réagit d'un caractère
+ * Unicode ; les custom passent par le sélecteur complet.
+ */
+export function quickReactions(
+  list: readonly EmojiPick[],
+  defaults: readonly string[],
+  n = 6,
+): string[] {
+  const out: string[] = [];
+  const candidats = [
+    ...list.filter((p) => p.kind === 'unicode').map((p) => p.char),
+    ...defaults,
+  ];
+  for (const c of candidats) {
+    if (!out.includes(c)) out.push(c);
+    if (out.length === n) break;
+  }
+  return out;
+}
+
 /** Vrai si `value` est un `EmojiPick` valide (garde de désérialisation). */
 function isEmojiPick(value: unknown): value is EmojiPick {
   if (typeof value !== 'object' || value === null) return false;

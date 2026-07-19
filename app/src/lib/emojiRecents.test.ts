@@ -10,6 +10,7 @@ import {
   addRecent,
   MAX_RECENTS,
   parseRecents,
+  quickReactions,
   readRecents,
   RECENTS_STORAGE_KEY,
   writeRecents,
@@ -49,6 +50,53 @@ describe('addRecent', () => {
     const list: EmojiPick[] = [heart];
     addRecent(list, thumb);
     expect(list).toEqual([heart]);
+  });
+});
+
+describe('quickReactions', () => {
+  const DEFAUTS = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
+
+  it('rend les défauts sans aucun récent', () => {
+    expect(quickReactions([], DEFAUTS)).toEqual(DEFAUTS);
+  });
+
+  it('place les récents Unicode en tête, puis complète avec les défauts', () => {
+    const recents: EmojiPick[] = [
+      { kind: 'unicode', char: '🔥' },
+      { kind: 'unicode', char: '👀' },
+    ];
+    expect(quickReactions(recents, DEFAUTS)).toEqual([
+      '🔥',
+      '👀',
+      '👍',
+      '❤️',
+      '😂',
+      '😮',
+    ]);
+  });
+
+  it('déduplique un récent déjà présent dans les défauts', () => {
+    const recents: EmojiPick[] = [{ kind: 'unicode', char: '❤️' }];
+    const quick = quickReactions(recents, DEFAUTS);
+    expect(quick[0]).toBe('❤️');
+    expect(quick).toHaveLength(6);
+    expect(new Set(quick).size).toBe(6);
+  });
+
+  it('ignore les émojis custom des récents', () => {
+    const recents: EmojiPick[] = [
+      { kind: 'custom', name: 'parrot', merkleRoot: 'r' },
+      { kind: 'unicode', char: '🔥' },
+    ];
+    expect(quickReactions(recents, DEFAUTS)[0]).toBe('🔥');
+    expect(quickReactions(recents, DEFAUTS)).not.toContain('parrot');
+  });
+
+  it('borne à n éléments', () => {
+    const recents: EmojiPick[] = '🍎🍊🍋🍉🍇🍓🍒'
+      .match(/\p{Emoji_Presentation}/gu)!
+      .map((char) => ({ kind: 'unicode', char }));
+    expect(quickReactions(recents, DEFAUTS, 6)).toHaveLength(6);
   });
 });
 
