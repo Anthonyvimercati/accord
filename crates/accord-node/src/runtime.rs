@@ -498,7 +498,10 @@ impl Runtime {
                 return;
             }
         };
-        tracing::debug!(amis = known.len(), "reconnexion : dial des adresses mémorisées");
+        tracing::debug!(
+            amis = known.len(),
+            "reconnexion : dial des adresses mémorisées"
+        );
         for (pubkey, addr) in known {
             // Le carnet mémoire connaît déjà l'adresse : la session à venir
             // (événement `Connected`) déclenchera flush + convergence profil.
@@ -696,7 +699,10 @@ impl Runtime {
     /// ancienne incarnation (poinçonnage no-op « déjà connecté »).
     fn maybe_persist_friend_addr(&self, pubkey: [u8; 32], addr: SocketAddr) {
         {
-            let map = self.addr_persisted.lock().unwrap_or_else(|e| e.into_inner());
+            let map = self
+                .addr_persisted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if map.get(&pubkey) == Some(&addr) {
                 return;
             }

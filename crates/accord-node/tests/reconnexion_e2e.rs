@@ -111,7 +111,10 @@ async fn ami_se_reconnecte_via_le_cache_d_adresses_apres_redemarrage() {
 
     // Première session confirmée par un aller simple Alice → Bob : garantit que
     // Bob a mémorisé l'adresse d'Alice (persistée à l'événement `Connected`).
-    alice.node.dm_send(&bob_pub, "avant redémarrage", None).unwrap();
+    alice
+        .node
+        .dm_send(&bob_pub, "avant redémarrage", None)
+        .unwrap();
     assert!(
         eventually(|| bob
             .node
@@ -175,7 +178,10 @@ async fn message_a_un_ami_hors_ligne_livre_apres_sa_reconnexion() {
     // Bob s'éteint ; Alice lui écrit (le message part dans l'outbox).
     bob.shutdown();
     drop(bob);
-    alice.node.dm_send(&bob_pub, "message hors ligne", None).unwrap();
+    alice
+        .node
+        .dm_send(&bob_pub, "message hors ligne", None)
+        .unwrap();
 
     // Bob redémarre (nouveau port). Aucun ré-enregistrement : seul son cache
     // le ramène vers Alice, qui apprend alors son nouveau port et vidange.

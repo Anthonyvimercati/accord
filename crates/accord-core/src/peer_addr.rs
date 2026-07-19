@@ -90,7 +90,10 @@ mod tests {
         let db = db();
         let addr: SocketAddr = "203.0.113.7:48016".parse().unwrap();
         remember(&db, &pk(1), addr, 1_000).unwrap();
-        assert_eq!(recall(&db, &pk(1), 2_000, DEFAULT_TTL_MS).unwrap(), Some(addr));
+        assert_eq!(
+            recall(&db, &pk(1), 2_000, DEFAULT_TTL_MS).unwrap(),
+            Some(addr)
+        );
     }
 
     #[test]
@@ -115,7 +118,10 @@ mod tests {
         let a2: SocketAddr = "198.51.100.4:48016".parse().unwrap();
         remember(&db, &pk(3), a1, 1_000).unwrap();
         remember(&db, &pk(3), a2, 2_000).unwrap();
-        assert_eq!(recall(&db, &pk(3), 2_500, DEFAULT_TTL_MS).unwrap(), Some(a2));
+        assert_eq!(
+            recall(&db, &pk(3), 2_500, DEFAULT_TTL_MS).unwrap(),
+            Some(a2)
+        );
     }
 
     #[test]
@@ -139,6 +145,9 @@ mod tests {
         let db = db();
         let addr: SocketAddr = "[2001:db8::1]:48016".parse().unwrap();
         remember(&db, &pk(6), addr, 1_000).unwrap();
-        assert_eq!(recall(&db, &pk(6), 1_500, DEFAULT_TTL_MS).unwrap(), Some(addr));
+        assert_eq!(
+            recall(&db, &pk(6), 1_500, DEFAULT_TTL_MS).unwrap(),
+            Some(addr)
+        );
     }
 }
