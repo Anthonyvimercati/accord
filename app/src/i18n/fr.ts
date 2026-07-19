@@ -337,6 +337,7 @@ export const fr = {
     settingsTitle: 'Paramètres du serveur',
     serverMenu: 'Menu du serveur',
     hideMutedChannels: 'Masquer les salons muets',
+    editServerProfile: 'Modifier mon profil de serveur',
     // Onglets.
     tabProfile: 'Profil',
     tabChannels: 'Salons',

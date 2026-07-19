@@ -336,6 +336,7 @@ export const en: Dict = {
     settingsTitle: 'Server settings',
     serverMenu: 'Server menu',
     hideMutedChannels: 'Hide muted channels',
+    editServerProfile: 'Edit my server profile',
     // Tabs.
     tabProfile: 'Profile',
     tabChannels: 'Channels',

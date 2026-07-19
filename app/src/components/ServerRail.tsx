@@ -9,13 +9,8 @@ import { copyToClipboard } from '../lib/clipboard';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { folderOfServer, useFolders, type ServerFolder } from '../stores/folders';
 import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
-import {
-  useGroups,
-  sortChannels,
-  channelKey,
-  hasPerm,
-  PERMISSIONS,
-} from '../stores/groups';
+import { useGroups, sortChannels, hasPerm, PERMISSIONS } from '../stores/groups';
+import { marquerServeurLu } from '../lib/markServerRead';
 import { serverLevel, useMute } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
@@ -367,8 +362,7 @@ export function ServerRail() {
       const sections: ContextMenuItem[][] = [];
 
       // Marquer comme lu — seulement si le serveur a des non-lus (jamais un
-      // no-op) : parcourt les salons texte/annonces à non-lus et réutilise
-      // `markRead` salon par salon (même flux qu'à l'ouverture d'un salon).
+      // no-op) ; boucle partagée avec le menu déroulant du serveur.
       sections.push(
         serverHasUnread
           ? [
@@ -376,29 +370,7 @@ export function ServerRail() {
                 label: t.contextMenu.markAsRead,
                 icon: <CheckMenuIcon />,
                 onClick: () => {
-                  void (async () => {
-                    const g = useGroups.getState();
-                    const chans = (g.states[id]?.channels ?? []).filter(
-                      (c) => c.kind !== 'voice',
-                    );
-                    for (const ch of chans) {
-                      if ((g.unread[id]?.[ch.channel_id] ?? 0) === 0) continue;
-                      try {
-                        await g.refreshHistory(id, ch.channel_id);
-                        const last = (
-                          useGroups.getState().messages[channelKey(id, ch.channel_id)] ??
-                          []
-                        ).at(-1);
-                        if (last !== undefined) {
-                          await useGroups
-                            .getState()
-                            .markRead(id, ch.channel_id, last.lamport);
-                        }
-                      } catch {
-                        // Best effort : les autres salons continuent d'être marqués.
-                      }
-                    }
-                  })();
+                  void marquerServeurLu(id);
                 },
               },
             ]

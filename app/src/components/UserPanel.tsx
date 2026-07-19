@@ -327,7 +327,7 @@ export function UserPanel() {
               {displayName}
             </div>
             <div className="truncate text-xs text-faint">
-              {(ownStatusText ?? '') !== '' ? ownStatusText : self.friend_code}
+              {(ownStatusText ?? '') !== '' ? ownStatusText : t.profil[dotStatus]}
             </div>
           </div>
         </button>

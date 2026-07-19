@@ -42,7 +42,7 @@ export type Modal =
        * Onglet initial (menu du serveur → « Créer une catégorie » ;
        * panneau soundboard vide → onglet Soundboard) ; défaut : Profil.
        */
-      initialTab?: 'channels' | 'soundboard';
+      initialTab?: 'channels' | 'soundboard' | 'members';
     }
   | { kind: 'events'; groupId: string }
   | { kind: 'createPoll'; groupId: string; channelId: string };

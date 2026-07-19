@@ -11,6 +11,7 @@ import { interpolate } from '../i18n';
 import type { GroupChannel } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { profileCardGradient } from '../lib/color';
+import { marquerServeurLu } from '../lib/markServerRead';
 import { lireFichier } from '../lib/files';
 import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
 import { useCalls } from '../stores/calls';
@@ -655,6 +656,8 @@ function ServerHeaderMenu({
   const hideMutedChannels = useUi((s) => s.hideMutedChannels);
   const serverLevels = useMute((s) => s.serverLevels);
   const state = useGroups((s) => s.states[groupId]);
+  const unreadByChannel = useGroups((s) => s.unread[groupId]);
+  const menuMentionCount = useGroups((s) => s.mentions[groupId]) ?? 0;
   const self = useSession((s) => s.self);
   const ref = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -696,18 +699,33 @@ function ServerHeaderMenu({
   const founderBlocked = isFounder && state.members.length > 1;
 
   const canManageChannels = hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS);
+  const serverHasUnread =
+    menuMentionCount > 0 || Object.values(unreadByChannel ?? {}).some((n) => n > 0);
 
   const items: ServerMenuItem[] = [];
+  // Marquer comme lu — seulement si le serveur a des non-lus (jamais un
+  // no-op), en tête comme Discord ; même boucle que le menu du rail.
+  if (serverHasUnread) {
+    items.push({
+      label: t.contextMenu.markAsRead,
+      icon: <CheckMenuIcon />,
+      onClick: () => {
+        void marquerServeurLu(groupId);
+      },
+    });
+  }
   if (hasPerm(myPerms, PERMISSIONS.INVITE)) {
     items.push({
       label: t.groups.invitePeople,
       icon: <EnvelopeMenuIcon />,
+      separatorBefore: items.length === 1,
       onClick: () => openModal({ kind: 'invite', groupId }),
     });
   }
   items.push({
     label: t.serveur.settingsTitle,
     icon: <GearMenuIcon />,
+    separatorBefore: items.length === 1,
     onClick: () => openModal({ kind: 'serverSettings', groupId }),
   });
   if (canManageChannels) {
@@ -751,6 +769,15 @@ function ServerHeaderMenu({
     icon: <BellOffMenuIcon />,
     checked: hideMutedChannels,
     onClick: () => useUi.getState().toggleHideMutedChannels(),
+  });
+  // Profil de serveur (pseudo + avatar propres à ce serveur) : le formulaire
+  // vit dans Paramètres du serveur → Membres (ligne de soi) — pas de modale
+  // dédiée, on ouvre l'onglet directement.
+  items.push({
+    label: t.serveur.editServerProfile,
+    icon: <EditMenuIcon />,
+    separatorBefore: true,
+    onClick: () => openModal({ kind: 'serverSettings', groupId, initialTab: 'members' }),
   });
   items.push({
     label: t.contextMenu.copyServerId,

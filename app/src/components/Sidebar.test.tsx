@@ -290,7 +290,14 @@ describe('Sidebar — menu du nom de serveur', () => {
     ).toBeInTheDocument();
     const leave = screen.getByRole('menuitem', { name: 'Quitter le serveur' });
     expect(leave).toHaveClass('server-menu-danger');
-    expect(screen.getAllByRole('separator')).toHaveLength(3);
+    expect(screen.getAllByRole('separator')).toHaveLength(4);
+    expect(
+      screen.getByRole('menuitem', { name: 'Modifier mon profil de serveur' }),
+    ).toBeInTheDocument();
+    // Aucun non-lu dans cet état : pas d'entrée « Marquer comme lu ».
+    expect(
+      screen.queryByRole('menuitem', { name: 'Marquer comme lu' }),
+    ).not.toBeInTheDocument();
     // Ni invitation ni création de salon/catégorie sans les permissions requises.
     expect(
       screen.queryByRole('menuitem', { name: 'Inviter des personnes' }),
@@ -356,6 +363,36 @@ describe('Sidebar — menu du nom de serveur', () => {
       groupId: 'g1',
       initialTab: 'channels',
     });
+  });
+
+  it('« Modifier mon profil de serveur » ouvre les paramètres sur l’onglet Membres', () => {
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Modifier mon profil de serveur' }),
+    );
+
+    expect(useUi.getState().modal).toEqual({
+      kind: 'serverSettings',
+      groupId: 'g1',
+      initialTab: 'members',
+    });
+  });
+
+  it('« Marquer comme lu » apparaît en tête quand le serveur a des non-lus', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: groupState() },
+      unread: { g1: { c1: 3 } },
+    });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+
+    const items = screen.getAllByRole('menuitem');
+    expect(items[0]).toHaveAccessibleName('Marquer comme lu');
   });
 
   it('affiche « Créer un événement » avec MANAGE_CHANNELS et ouvre la modale', () => {

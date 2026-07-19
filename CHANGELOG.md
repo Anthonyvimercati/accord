@@ -2,6 +2,20 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+
+- **Richer server dropdown menu**: "Mark as read" now sits at the top whenever
+  the server has unread channels (same sweep as the rail context menu), and a
+  new "Edit my server profile" entry opens Server settings → Members directly
+  (per-server nickname and avatar).
+- **Your panel shows your status, not your friend code**: the bottom-left user
+  panel now falls back to your presence (Online, Idle, Do not disturb,
+  Invisible) when no custom status is set — the friend code no longer appears
+  there (it lives in Settings → My account and the Friends tab). Set a written
+  status by clicking your profile and typing in the "Custom status" field.
+
 ## [3.1.0] — 2026-07-19
 
 ### Changed

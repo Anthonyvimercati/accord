@@ -117,6 +117,25 @@ describe('UserPanel — menu utilisateur rapide', () => {
     expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
   });
 
+  it('affiche la présence sous le pseudo — jamais le code ami', () => {
+    useSession.setState({ self: { ...self, name: 'Moi' } });
+
+    render(<UserPanel />);
+
+    expect(screen.getByText('En ligne')).toBeInTheDocument();
+    expect(screen.queryByText('accord-moi')).not.toBeInTheDocument();
+  });
+
+  it('affiche le statut personnalisé quand il est défini', () => {
+    useSession.setState({ self: { ...self, name: 'Moi' } });
+    useFriends.setState({ ownStatusText: 'En pause café' });
+
+    render(<UserPanel />);
+
+    expect(screen.getByText('En pause café')).toBeInTheDocument();
+    expect(screen.queryByText('accord-moi')).not.toBeInTheDocument();
+  });
+
   it('ouvre le menu utilisateur au clic sur l’avatar/pseudo', () => {
     render(<UserPanel />);
 
