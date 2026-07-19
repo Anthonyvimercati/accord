@@ -44,13 +44,57 @@
     if (dernier < reste.length) cible.append(reste.slice(dernier));
   };
 
-  /* --- Corps Markdown (sous-ensemble des notes de release) → DOM. --- */
-  const rendreCorps = (md, cible) => {
+  /* --- Corps Markdown (sous-ensemble des notes de release) → DOM.
+     Gère aussi les blocs présents dans nos notes : code clôturé ``` et
+     <details>/<summary> (repli « Install notes »). Tout autre balisage HTML
+     est réduit à son texte — jamais interprété. --- */
+  const rendreCorps = (md, racine) => {
+    let cible = racine; // <article> ou <details> ouvert
     let ul = null;
     let courant = null; // dernier <li> ou <p> (lignes de continuation)
+    let code = null; // <code> du bloc clôturé en cours
+    const stripHtml = (s) => s.replace(/<[^>]*>/g, '');
     for (const brute of md.split(/\r?\n/)) {
       const ligne = brute.replace(/\s+$/, '');
-      if (ligne.trim() === '' || /^\[[^\]]+\]:\s/.test(ligne.trim())) {
+      if (code !== null) {
+        if (/^\s*```/.test(ligne)) {
+          code = null;
+        } else {
+          code.append(brute + '\n');
+        }
+        continue;
+      }
+      if (/^\s*```/.test(ligne)) {
+        ul = null;
+        courant = null;
+        const pre = doc.createElement('pre');
+        code = doc.createElement('code');
+        pre.append(code);
+        cible.append(pre);
+        continue;
+      }
+      const nette = ligne.trim();
+      if (nette === '<details>') {
+        ul = null;
+        courant = null;
+        cible = doc.createElement('details');
+        racine.append(cible);
+        continue;
+      }
+      if (nette === '</details>') {
+        ul = null;
+        courant = null;
+        cible = racine;
+        continue;
+      }
+      const resume = nette.match(/^<summary>(.*)<\/summary>$/);
+      if (resume) {
+        const s = doc.createElement('summary');
+        s.textContent = stripHtml(resume[1]);
+        cible.prepend(s);
+        continue;
+      }
+      if (nette === '' || /^\[[^\]]+\]:\s/.test(nette)) {
         courant = null;
         continue;
       }
@@ -59,7 +103,7 @@
         ul = null;
         courant = null;
         const h = doc.createElement('h3');
-        inline(titre[1], h);
+        inline(stripHtml(titre[1]), h);
         cible.append(h);
         continue;
       }
@@ -70,18 +114,18 @@
           cible.append(ul);
         }
         courant = doc.createElement('li');
-        inline(puce[1], courant);
+        inline(stripHtml(puce[1]), courant);
         ul.append(courant);
         continue;
       }
       if (/^\s{2,}/.test(brute) && courant) {
         courant.append(' ');
-        inline(ligne.trim(), courant);
+        inline(stripHtml(nette), courant);
         continue;
       }
       ul = null;
       courant = doc.createElement('p');
-      inline(ligne.trim(), courant);
+      inline(stripHtml(nette), courant);
       cible.append(courant);
     }
   };

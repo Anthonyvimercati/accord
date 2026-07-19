@@ -358,3 +358,22 @@ footer { border-top: 1px solid var(--border); padding-block: 3rem; margin-top: v
 .dl-alt a { color: var(--muted); text-decoration: underline; }
 .dl-fresh { text-align: center; color: var(--faint); font-size: 0.9rem; margin: -1.2rem 0 2rem; }
 .dl-fresh b { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* ---------- Nouveautés : notes tirées de GitHub (code + replis) ---------- */
+.release code {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86em; background: rgba(255, 255, 255, 0.08);
+  padding: 0.1em 0.4em; border-radius: 6px;
+}
+.release pre {
+  background: rgba(0, 0, 0, 0.38); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0.75rem 1rem; overflow-x: auto; margin: 0.7rem 0;
+}
+.release pre code { background: none; padding: 0; font-size: 0.85rem; color: var(--text); }
+.release details {
+  border: 1px solid var(--border); border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025); padding: 0.55rem 1rem; margin: 0.9rem 0;
+}
+.release details[open] { padding-bottom: 0.9rem; }
+.release summary { cursor: pointer; font-weight: 600; color: var(--text); }
+.release summary:hover { color: #fff; }
