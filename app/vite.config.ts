@@ -48,5 +48,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
     css: false,
+    // Les specs Playwright (e2e/) ont leur propre runner (`npm run e2e`).
+    exclude: ['e2e/**', 'node_modules/**'],
   },
 });

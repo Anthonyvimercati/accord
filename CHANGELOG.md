@@ -18,6 +18,24 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   message show a small pencil in the sidebar, live-updated as you type and
   restored on restart.
 
+### Fixed
+
+- **Banner/profile sometimes never arriving after a silent restart
+  (root-caused, second episode)**: when a peer died abruptly (no UDP goodbye)
+  and came back at a new address, its friend kept TWO direct sessions for the
+  same identity for up to 2 minutes — and could route every profile announce
+  into the dead one (a UDP black hole, no error, no retry before the 30-minute
+  periodic re-announce). Identity→session resolution now prefers the session
+  with the most recent inbound traffic. Deterministic transport test added;
+  the flaky recovery e2e went from ~6/10 to 10/10 in isolation.
+
+### Tests
+
+- **Playwright end-to-end suite** (`app/e2e/`, `npm run e2e`): 14 browser
+  tests against the UI showcase — navigation, server menu (keyboard included),
+  composer, thread behaviors, plus 6 visual-regression baselines across
+  dark/light/wisteria at two window sizes.
+
 ## [3.2.0] — 2026-07-19
 
 ### Changed
