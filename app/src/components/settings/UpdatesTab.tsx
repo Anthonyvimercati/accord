@@ -11,6 +11,7 @@ import { APP_VERSION } from '../../lib/meta';
 import { RELEASES_URL } from '../../lib/updater';
 import { useUpdater } from '../../stores/updater';
 import { useT } from '../../stores/ui';
+import { MarkdownText } from '../MarkdownText';
 import { SettingsSection } from './controls';
 
 export function UpdatesTab() {
@@ -105,9 +106,9 @@ export function UpdatesTab() {
             <div className="text-xs font-medium uppercase text-faint">
               {t.updates.notes}
             </div>
-            <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-muted">
-              {notes}
-            </p>
+            <div className="mt-1 max-h-52 overflow-y-auto text-xs leading-relaxed text-muted">
+              <MarkdownText text={notes} />
+            </div>
           </div>
         )}
         {status === 'error' && (
