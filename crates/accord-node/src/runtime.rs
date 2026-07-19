@@ -1006,13 +1006,29 @@ impl Runtime {
         // sinon échec franc (le message reste en file, relivré au prochain
         // lien — `flush_peer` à la connexion, ou la passe d'outbox suivante).
         if let Some(addr) = self.endpoint.direct_session_addr(to) {
-            if self.endpoint.send_to(addr, Some(*to), msg).await.is_ok() {
-                return true;
+            match self.endpoint.send_to(addr, Some(*to), msg).await {
+                Ok(()) => return true,
+                Err(e) => tracing::debug!(
+                    ami = %crate::hex::encode(&to[..4]),
+                    %addr,
+                    erreur = %e,
+                    "envoi direct impossible"
+                ),
             }
+        } else {
+            tracing::debug!(
+                ami = %crate::hex::encode(&to[..4]),
+                "envoi : aucune session directe"
+            );
         }
         if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(to)) {
-            if self.endpoint.send_via_relay(circuit, msg).await.is_ok() {
-                return true;
+            match self.endpoint.send_via_relay(circuit, msg).await {
+                Ok(()) => return true,
+                Err(e) => tracing::debug!(
+                    ami = %crate::hex::encode(&to[..4]),
+                    erreur = %e,
+                    "envoi via relais impossible"
+                ),
             }
         }
         false

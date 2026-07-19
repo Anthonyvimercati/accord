@@ -20,15 +20,46 @@ use tauri::Manager;
 
 use etat::EtatHote;
 
+/// Écrivain de logs partagé vers un fichier (diagnostic de support). Cloné à
+/// chaque ligne par `tracing`, sérialisé par le mutex.
+#[derive(Clone)]
+struct FichierLog(std::sync::Arc<std::sync::Mutex<std::fs::File>>);
+
+impl std::io::Write for FichierLog {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).flush()
+    }
+}
+
 /// Construit puis lance l'application Tauri. Rend un code de sortie explicite
 /// au lieu de paniquer en cas d'échec de démarrage.
 pub fn executer() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    let filtre = || {
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+    };
+    // Journal de diagnostic vers fichier quand `ACCORD_LOG_FILE` est défini
+    // (support des soucis de connexion pair-à-pair, où stdout d'une app GUI est
+    // perdu). Sinon, sortie standard classique. Échec d'ouverture → repli stdout.
+    match std::env::var("ACCORD_LOG_FILE")
+        .ok()
+        .and_then(|chemin| std::fs::File::create(chemin).ok())
+    {
+        Some(fichier) => {
+            let writer = FichierLog(std::sync::Arc::new(std::sync::Mutex::new(fichier)));
+            tracing_subscriber::fmt()
+                .with_env_filter(filtre())
+                .with_ansi(false)
+                .with_writer(move || writer.clone())
+                .init();
+        }
+        None => {
+            tracing_subscriber::fmt().with_env_filter(filtre()).init();
+        }
+    }
 
     let application = tauri::Builder::default()
         // Notifications système natives (D-028) : l'envoi se fait côté

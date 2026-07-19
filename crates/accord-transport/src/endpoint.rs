@@ -209,6 +209,11 @@ struct Session {
     ctrl_bucket: Bucket,
 }
 
+/// Préfixe hexadécimal court (4 octets) d'une clé publique, pour les logs.
+fn hex4(pubkey: &[u8; 32]) -> String {
+    pubkey[..4].iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Désigne le lien par lequel joindre un pair : soit un datagramme direct, soit
 /// un circuit relais. C'est l'abstraction d'envoi commune (point 4 de
 /// l'architecture §11.3) : un paquet transport brut (HELLO/WELCOME/DATA) est émis
@@ -960,6 +965,12 @@ impl Endpoint {
                     }
                 }
             }
+            tracing::debug!(
+                pair = %hex4(&established.peer_static),
+                %peer_addr,
+                tunnel = link.circuit().is_some(),
+                "session établie (répondeur)"
+            );
             let _ = self.events.send(TransportEvent::Connected {
                 node: peer_node,
                 addr: peer_addr,
@@ -1048,6 +1059,12 @@ impl Endpoint {
             // (sa file est scellée dans `to_send` ci-dessus) : `install_session`
             // ne trouve donc rien à re-sceller ici. On l'affirme.
             debug_assert!(Self::install_session(&mut st, session, sid).is_empty());
+            tracing::debug!(
+                pair = %hex4(&established.peer_static),
+                %peer_addr,
+                tunnel = link.circuit().is_some(),
+                "session établie (initiateur)"
+            );
             let _ = self.events.send(TransportEvent::Connected {
                 node: peer_node,
                 addr: peer_addr,
