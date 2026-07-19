@@ -212,6 +212,15 @@ describe('MarkdownText — highlighted code blocks', () => {
     expect(code).toHaveTextContent('plain');
     expect(code?.querySelector('span')).toBeNull();
   });
+
+  it('copie le contenu du bloc via le bouton et bascule sur « Copié »', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<MarkdownText text={'```js\nconst x = 1;\n```'} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copier' }));
+    expect(writeText).toHaveBeenCalledWith('const x = 1;');
+    expect(await screen.findByRole('button', { name: 'Copié !' })).toBeInTheDocument();
+  });
 });
 
 describe('MarkdownText — mentions étendues', () => {

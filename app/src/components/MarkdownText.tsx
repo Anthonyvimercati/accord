@@ -13,6 +13,7 @@
 import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
 import { analyserMarkdown, type MdNode } from '../lib/markdown';
 import { highlightCode, type TokenKind } from '../lib/highlight';
+import { copyToClipboard } from '../lib/clipboard';
 import { roleColorCss } from '../stores/groups';
 import { useT, useUi, type EmojiSize } from '../stores/ui';
 import { CustomEmoji } from './CustomEmoji';
@@ -131,23 +132,46 @@ const TOKEN_CLASS: Record<Exclude<TokenKind, 'plain'>, string> = {
  * strings); unknown or missing languages render as plain text.
  */
 function CodeBlock({ value, lang }: { value: string; lang?: string | undefined }) {
+  const t = useT();
   const tokens = lang !== undefined ? highlightCode(value, lang) : null;
+  const [copied, setCopied] = useState(false);
+  const onCopy = (): void => {
+    copyToClipboard(
+      value,
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  };
   return (
-    <pre className="my-1 overflow-x-auto rounded-lg border border-rail/70 bg-input p-2.5 font-mono text-[0.85em] text-norm shadow-1">
-      <code>
-        {tokens === null
-          ? value
-          : tokens.map((tok, i) =>
-              tok.kind === 'plain' ? (
-                <Fragment key={i}>{tok.value}</Fragment>
-              ) : (
-                <span key={i} className={TOKEN_CLASS[tok.kind]}>
-                  {tok.value}
-                </span>
-              ),
-            )}
-      </code>
-    </pre>
+    <div className="group/code relative my-1">
+      <button
+        type="button"
+        onClick={onCopy}
+        aria-label={copied ? t.app.copied : t.app.copy}
+        title={copied ? t.app.copied : t.app.copy}
+        className="absolute right-1.5 top-1.5 z-10 rounded-md border border-rail/70 bg-input/90 px-2 py-1 text-[0.7rem] font-medium text-muted opacity-0 backdrop-blur-sm transition-opacity duration-fast hover:text-header focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover/code:opacity-100"
+      >
+        {copied ? t.app.copied : t.app.copy}
+      </button>
+      <pre className="overflow-x-auto rounded-lg border border-rail/70 bg-input p-2.5 font-mono text-[0.85em] text-norm shadow-1">
+        <code>
+          {tokens === null
+            ? value
+            : tokens.map((tok, i) =>
+                tok.kind === 'plain' ? (
+                  <Fragment key={i}>{tok.value}</Fragment>
+                ) : (
+                  <span key={i} className={TOKEN_CLASS[tok.kind]}>
+                    {tok.value}
+                  </span>
+                ),
+              )}
+        </code>
+      </pre>
+    </div>
   );
 }
 

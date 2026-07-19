@@ -32,6 +32,8 @@ still on 2.3.x keeps working unchanged.
   message (one click), and disappears once you're at the bottom.
 - **Full date on hover**: hovering a message timestamp now shows the complete
   date and time as a tooltip.
+- **Copy button on code blocks**: fenced code blocks now show a "Copy" button
+  on hover that copies the block's exact source to the clipboard.
 - **Project website + French user guide** (GitHub Pages): a download landing
   page and a step-by-step guide (install, peer-to-peer connection,
   troubleshooting), deployed from `website/`.
