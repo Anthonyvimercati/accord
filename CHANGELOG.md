@@ -4,6 +4,8 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [4.0.0] — 2026-07-20
+
 ### Added
 
 - **Saved messages.** Right-click any message → **Save message** to keep a
