@@ -1226,4 +1226,7 @@ export const fr = {
     skipToContent: 'Aller au contenu',
     sidebarLabel: 'Salons et conversations',
   },
+  a11y: {
+    newMessage: 'Nouveau message de {name}',
+  },
 } as const;

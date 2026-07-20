@@ -20,6 +20,7 @@ import { Avatar } from '../Avatar';
 import { buildContactMenu } from '../contactMenu';
 import { PhoneIcon } from '../ContextMenu';
 import { MessageInput } from '../MessageInput';
+import { MessageAnnouncer } from '../MessageAnnouncer';
 import { MessageList, type DisplayMessage } from '../MessageList';
 import { MessageListSkeleton } from '../Skeleton';
 import { deliveryOf } from '../messageModel';
@@ -314,6 +315,12 @@ export function DmView({ peer }: { peer: string }) {
           </div>
         </div>
       )}
+      <MessageAnnouncer
+        key={peer}
+        messages={messages}
+        selfPubkey={self?.pubkey ?? null}
+        nameOf={nameOf}
+      />
       {chargement && messages.length === 0 ? (
         <MessageListSkeleton label={t.app.loading} />
       ) : (

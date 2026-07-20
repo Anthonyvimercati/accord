@@ -1203,4 +1203,7 @@ export const en: Dict = {
     skipToContent: 'Skip to content',
     sidebarLabel: 'Channels and conversations',
   },
+  a11y: {
+    newMessage: 'New message from {name}',
+  },
 };

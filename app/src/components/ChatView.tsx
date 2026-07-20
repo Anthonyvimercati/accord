@@ -29,6 +29,7 @@ import { CloseIcon } from './ContextMenu';
 import { MemberList } from './chat/MemberList';
 import { PinnedPanel, SelectionBar, ThreadsListPanel, PURGE_MAX } from './chat/panels';
 import { MessageInput } from './MessageInput';
+import { MessageAnnouncer } from './MessageAnnouncer';
 import { MessageList, type DisplayMessage } from './MessageList';
 import { copyConversation } from './chat/copyConversation';
 import { displayText } from './messageModel';
@@ -490,6 +491,12 @@ export function GroupView({
             onCancel={exitSelection}
           />
         )}
+        <MessageAnnouncer
+          key={key ?? 'aucun'}
+          messages={messages}
+          selfPubkey={self?.pubkey ?? null}
+          nameOf={nameOf}
+        />
         <MessageList
           key={key ?? undefined}
           messages={messages}
