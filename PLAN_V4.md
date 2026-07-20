@@ -165,7 +165,7 @@
 
 ### B.2 Accessibilité (WCAG 2.2 AA)
 - [ ] **B8** Audit **ARIA** complet : rôles (list/listitem/dialog/menu), `aria-label` sur boutons-icônes, `aria-expanded/pressed`.
-- [x] **B9** **Régions live** : nouveaux messages, toasts, indicateur de frappe, changements de statut annoncés au lecteur d'écran.
+- [ ] **B9** **Régions live** : nouveaux messages, toasts, indicateur de frappe, changements de statut annoncés au lecteur d'écran.
 - [ ] **B10** **Contraste** : audit AA sur tous les textes/contrôles (couvre A16 côté couleur, ici côté composant).
 - [ ] **B11** Contrôles personnalisés (sliders de volume, toggles, sélecteurs de couleur, cropper) accessibles clavier + rôle correct.
 - [ ] **B12** **Tooltips** accessibles (déclenchés au focus, `aria-describedby`, pas seulement hover).
