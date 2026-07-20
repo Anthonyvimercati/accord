@@ -2,6 +2,23 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+
+- **LAN discovery now survives an mDNS daemon crash.** A malformed mDNS
+  announcement from another device on the network can panic the `mdns-sd`
+  daemon thread (upstream `assert!(s.len() < 64)` on the packet-write path,
+  reported as [keepsimple1/mdns-sd#483]). That thread runs outside our control,
+  so its death used to silently and permanently disable LAN peer discovery for
+  the rest of the app's lifetime (the 3.4.0 note tracked this separately). The
+  discovery task now **supervises** the daemon: it detects the death (the event
+  channel disconnects), logs the incident, and recreates the `ServiceDaemon`
+  with a capped exponential backoff (1 s → 30 s) instead of losing discovery in
+  silence. Remote-friend connectivity was never affected.
+
+[keepsimple1/mdns-sd#483]: https://github.com/keepsimple1/mdns-sd/issues/483
+
 ## [3.4.0] — 2026-07-19
 
 ### Fixed
