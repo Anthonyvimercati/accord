@@ -22,6 +22,7 @@ export function SavedMessages({ onClose }: { onClose: () => void }) {
   const contacts = useFriends((s) => s.contacts);
   const items = useSaved((s) => s.items);
   const remove = useSaved((s) => s.remove);
+  const clear = useSaved((s) => s.clear);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -51,14 +52,25 @@ export function SavedMessages({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between border-b border-input/50 px-4 py-3">
           <span className="text-sm font-semibold text-header">{t.saved.title}</span>
-          <button
-            type="button"
-            aria-label={t.app.close}
-            onClick={onClose}
-            className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
-          >
-            <CloseIcon size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={clear}
+                className="rounded-sm px-2 py-1 text-xs font-medium text-muted transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+              >
+                {t.saved.clearAll}
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label={t.app.close}
+              onClick={onClose}
+              className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+            >
+              <CloseIcon size={16} />
+            </button>
+          </div>
         </div>
         <div className="max-h-[calc(70vh-3.25rem)] overflow-y-auto p-2">
           {items.length === 0 ? (

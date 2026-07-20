@@ -1174,6 +1174,7 @@ export const fr = {
       'Aucun message enregistré. Clic droit sur un message → « Enregistrer le message » pour le retrouver ici.',
     remove: 'Retirer',
     open: 'Ouvrir le message enregistré',
+    clearAll: 'Tout effacer',
   },
   // Séparateur « nouveaux messages » (fil de messages) : figé à l'ouverture à
   // la position lue capturée avant le marquage-lu, façon Discord.

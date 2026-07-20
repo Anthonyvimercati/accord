@@ -42,6 +42,13 @@ describe('SavedMessages', () => {
     expect(useSaved.getState().isSaved('m1')).toBe(false);
   });
 
+  it('vide tout via « Tout effacer »', async () => {
+    useSaved.setState({ items: [item('m1', 'a'), item('m2', 'b')] });
+    render(<SavedMessages onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Tout effacer' }));
+    expect(useSaved.getState().items).toHaveLength(0);
+  });
+
   it('saute au message et ferme le panneau au clic', async () => {
     const onClose = vi.fn();
     useSaved.setState({ items: [item('m1', 'bonjour')] });

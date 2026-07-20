@@ -1158,6 +1158,7 @@ export const en: Dict = {
       'No saved messages yet. Right-click a message → “Save message” to find it here.',
     remove: 'Remove',
     open: 'Open saved message',
+    clearAll: 'Clear all',
   },
   unread: {
     newMessages: 'New messages',
