@@ -207,6 +207,34 @@ struct Session {
     /// ré-annonces, ~3 observations par cycle de présence) : la capacité
     /// couvre les rafales normales, la recharge lente écrête tout flood.
     ctrl_bucket: Bucket,
+    /// Dernier PING keep-alive émis en attente de PONG : `(jeton, émis_ms)`.
+    /// Sert à la mesure de latence locale ([`Session::last_rtt_ms`]) sans
+    /// aucun octet nouveau sur le fil (le PING/PONG keep-alive existe depuis
+    /// la 1.0). Un PONG au jeton inattendu (rejoué, forgé, croisé avec un
+    /// `connect`) est simplement ignoré.
+    ping_pending: Option<(u64, u64)>,
+    /// Dernier aller-retour mesuré (ms) sur un PONG corrélé au keep-alive.
+    /// Purement local (diagnostic) ; `None` tant qu'aucun cycle n'a abouti.
+    last_rtt_ms: Option<u64>,
+}
+
+/// Photographie d'une session établie, exposée à la couche nœud pour le
+/// diagnostic de connectivité par pair (D4/D35) : lien direct ou tunnelé,
+/// fraîcheur du dernier trafic entrant, latence estimée. Aucune donnée
+/// applicative ni clé n'y figure.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionView {
+    /// Clé publique Ed25519 du pair (session authentifiée).
+    pub peer_static: [u8; 32],
+    /// Adresse de transport : celle du pair en direct, celle du RELAIS pour
+    /// une session tunnelée.
+    pub addr: SocketAddr,
+    /// `Some(circuit)` si la session transite par un circuit relais.
+    pub relay_circuit: Option<u32>,
+    /// Horodatage (ms, horloge du nœud) du dernier trafic entrant.
+    pub last_recv_ms: u64,
+    /// Dernier aller-retour keep-alive mesuré (ms), si un cycle a abouti.
+    pub last_rtt_ms: Option<u64>,
 }
 
 /// Préfixe hexadécimal court (4 octets) d'une clé publique, pour les logs.
@@ -733,6 +761,49 @@ impl Endpoint {
             .map(|s| s.peer_addr)
     }
 
+    /// Corrèle un PONG entrant au dernier PING keep-alive émis sur cette
+    /// session et enregistre l'aller-retour mesuré. La session est retrouvée
+    /// par le lien d'arrivée : adresse pour un lien direct, circuit pour un
+    /// tunnel. Jeton inattendu (rejoué, croisé avec un `connect`) : ignoré —
+    /// un pair ne peut pas fabriquer une latence sans connaître le jeton
+    /// aléatoire du PING scellé sous la session.
+    fn note_pong(&self, link: PeerLink, token: u64) {
+        let now = self.clock.now_ms();
+        let mut st = self.state.lock().expect("state mutex");
+        let sid = match link {
+            PeerLink::Direct(addr) => st.id_by_addr.get(&addr).copied(),
+            PeerLink::Tunnel { circuit, .. } => {
+                st.client_circuits.get(&circuit).and_then(|c| c.session_id)
+            }
+        };
+        let Some(session) = sid.and_then(|sid| st.sessions_by_id.get_mut(&sid)) else {
+            return;
+        };
+        if let Some((attendu, emis_ms)) = session.ping_pending {
+            if attendu == token {
+                session.ping_pending = None;
+                session.last_rtt_ms = Some(now.saturating_sub(emis_ms));
+            }
+        }
+    }
+
+    /// Photographie des sessions établies (directes et tunnelées), pour le
+    /// diagnostic par pair de la couche nœud ([`SessionView`]). Instantané
+    /// sous verrou court, sans E/S.
+    pub fn session_views(&self) -> Vec<SessionView> {
+        let st = self.state.lock().expect("state mutex");
+        st.sessions_by_id
+            .values()
+            .map(|s| SessionView {
+                peer_static: s.peer_static,
+                addr: s.peer_addr,
+                relay_circuit: s.relay_circuit,
+                last_recv_ms: s.last_recv_ms,
+                last_rtt_ms: s.last_rtt_ms,
+            })
+            .collect()
+    }
+
     /// Consomme un jeton du seau de contrôle de la session DIRECTE à `addr`
     /// (bornage post-handshake des messages de contrôle changeant l'état,
     /// H1/M1b). Rend `false` si aucune session directe n'existe à cette adresse
@@ -950,6 +1021,8 @@ impl Endpoint {
                     // l'initiateur (jamais sur un tunnel).
                     announced: link.circuit().is_some(),
                     ctrl_bucket: Bucket::new(CTRL_MSG_BURST, CTRL_MSG_REFILL_PER_S, now),
+                    ping_pending: None,
+                    last_rtt_ms: None,
                 },
                 sid,
             );
@@ -1046,6 +1119,8 @@ impl Endpoint {
                 // direct seulement), le pair y répondra avec la sienne.
                 announced: true,
                 ctrl_bucket: Bucket::new(CTRL_MSG_BURST, CTRL_MSG_REFILL_PER_S, now),
+                ping_pending: None,
+                last_rtt_ms: None,
             };
             // Vider la file d'attente sous la nouvelle session (fragmentée au
             // besoin).
@@ -1189,7 +1264,10 @@ impl Endpoint {
                     self.send_msg_via_link(link, &pong).await?;
                     return Ok(());
                 }
-                ControlMsg::Pong { .. } => return Ok(()),
+                ControlMsg::Pong { token } => {
+                    self.note_pong(link, *token);
+                    return Ok(());
+                }
                 ControlMsg::Close { .. } => {
                     self.close_link(link);
                     let _ = self
@@ -2106,9 +2184,12 @@ impl Endpoint {
                 if now.saturating_sub(session.last_send_ms) >= keepalive {
                     let mut token = [0u8; 8];
                     OsRng.fill_bytes(&mut token);
-                    let ping = ChannelMsg::Control(ControlMsg::Ping {
-                        token: u64::from_be_bytes(token),
-                    });
+                    let token = u64::from_be_bytes(token);
+                    let ping = ChannelMsg::Control(ControlMsg::Ping { token });
+                    // Mesure de latence : le PONG corrélé à CE jeton donnera le
+                    // dernier aller-retour (voir `note_pong`). Un cycle non
+                    // soldé est simplement remplacé au keep-alive suivant.
+                    session.ping_pending = Some((token, now));
                     // Un PING tient dans un cadre unique (framing SPEC §13.1).
                     let addr = session.peer_addr;
                     let relay_circuit = session.relay_circuit;

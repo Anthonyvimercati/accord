@@ -76,6 +76,7 @@ pub(super) fn group_mark_key(group_id: &[u8; 16], channel_id: &[u8; 16]) -> Stri
     )
 }
 
+pub(crate) mod diagnostics;
 pub(crate) mod discovery;
 mod dm;
 mod files;
