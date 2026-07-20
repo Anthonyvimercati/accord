@@ -4,6 +4,8 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [3.5.0] — 2026-07-20
+
 ### Added
 
 - **Backups are now encrypted.** A `.accordbackup` archive used to be a plain
