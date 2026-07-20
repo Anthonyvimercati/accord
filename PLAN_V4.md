@@ -165,7 +165,7 @@
 
 ### B.2 Accessibilité (WCAG 2.2 AA)
 - [ ] **B8** Audit **ARIA** complet : rôles (list/listitem/dialog/menu), `aria-label` sur boutons-icônes, `aria-expanded/pressed`.
-- [ ] **B9** **Régions live** : nouveaux messages, toasts, indicateur de frappe, changements de statut annoncés au lecteur d'écran.
+- [x] **B9** **Régions live** : nouveaux messages, toasts, indicateur de frappe, changements de statut annoncés au lecteur d'écran.
 - [ ] **B10** **Contraste** : audit AA sur tous les textes/contrôles (couvre A16 côté couleur, ici côté composant).
 - [ ] **B11** Contrôles personnalisés (sliders de volume, toggles, sélecteurs de couleur, cropper) accessibles clavier + rôle correct.
 - [ ] **B12** **Tooltips** accessibles (déclenchés au focus, `aria-describedby`, pas seulement hover).
@@ -338,7 +338,7 @@
 - [ ] **C60** **Sauvegarde automatique planifiée** (rappel + `.accordbackup` chiffré).
 - [ ] **C61** **Restauration sélective** (choisir quoi restaurer depuis une sauvegarde).
 - [ ] **C62** **Déblocage de décorations/badges** de profil (cosmétique local).
-- [ ] **C63** **Agrégation des non-lus par dossier** (folders) dans le rail.
+- [x] **C63** **Agrégation des non-lus par dossier** (folders) dans le rail.
 - [ ] **C64** **Mettre en veille une conversation** (snooze) + « à lire plus tard ».
 - [ ] **C65** **Sondages avancés** (PollCard) : choix multiples, anonyme, expiration, résultats en direct.
 
