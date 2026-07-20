@@ -4,6 +4,27 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Added
+
+- **Safety numbers (identity verification).** Open a friend's profile →
+  **Verify identity** to display a 60-digit safety number (and an 8-emoji
+  quick rendering) derived from both identity keys. Compare it out of band —
+  in person or on a call — and mark the contact as **verified**: a shield
+  badge appears on their profile. If their key ever changes afterwards, the
+  verification is flagged as **broken** and Accord prompts you to re-verify.
+  Everything is derived and stored on-device; nothing goes on the wire.
+- **Disappearing messages (local).** Each conversation (DM or server) can arm
+  an auto-delete timer (1 hour to 90 days): messages older than the chosen
+  delay are removed from **this device's** encrypted store, together with
+  their attachments references, reactions, pins and search entries. Purely
+  local — no network negotiation; the other side keeps its own copy unless
+  it arms its own timer.
+- **Privacy dashboard.** Settings → **Privacy** now shows, black on white,
+  what Accord stores on this device (friends, messages, files, sizes), that
+  the database is **encrypted at rest** (SQLCipher), and the only kinds of
+  endpoints the app ever talks to — bootstrap peers, DHT nodes, relays, all
+  ordinary peers. **Central servers contacted: 0**, by construction.
+
 ## [4.1.0] — 2026-07-20
 
 ### Added

@@ -143,7 +143,7 @@ from non-friends are ignored (anti-abuse).
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `friends.list` | — | `{ contacts: [{ node_id, pubkey, friend_code, display_name, bio, avatar, banner, state, last_seen_ms, online, status, status_text, unread, mention_count, note }] }` — `bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null` (profile announced by the peer, D-027, D-032); `online` `bool` (kept for backward compatibility) plus `status` ∈ `online`∣`idle`∣`dnd`∣`offline` and `status_text` `string`∣`null` (rich presence, best-effort, see "Presence"); `unread` integer (messages from the peer received after our `dm.mark_read`); `mention_count` integer (unread mentions in this DM, see "Mentions"); `note` `string`∣`null` (private local-only note, see "Private notes") |
+| `friends.list` | — | `{ contacts: [{ node_id, pubkey, friend_code, display_name, bio, avatar, banner, state, last_seen_ms, online, status, status_text, unread, mention_count, note, verified, key_changed }] }` — `bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null` (profile announced by the peer, D-027, D-032); `online` `bool` (kept for backward compatibility) plus `status` ∈ `online`∣`idle`∣`dnd`∣`offline` and `status_text` `string`∣`null` (rich presence, best-effort, see "Presence"); `unread` integer (messages from the peer received after our `dm.mark_read`); `mention_count` integer (unread mentions in this DM, see "Mentions"); `note` `string`∣`null` (private local-only note, see "Private notes"); `verified` and `key_changed` booleans (manual identity verification, see "Safety numbers") |
 | `friends.resolve` | `{ friend_code }` | `{ pubkey }` — DHT lookup of the identity record, verified end-to-end |
 | `friends.request` | `{ pubkey, display_name }` | `{ ok: true }` |
 | `friends.respond` | `{ pubkey, accept }` | `{ ok: true }` |
@@ -154,6 +154,8 @@ from non-friends are ignored (anti-abuse).
 | `friends.remove` | `{ pubkey }` | `{ ok: true }` — removes an **established** friendship (explicit error otherwise). Distinct from a block: the DM history is kept and a new friend request stays possible. The peer is notified best-effort (`FRIEND_REMOVE`, never queued offline) and drops the friendship on receipt; both sides receive `event.friend_removed` |
 | `friends.set_status` | `{ status, custom? }` | `{ ok: true }` — own rich presence: `status` ∈ `online`∣`idle`∣`dnd`∣`invisible`; `custom` string ≤ 256 UTF-8 bytes, no control characters (absent = unchanged, empty after trim = cleared). Persisted (meta table), broadcast to friends immediately then in the periodic announcements. `invisible` is announced as plain offline (no custom text leaks) while the node keeps working normally |
 | `friends.get_status` | — | `{ status, custom }` — persisted own presence; defaults to `online` with `custom: null` |
+| `friends.safety_number` | `{ pubkey }` | `{ digits, emoji, verified, key_changed }` — anti-MITM safety number of the conversation (see "Safety numbers"): `digits` 60 ASCII digits (display as 12 groups of 5), `emoji` 8 symbols from a fixed table, `verified` bool, `key_changed` bool (`true` when the contact was verified against a different key than the current one) |
+| `friends.set_verified` | `{ pubkey, verified }` | `{ ok: true }` — marks/unmarks the contact as manually verified; the pubkey seen NOW is stored with the flag. Emits `event.friend_verified`. Rejected for an unknown contact |
 
 `state` ∈ `pending_out`, `pending_in`, `friend`, `blocked`. The "add
 a friend by code" flow is `friends.resolve` then `friends.request`.
@@ -161,6 +163,23 @@ a friend by code" flow is `friends.resolve` then `friends.request`.
 `display_name` is the last nickname announced by the peer (`PROFILE` message,
 see "Profile"); failing that, the label given to `friends.request` or the name
 carried by their friend request.
+
+#### Safety numbers
+
+`friends.safety_number` derives a Signal-style **safety number** from the two
+Ed25519 identity public keys (ours + the contact's), entirely **locally** —
+no network exchange, no wire byte. Both keys are ordered lexicographically
+before derivation, so both peers display **exactly the same number**; each key
+is reduced by ~5200 rounds of SHA-512 into 30 bytes → 6 groups of 5 digits,
+concatenated into 60 digits. Two friends compare the number (or the 8-emoji
+rendering) out of band: a match proves no man-in-the-middle substituted a key.
+
+`friends.set_verified` persists the outcome per contact together with the
+public key seen at that moment. If that key ever differs from the contact's
+current key, `key_changed: true` is reported by `friends.safety_number` and
+`friends.list` — the UI should warn that the verification is broken and
+prompt to re-verify. Verification state is local-only and survives profile
+refreshes.
 
 #### Private notes
 
@@ -189,6 +208,8 @@ note deletes it. The current note is also folded into `friends.list` (`note`).
 | `dm.mark_read` | `{ pubkey, lamport }` | `{ ok: true }` — records our local read position in the conversation (for `unread` in `friends.list`). When the mark **advances**, best-effort emission of a read receipt to the peer (**ephemeral** like `dm.typing`: online peers only, never queued offline, silent if the privacy setting is off). When received, the peer's read position is persisted and `event.dm_read` is pushed |
 | `dm.set_read_receipts` | `{ enabled }` | `{ ok: true }` — privacy setting (persisted, default on): when off, no read receipt is ever emitted; **incoming** receipts are still recorded |
 | `dm.get_read_receipts` | — | `{ enabled }` |
+| `dm.set_ephemeral` | `{ pubkey, ttl_secs? }` | `{ ok: true }` — **local** disappearing-message timer for this conversation (see "Disappearing messages"); `ttl_secs` integer in [60, 31 536 000], `null` or absent disables |
+| `dm.ephemeral` | `{ pubkey }` | `{ ttl_secs }` — integer∣`null` (`null` = disabled) |
 
 `limit` bounded to [1, 200] (default 50). `messages` sorted from most recent to
 oldest: `{ msg_id, author, lamport, sent_ms, acked, deleted, pinned, delivery,
@@ -230,6 +251,21 @@ offline queue). On ingestion at the peer, the action triggers
 `event.dm`. Group messages (`groups.history`) follow the same schema,
 plus `channel_id`, without `acked`, `pinned` or `delivery` (group pins live in
 the op-log; see `groups.pins`).
+
+#### Disappearing messages (local)
+
+`dm.set_ephemeral` / `groups.set_ephemeral` arm a per-conversation timer:
+messages older than `ttl_secs` are periodically deleted **from this device's
+encrypted store only** (first purge shortly after startup, then every few
+minutes; bounded work per pass). Deletion is complete: the message row plus
+its attachments references, reactions, local pins, mention-inbox entries and
+search-index tokens.
+
+This is **purely local** — no control message, no wire negotiation, zero
+wire byte: the peer's device keeps its own copy unless it arms its own
+timer (a bilaterally negotiated variant would be a future wire extension,
+out of scope here). The setting itself is persisted locally
+(`conversation_ephemeral` table) and never leaves the device.
 
 #### Attachments
 
@@ -299,6 +335,8 @@ After each applied op (local or remote), the node emits
 | `groups.emoji.del` | `{ group_id, name }` | `{ ok: true }` — `MANAGE_EMOJIS` permission |
 | `groups.typing` | `{ group_id, channel_id }` | `{ ok: true }` — **ephemeral** typing indicator, broadcast only to members presumed online (never persisted or queued); when received, it triggers `event.group_typing` |
 | `groups.mark_read` | `{ group_id, channel_id, lamport }` | `{ ok: true }` — records our local read position in the channel (for `unread` in `groups.list`) |
+| `groups.set_ephemeral` | `{ group_id, ttl_secs? }` | `{ ok: true }` — **local** disappearing-message timer for the whole group (every channel); same contract as `dm.set_ephemeral` (see "Disappearing messages") |
+| `groups.ephemeral` | `{ group_id }` | `{ ttl_secs }` — integer∣`null` |
 
 `groups.edit`, `groups.delete` (of one's own message) and `groups.react`
 travel as bodies encrypted with the group key, over the same path
@@ -667,6 +705,38 @@ additive too.
 > addresses, state transitions, degradation on failure) and the shape of the status
 > are unit-tested.
 
+### Privacy
+
+| Method | Parameters | Result |
+|---------|-----------|----------|
+| `privacy.report` | — | read-only report, see below |
+
+`privacy.report` aggregates, **read-only and entirely locally**, what this
+device stores and what kinds of endpoints the node talks to — the concrete
+proof behind "0 central server, 100 % local & encrypted":
+
+```json
+{
+  "counts": { "friends": 0, "dm_messages": 0, "groups": 0,
+              "group_messages": 0, "files": 0, "pins": 0 },
+  "storage": { "db_bytes": 1234, "file_bytes": 0, "db_encrypted_at_rest": true },
+  "egress": { "available": true, "bootstrap_peers": 1, "dht_nodes": 12,
+              "connected_peers": 3, "relay_circuits": 0, "central_servers": 0 }
+}
+```
+
+- `counts`: rows kept in the local database (friends, messages, joined
+  groups, stored files, DM pins).
+- `storage`: `db_bytes` is the size of the SQLCipher database file on disk
+  (`null` when unknown); `file_bytes` the declared size of stored files;
+  `db_encrypted_at_rest` is always `true` (SQLCipher) — stated as data so the
+  UI shows a verified fact, not a slogan.
+- `egress`: the only endpoint kinds the node ever contacts, all of them
+  ordinary peers — bootstrap peers (first-contact seeding), DHT nodes
+  (Kademlia routing table), connected peers, relay circuits (E2E-encrypted
+  fallback links). `central_servers` is **0 by construction** and will stay 0.
+  `available: false` (all counts zero) when the network runtime is not up.
+
 ## Events (server → client notifications)
 
 Pushed to all authenticated clients, without `id`:
@@ -683,6 +753,7 @@ Pushed to all authenticated clients, without `id`:
 | `event.friend_response` | `{ peer, accepted }` — response to our request |
 | `event.presence` | `{ pubkey, online, status, status_text }` — a **friend**'s presence changed: `online` `bool` (kept for backward compatibility, `status != "offline"`), `status` ∈ `online`∣`idle`∣`dnd`∣`offline`, `status_text` `string`∣`null`; see "Presence" |
 | `event.friend_removed` | `{ peer }` — a friendship was removed (by us via `friends.remove`, or by the peer via a `FRIEND_REMOVE` wire message): refresh `friends.list`; the DM history is kept |
+| `event.friend_verified` | `{ peer, verified }` — the manual verification flag of a contact changed locally (`friends.set_verified`): refresh the shield badge |
 | `event.dm_read` | `{ peer, lamport }` — the peer's read receipt advanced: they have read our messages of the conversation up to `lamport` (same value as `peer_read_lamport` in `dm.history`) |
 | `event.profile` | `{ pubkey, name, bio, avatar, banner }` — a **friend**'s profile updated (`bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null`; nickname reflected in `friends.list`) |
 | `event.group_op` | `{ group_id }` — replicated group op |
