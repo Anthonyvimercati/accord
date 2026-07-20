@@ -15,7 +15,7 @@ import { PERMISSIONS, useGroups } from '../stores/groups';
 import { useMute } from '../stores/mute';
 import { useUi } from '../stores/ui';
 import { ContextMenu } from './ContextMenu';
-import { channelToRestore, ServerRail } from './ServerRail';
+import { aggregateFolderBadge, channelToRestore, ServerRail } from './ServerRail';
 
 function contact(pubkey: string, unread?: number, mentionCount?: number): Contact {
   return {
@@ -392,5 +392,25 @@ describe('ServerRail — accessibilité clavier', () => {
     expect(
       screen.getByRole('menuitem', { name: 'Marquer comme lu' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('aggregateFolderBadge', () => {
+  it('priorise les mentions, agrège les compteurs', () => {
+    const badge = aggregateFolderBadge(
+      ['a', 'b'],
+      { a: 2, b: 3 },
+      { a: { c1: 5 }, b: { c2: 1 } },
+    );
+    expect(badge).toEqual({ count: 5, mention: true });
+  });
+
+  it('retombe sur les non-lus quand il n’y a pas de mention', () => {
+    const badge = aggregateFolderBadge(['a', 'b'], {}, { a: { c1: 4 }, b: { c2: 3 } });
+    expect(badge).toEqual({ count: 7, mention: false });
+  });
+
+  it('rend null quand rien n’est à signaler', () => {
+    expect(aggregateFolderBadge(['a'], {}, {})).toBeNull();
   });
 });

@@ -111,10 +111,31 @@ function FolderSvg({ size }: { size: number }) {
 }
 
 /** Compteur de non-lus/mentions à afficher sur une icône du rail. */
-interface RailBadgeInfo {
+export interface RailBadgeInfo {
   count: number;
   /** Mention (pastille distincte, « @ ») plutôt que simple non-lu. */
   mention: boolean;
+}
+
+/**
+ * Pastille agrégée d'un dossier replié : somme des mentions (prioritaires) puis
+ * des non-lus de tous ses serveurs membres — pour signaler l'activité cachée
+ * sous une pile pliée. `null` si rien à signaler. Pure et testable.
+ */
+export function aggregateFolderBadge(
+  memberIds: readonly string[],
+  mentions: Record<string, number>,
+  unread: Record<string, Record<string, number>>,
+): RailBadgeInfo | null {
+  let mentionTotal = 0;
+  let unreadTotal = 0;
+  for (const id of memberIds) {
+    mentionTotal += mentions[id] ?? 0;
+    for (const n of Object.values(unread[id] ?? {})) unreadTotal += n;
+  }
+  if (mentionTotal > 0) return { count: mentionTotal, mention: true };
+  if (unreadTotal > 0) return { count: unreadTotal, mention: false };
+  return null;
 }
 
 /** Libellé accessible du compteur, ajouté au `label`/`title` du bouton. */
@@ -157,7 +178,7 @@ function RailButton({
   label: string;
   active: boolean;
   accent?: boolean;
-  badge?: RailBadgeInfo;
+  badge?: RailBadgeInfo | undefined;
   /**
    * Sourdine active sur ce serveur (voir `stores/mute.ts`) : icône atténuée
    * (opacité, compositor-friendly) — la pastille de non-lu/mention, posée en
@@ -603,6 +624,12 @@ export function ServerRail() {
                   folder.collapsed ? t.folders.expand : t.folders.collapse
                 }`}
                 active={false}
+                badge={
+                  folder.collapsed
+                    ? (aggregateFolderBadge(memberIds, groupMentions, groupUnread) ??
+                      undefined)
+                    : undefined
+                }
                 onClick={() => useFolders.getState().toggleCollapsed(folder.id)}
                 onMenu={(x, y) =>
                   useContextMenu.getState().openMenu(x, y, buildFolderItems(folder))
