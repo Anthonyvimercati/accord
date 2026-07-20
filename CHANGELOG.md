@@ -4,6 +4,38 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Added
+
+- **Saved messages.** Right-click any message → **Save message** to keep a
+  private, local bookmark. A panel (bookmark icon next to the mentions inbox)
+  lists them, jumps back to the original message, and lets you remove one or
+  clear all. Everything stays on your device — nothing is sent to the network.
+- **Recent searches.** Focusing the empty search field now suggests your last
+  queries; click one to run it again, or remove them individually / all at once.
+- **Pin conversations.** Right-click a private conversation → **Pin
+  conversation** to keep it at the top of the home list.
+- **Interface zoom.** `Ctrl/⌘ +`, `-` and `0` scale the whole interface up,
+  down, or back to 100 %. Listed in Settings → Keyboard shortcuts.
+- **Collapsed server folders** now carry an aggregated unread/mention badge, so
+  activity hidden inside a folded stack is still visible.
+
+### Changed
+
+- Unread and mention badges are capped at **99+** everywhere (no more
+  stretched pills on very busy conversations).
+- **Empty states** (no friends, no search results…) and **loading skeletons**
+  (message history) are now designed rather than blank.
+- Confirmation toasts (copied, saved, added…) show as green **success** toasts;
+  errors are announced assertively to screen readers.
+- **New installs follow the operating system language** on first launch instead
+  of always defaulting to English.
+- Text selection now uses the current theme's accent colour.
+
+### Fixed
+
+- The server-emoji hint no longer shows a misleading `:{name}:` placeholder; it
+  now reads `:name:`, the actual shortcode syntax.
+
 ## [3.5.0] — 2026-07-20
 
 ### Added
