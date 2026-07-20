@@ -455,6 +455,10 @@ export function MessageList({
   };
 
   /** Contexte partagé des menus contextuels du fil (voir `messageMenus`). */
+  // Cible d'enregistrement (favori) : uniquement les vues où un saut au message
+  // a un sens (MP ou salon). Ailleurs, pas d'entrée « Enregistrer ».
+  const saveTarget = view.kind === 'dm' || view.kind === 'group' ? view : undefined;
+
   const menuDeps: MessageMenuDeps = {
     t,
     selfPubkey: self?.pubkey ?? null,
@@ -469,6 +473,7 @@ export function MessageList({
     threads,
     onOpenThread,
     onStartSelection,
+    saveTarget,
   };
 
   const selectionActive = selection?.active === true;

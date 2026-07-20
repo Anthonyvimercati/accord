@@ -12,7 +12,8 @@ import type { Contact, GroupThread } from '../lib/api';
 import { useCalls } from '../stores/calls';
 import type { ContextMenuItem } from '../stores/contextMenu';
 import { useFriends } from '../stores/friends';
-import { useUi } from '../stores/ui';
+import { useSaved } from '../stores/saved';
+import { useUi, type View } from '../stores/ui';
 import {
   CopyMenuIcon,
   DeleteMenuIcon,
@@ -66,6 +67,31 @@ export interface MessageMenuDeps {
    * Absent = pas d'entrée « Sélectionner des messages » (MP, non-modérateur).
    */
   onStartSelection?: ((message: DisplayMessage) => void) | undefined;
+  /**
+   * Vue d'origine du message (MP ou salon), pour l'enregistrer en favori local
+   * et pouvoir y sauter ensuite. Absent = pas d'entrée « Enregistrer » (ex.
+   * volet des épinglés hors contexte de saut).
+   */
+  saveTarget?: View | undefined;
+}
+
+/** Icône « marque-page » du menu (14 px) — pleine quand le message est enregistré. */
+export function BookmarkMenuIcon({ filled = false }: { filled?: boolean }) {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+    </svg>
+  );
 }
 
 /** Icône « retirer l'ami » du jeu de menu (14 px) — personne barrée d'un moins. */
@@ -237,6 +263,28 @@ export function buildMessageItems(
     icon: <CopyMenuIcon />,
     onClick: () => copyWithToast(message.msg_id, t.app.copied),
   });
+  // Enregistrement local (favori) : indépendant de `actions` (n'exige aucun
+  // droit), mais requiert la vue d'origine pour permettre le saut ultérieur.
+  const saveTarget = deps.saveTarget;
+  if (saveTarget !== undefined && !message.deleted) {
+    const saved = useSaved.getState().isSaved(message.msg_id);
+    items.push({
+      label: saved ? t.contextMenu.unsaveMessage : t.contextMenu.saveMessage,
+      icon: <BookmarkMenuIcon filled={saved} />,
+      separatorBefore: true,
+      onClick: () =>
+        useSaved.getState().toggle(
+          {
+            msgId: message.msg_id,
+            view: saveTarget,
+            author: message.author,
+            text: text ?? '',
+            ts: message.sent_ms,
+          },
+          Date.now(),
+        ),
+    });
+  }
   if (actions !== undefined && !message.deleted) {
     items.push({
       label: interpolate(t.contextMenu.mention, { name: nameOf(message.author) }),

@@ -1151,6 +1151,8 @@ export const fr = {
   },
   contextMenu: {
     copyText: 'Copier le texte',
+    saveMessage: 'Enregistrer le message',
+    unsaveMessage: 'Retirer des enregistrés',
     copyMessageId: 'Copier l’ID du message',
     copyUserId: 'Copier l’ID utilisateur',
     copyFriendCode: 'Copier le code ami',
@@ -1164,6 +1166,14 @@ export const fr = {
     voiceUnmuteServer: 'Retirer la sourdine (serveur)',
     voiceDeafenServer: 'Rendre sourd (serveur)',
     voiceUndeafenServer: 'Retirer la surdité (serveur)',
+  },
+  saved: {
+    title: 'Messages enregistrés',
+    button: 'Messages enregistrés',
+    empty:
+      'Aucun message enregistré. Clic droit sur un message → « Enregistrer le message » pour le retrouver ici.',
+    remove: 'Retirer',
+    open: 'Ouvrir le message enregistré',
   },
   // Séparateur « nouveaux messages » (fil de messages) : figé à l'ouverture à
   // la position lue capturée avant le marquage-lu, façon Discord.

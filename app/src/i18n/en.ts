@@ -1135,6 +1135,8 @@ export const en: Dict = {
   },
   contextMenu: {
     copyText: 'Copy text',
+    saveMessage: 'Save message',
+    unsaveMessage: 'Remove from saved',
     copyMessageId: 'Copy message ID',
     copyUserId: 'Copy user ID',
     copyFriendCode: 'Copy friend code',
@@ -1148,6 +1150,14 @@ export const en: Dict = {
     voiceUnmuteServer: 'Remove server mute',
     voiceDeafenServer: 'Server deafen',
     voiceUndeafenServer: 'Remove server deafen',
+  },
+  saved: {
+    title: 'Saved messages',
+    button: 'Saved messages',
+    empty:
+      'No saved messages yet. Right-click a message → “Save message” to find it here.',
+    remove: 'Remove',
+    open: 'Open saved message',
   },
   unread: {
     newMessages: 'New messages',
