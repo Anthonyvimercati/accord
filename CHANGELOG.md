@@ -2,6 +2,21 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+
+- **Server invitations now live in the DM conversation** (Discord parity):
+  inviting a friend drops an invitation card into your private conversation
+  with them — server name, inviter, a **Join** button (and Decline). The
+  inviter sees the same card ("Invitation sent", then "Joined" once the
+  friend is in). The Friends tab no longer shows server invitations (its
+  "Invitations" tab is gone) — it is back to real friend requests only.
+  Pending invitations from older versions are re-presented as cards in the
+  inviter's DM at startup, nothing is lost. Fully wire-compatible with 3.x
+  peers: the invitation message on the network is unchanged; only where it
+  shows up changes.
+
 ## [3.4.0] — 2026-07-19
 
 ### Fixed
