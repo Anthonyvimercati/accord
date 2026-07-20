@@ -218,7 +218,7 @@ const BACKUP_DIALOG_FILTER = { name: 'Sauvegarde Accord', extensions: ['accordba
  * sélecteur a été annulé (la commande n'est alors jamais invoquée : rien ne
  * se verrouille).
  */
-export async function backupExport(): Promise<VaultStatus | null> {
+export async function backupExport(passphrase: string): Promise<VaultStatus | null> {
   if (!isTauri()) {
     throw new Error('sauvegarde indisponible hors Tauri (mode développement)');
   }
@@ -228,7 +228,7 @@ export async function backupExport(): Promise<VaultStatus | null> {
     filters: [BACKUP_DIALOG_FILTER],
   });
   if (chemin === null) return null;
-  return invoke<VaultStatus>('backup_export', { chemin });
+  return invoke<VaultStatus>('backup_export', { chemin, passphrase });
 }
 
 /**
@@ -238,7 +238,7 @@ export async function backupExport(): Promise<VaultStatus | null> {
  * profil sauvegardé. Rend les métadonnées du compte importé, ou `null` si le
  * sélecteur a été annulé.
  */
-export async function backupImport(): Promise<AccountMeta | null> {
+export async function backupImport(passphrase: string): Promise<AccountMeta | null> {
   if (!isTauri()) {
     throw new Error('import de sauvegarde indisponible hors Tauri (mode développement)');
   }
@@ -248,7 +248,7 @@ export async function backupImport(): Promise<AccountMeta | null> {
     filters: [BACKUP_DIALOG_FILTER],
   });
   if (chemin === null) return null;
-  return invoke<AccountMeta>('backup_import', { chemin });
+  return invoke<AccountMeta>('backup_import', { chemin, passphrase });
 }
 
 /**

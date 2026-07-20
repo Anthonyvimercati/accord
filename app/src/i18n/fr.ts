@@ -981,6 +981,14 @@ export const fr = {
     backupImport: 'Importer une sauvegarde…',
     backupImportDone:
       'Sauvegarde importée : le compte apparaît dans le sélecteur de comptes.',
+    backupPassphrasePrompt: 'Confirmez votre phrase de passe',
+    backupPassphraseImportPrompt: 'Phrase de passe de la sauvegarde',
+    backupPassphraseImportHint:
+      'Laissez vide pour une ancienne sauvegarde non chiffrée (versions 3.4 et antérieures).',
+    backupPassphraseEmpty: 'Saisissez votre phrase de passe.',
+    backupWrongPassphrase: 'Phrase de passe incorrecte pour cette sauvegarde.',
+    backupConfirm: 'Confirmer',
+    backupCancel: 'Annuler',
     // Zone de danger (déconnexion).
     dangerZoneTitle: 'Zone de danger',
     logout: 'Se déconnecter',

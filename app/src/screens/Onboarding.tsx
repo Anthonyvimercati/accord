@@ -13,10 +13,10 @@ import { type AvatarEncode } from '../lib/image';
 import { initials } from '../lib/format';
 import { interpolate } from '../i18n';
 import { copyToClipboard } from '../lib/clipboard';
-import { backupImport } from '../lib/bridge';
 import { isValidName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { AvatarCropper } from '../components/AvatarCropper';
+import { BackupImportButton } from '../components/BackupImportButton';
 import { Card, Field, PrimaryButton } from './onboardingUi';
 
 const MIN_PASSPHRASE = 12;
@@ -24,14 +24,15 @@ const MIN_PASSPHRASE = 12;
 export function CreateForm({
   onSubmit,
   onRestore,
-  onImportBackup,
-  importingBackup = false,
+  onImported,
+  onToast,
   onCancel,
 }: {
   onSubmit: (passphrase: string) => Promise<void>;
   onRestore: () => void;
-  onImportBackup?: () => Promise<void>;
-  importingBackup?: boolean;
+  /** Import d'une sauvegarde proposé au 1er lancement (absent ailleurs). */
+  onImported?: () => Promise<void> | void;
+  onToast?: (kind: 'error' | 'info', text: string) => void;
   /** Lien de retour additionnel (sélecteur de comptes) ; absent en 1er lancement. */
   onCancel?: () => void;
 }) {
@@ -40,14 +41,14 @@ export function CreateForm({
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
   const [entryStep, setEntryStep] = useState<'choices' | 'create'>(
-    onImportBackup === undefined ? 'create' : 'choices',
+    onImported === undefined ? 'create' : 'choices',
   );
 
   const tooShort = pass.length > 0 && pass.length < MIN_PASSPHRASE;
   const mismatch = confirm.length > 0 && pass !== confirm;
   const ready = pass.length >= MIN_PASSPHRASE && pass === confirm;
 
-  if (entryStep === 'choices' && onImportBackup !== undefined) {
+  if (entryStep === 'choices' && onImported !== undefined) {
     return (
       <Card>
         <section
@@ -76,28 +77,22 @@ export function CreateForm({
                 →
               </span>
             </button>
-            <button
-              type="button"
-              disabled={importingBackup}
-              aria-busy={importingBackup}
-              onClick={() => void onImportBackup()}
+            <BackupImportButton
+              onImported={onImported}
+              onToast={onToast ?? (() => {})}
               className="onboarding-choice onboarding-choice-import"
             >
               <span className="onboarding-choice-icon" aria-hidden="true">
-                {importingBackup ? (
-                  <span className="onboarding-choice-spinner" />
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
-                    <path d="M5 16v3h14v-3" />
-                  </svg>
-                )}
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
+                  <path d="M5 16v3h14v-3" />
+                </svg>
               </span>
               <span className="onboarding-choice-label">{t.onboarding.importBackup}</span>
               <span className="onboarding-choice-arrow" aria-hidden="true">
                 →
               </span>
-            </button>
+            </BackupImportButton>
           </div>
           <div className="onboarding-gateway-secondary">
             <span aria-hidden="true" />
@@ -115,10 +110,10 @@ export function CreateForm({
     <Card>
       <div
         className={`onboarding-form-heading ${
-          onImportBackup === undefined ? 'onboarding-form-heading-simple' : ''
+          onImported === undefined ? 'onboarding-form-heading-simple' : ''
         }`}
       >
-        {onImportBackup !== undefined && (
+        {onImported !== undefined && (
           <button
             type="button"
             onClick={() => setEntryStep('choices')}
@@ -528,23 +523,7 @@ export function Onboarding() {
   const restore = useSession((s) => s.restore);
   const goToWelcome = useSession((s) => s.goToWelcome);
   const toast = useUi((s) => s.toast);
-  const t = useT();
   const [mode, setMode] = useState<'create' | 'restore'>('create');
-  const [importingBackup, setImportingBackup] = useState(false);
-
-  const importBackupArchive = async (): Promise<void> => {
-    setImportingBackup(true);
-    try {
-      const account = await backupImport();
-      if (account === null) return;
-      toast('info', t.onboarding.importBackupDone);
-      await goToWelcome();
-    } catch (error) {
-      toast('error', error instanceof Error ? error.message : String(error));
-    } finally {
-      setImportingBackup(false);
-    }
-  };
 
   if (phase === 'starting') return <Starting />;
   if (phase === 'locked') return <UnlockForm />;
@@ -552,8 +531,8 @@ export function Onboarding() {
     <CreateForm
       onSubmit={create}
       onRestore={() => setMode('restore')}
-      onImportBackup={importBackupArchive}
-      importingBackup={importingBackup}
+      onImported={goToWelcome}
+      onToast={toast}
     />
   ) : (
     <RestoreForm onSubmit={restore} onBack={() => setMode('create')} />

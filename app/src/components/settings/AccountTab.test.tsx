@@ -51,6 +51,8 @@ const self: SelfProfile = {
 };
 
 beforeEach(() => {
+  vi.mocked(backupExport).mockClear();
+  vi.mocked(backupImport).mockClear();
   useUi.setState({ lang: 'fr', toasts: [] });
   useSession.setState({
     self,
@@ -265,12 +267,17 @@ describe('AccountTab — sauvegarde', () => {
     useUi.setState({ modal: { kind: 'settings' } });
     render(<AccountTab />);
 
-    // Act
+    // Act : ouvre la saisie, confirme la phrase de passe puis exporte.
     fireEvent.click(screen.getByRole('button', { name: 'Exporter une sauvegarde…' }));
+    fireEvent.change(screen.getByLabelText('Confirmez votre phrase de passe'), {
+      target: { value: 'ma-phrase' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
     // Assert : toast de succès, modale fermée (l'écran de déverrouillage ne
     // doit jamais rester sous une modale), état de session aligné via lock().
     await waitFor(() => expect(lock).toHaveBeenCalledTimes(1));
+    expect(backupExport).toHaveBeenCalledWith('ma-phrase');
     expect(useUi.getState().modal).toBeNull();
     expect(
       useUi.getState().toasts.some((t) => t.kind === 'info' && /export/i.test(t.text)),
@@ -286,12 +293,14 @@ describe('AccountTab — sauvegarde', () => {
 
     // Act
     fireEvent.click(screen.getByRole('button', { name: 'Exporter une sauvegarde…' }));
+    fireEvent.change(screen.getByLabelText('Confirmez votre phrase de passe'), {
+      target: { value: 'ma-phrase' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
-    // Assert : aucun toast, aucun verrouillage, bouton de nouveau actif.
+    // Assert : aucun toast, aucun verrouillage, bouton de confirmation de nouveau actif.
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Exporter une sauvegarde…' }),
-      ).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Confirmer' })).toBeEnabled(),
     );
     expect(lock).not.toHaveBeenCalled();
     expect(useUi.getState().toasts).toHaveLength(0);
@@ -309,8 +318,12 @@ describe('AccountTab — sauvegarde', () => {
     });
     render(<AccountTab />);
 
-    // Act
+    // Act : ouvre la saisie (phrase facultative à l'import) et confirme.
     fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde…' }));
+    fireEvent.change(screen.getByLabelText('Phrase de passe de la sauvegarde'), {
+      target: { value: 'phrase-sauvegarde' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
     // Assert : le toast renvoie vers le sélecteur de comptes, la session
     // active n'est pas touchée (aucune modale fermée, aucun verrouillage).
@@ -330,10 +343,47 @@ describe('AccountTab — sauvegarde', () => {
 
     // Act
     fireEvent.click(screen.getByRole('button', { name: 'Exporter une sauvegarde…' }));
+    fireEvent.change(screen.getByLabelText('Confirmez votre phrase de passe'), {
+      target: { value: 'ma-phrase' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
     // Assert
     await waitFor(() => {
       expect(useUi.getState().toasts.some((t) => t.kind === 'error')).toBe(true);
+    });
+  });
+
+  it('refuse d’exporter sans phrase de passe (garde-fou)', async () => {
+    render(<AccountTab />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter une sauvegarde…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
+
+    await waitFor(() => {
+      expect(useUi.getState().toasts.some((t) => t.kind === 'error')).toBe(true);
+    });
+    // La commande n'est jamais invoquée sans phrase.
+    expect(backupExport).not.toHaveBeenCalled();
+  });
+
+  it('traduit l’erreur « mauvais secret » de l’hôte en message dédié', async () => {
+    // L'hôte remonte l'erreur crypto (phrase erronée re-vérifiée avant export).
+    vi.mocked(backupExport).mockRejectedValueOnce(
+      new Error('cryptographie : secret de déverrouillage incorrect'),
+    );
+    render(<AccountTab />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter une sauvegarde…' }));
+    fireEvent.change(screen.getByLabelText('Confirmez votre phrase de passe'), {
+      target: { value: 'mauvaise' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
+
+    await waitFor(() => {
+      expect(
+        useUi.getState().toasts.some((t) => t.kind === 'error' && /incorrecte/.test(t.text)),
+      ).toBe(true);
     });
   });
 });

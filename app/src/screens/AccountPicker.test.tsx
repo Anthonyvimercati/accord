@@ -158,8 +158,9 @@ describe('AccountPicker — import de sauvegarde', () => {
     useSession.setState({ loadAccounts });
     render(<AccountPicker />);
 
-    // Act
+    // Act : ouvre la saisie (phrase facultative) puis confirme.
     fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
     // Assert : liste rechargée (le compte apparaît) et toast d'orientation
     // vers le déverrouillage normal par phrase de passe.
@@ -180,12 +181,12 @@ describe('AccountPicker — import de sauvegarde', () => {
 
     // Act
     fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
-    // Assert : bouton de nouveau actif, ni rechargement ni toast.
+    // Assert : la saisie reste ouverte (bouton Confirmer réactivé), ni
+    // rechargement ni toast.
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Importer une sauvegarde' }),
-      ).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Confirmer' })).toBeEnabled(),
     );
     expect(loadAccounts).not.toHaveBeenCalled();
     expect(useUi.getState().toasts).toHaveLength(0);
@@ -198,8 +199,10 @@ describe('AccountPicker — import de sauvegarde', () => {
     );
     render(<AccountPicker />);
 
-    // Act
+    // Act : ouvre la saisie puis confirme (l'échec vient de l'archive, pas de
+    // la phrase de passe).
     fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
     // Assert
     await waitFor(() => {

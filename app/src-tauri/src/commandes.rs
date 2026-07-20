@@ -216,40 +216,60 @@ pub async fn lock(etat: State<'_, EtatHote>) -> Result<StatutCoffre, ErreurHote>
 }
 
 /// Exporte le profil ACTIF dans une archive de sauvegarde `.accordbackup` :
-/// coffre scellé + base SQLCipher + blobs, copiés TELS QUELS (rien n'est
-/// déchiffré — l'archive est aussi protégée que le profil sur disque). Le
-/// nœud est arrêté AVANT la copie : la base doit être fermée pour une copie
-/// cohérente (invariant de `accord_node::backup::export_backup`), donc la
-/// session se verrouille — l'UI l'annonce à l'avance et retombe sur l'écran
-/// de déverrouillage avec le statut de coffre rendu, exactement comme `lock`.
+/// zip du profil (coffre scellé + base SQLCipher + blobs) puis SCELLÉ sous la
+/// phrase de passe (Argon2id + XChaCha20-Poly1305) — même les médias, en clair
+/// sur disque, sont ainsi protégés dans l'archive. La `passphrase` est
+/// re-vérifiée en ouvrant le coffre avant l'export : une phrase erronée échoue
+/// franchement au lieu de produire une sauvegarde inouvrable. Le nœud est
+/// arrêté AVANT la copie (base fermée = copie cohérente, invariant de
+/// `export_backup`), donc la session se verrouille — l'UI l'annonce à l'avance
+/// et retombe sur l'écran de déverrouillage, exactement comme `lock`.
 #[tauri::command]
 pub async fn backup_export(
     etat: State<'_, EtatHote>,
     chemin: String,
+    passphrase: String,
 ) -> Result<StatutCoffre, ErreurHote> {
     let chemins = etat.chemins();
+    // Re-vérifie la phrase de passe AVANT d'arrêter le nœud : une erreur ici
+    // ne verrouille pas la session pour rien.
+    let verif = chemins.clone();
+    let phrase = passphrase.clone();
+    en_arriere_plan(move || accord_node::identity::unlock(&verif, &phrase).map(|_| ())).await?;
     etat.arreter_noeud();
-    en_arriere_plan(move || accord_node::backup::export_backup(&chemins, Path::new(&chemin)))
-        .await?;
+    en_arriere_plan(move || {
+        accord_node::backup::export_backup(&chemins, Path::new(&chemin), passphrase.as_bytes())
+    })
+    .await?;
     Ok(etat.statut_coffre())
 }
 
 /// Importe une archive de sauvegarde comme compte **neuf** : nouvelle entrée
 /// de registre (répertoire de profil dédié, jamais le profil actif),
-/// extraction dedans (zip-slip rejeté, destination vide exigée, coffre
-/// d'identité exigé — voir `accord_node::backup::import_backup`), puis
-/// enregistrement. Même discipline d'enregistrement tardif que
-/// `account_create` : le registre ne référence jamais un répertoire à moitié
-/// extrait. Ne démarre RIEN : le compte apparaît dans le sélecteur et se
-/// déverrouille normalement par la phrase de passe du profil sauvegardé.
+/// extraction dedans (déchiffrement si conteneur scellé — `passphrase`
+/// requise ; zip-slip rejeté, destination vide exigée, coffre d'identité
+/// exigé — voir `accord_node::backup::import_backup`), puis enregistrement.
+/// Même discipline d'enregistrement tardif que `account_create` : le registre
+/// ne référence jamais un répertoire à moitié extrait. Ne démarre RIEN : le
+/// compte apparaît dans le sélecteur et se déverrouille normalement par la
+/// phrase de passe du profil sauvegardé. `passphrase` vide ⇒ ancien format zip
+/// en clair (compatibilité ≤ 3.4).
 #[tauri::command]
 pub async fn backup_import(
     etat: State<'_, EtatHote>,
     chemin: String,
+    passphrase: String,
 ) -> Result<CompteMeta, ErreurHote> {
     let (brouillon, chemins) = etat.registre().new_entry(COMPTE_IMPORTE_NOM_PROVISOIRE);
-    en_arriere_plan(move || accord_node::backup::import_backup(Path::new(&chemin), &chemins.root))
-        .await?;
+    en_arriere_plan(move || {
+        let secret = if passphrase.is_empty() {
+            None
+        } else {
+            Some(passphrase.as_bytes())
+        };
+        accord_node::backup::import_backup(Path::new(&chemin), &chemins.root, secret)
+    })
+    .await?;
     etat.registre().register(brouillon.clone())?;
     Ok(CompteMeta::from(brouillon))
 }

@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod archive;
 pub mod error;
 pub mod friendcode;
 pub mod handshake;

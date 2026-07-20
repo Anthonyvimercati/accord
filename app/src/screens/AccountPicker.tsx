@@ -25,8 +25,9 @@
 
 import { useState } from 'react';
 import { Avatar } from '../components/Avatar';
+import { BackupImportButton } from '../components/BackupImportButton';
 import { interpolate, type Dict, type Lang } from '../i18n';
-import { backupImport, type AccountMeta } from '../lib/bridge';
+import { type AccountMeta } from '../lib/bridge';
 import { formatTimestamp } from '../lib/format';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
@@ -135,29 +136,6 @@ export function AccountPicker() {
   const error = useSession((s) => s.error);
   const [mode, setMode] = useState<Mode>('list');
   const [openId, setOpenId] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
-
-  /**
-   * Importe une archive `.accordbackup` comme compte NEUF (sélecteur natif,
-   * voir `bridge.backupImport`) puis recharge la liste : le compte apparaît
-   * dans le sélecteur et se déverrouille par la phrase de passe du profil
-   * sauvegardé. L'annulation du sélecteur ne change rien.
-   */
-  const importBackupArchive = async (): Promise<void> => {
-    setImporting(true);
-    try {
-      const compte = await backupImport();
-      if (compte !== null) {
-        toast('info', t.onboarding.importBackupDone);
-        await loadAccounts();
-      }
-    } catch (e) {
-      // Message hôte déjà lisible (ErreurHote sérialisée en français).
-      toast('error', e instanceof Error ? e.message : String(e));
-    } finally {
-      setImporting(false);
-    }
-  };
 
   if (mode === 'create') {
     return (
@@ -208,14 +186,13 @@ export function AccountPicker() {
       >
         {t.onboarding.importPhrase}
       </button>
-      <button
-        type="button"
-        disabled={importing}
-        onClick={() => void importBackupArchive()}
+      <BackupImportButton
+        onImported={loadAccounts}
+        onToast={toast}
         className="mt-2 w-full text-center text-sm text-link hover:underline disabled:opacity-50"
       >
         {t.onboarding.importBackup}
-      </button>
+      </BackupImportButton>
     </Card>
   );
 }

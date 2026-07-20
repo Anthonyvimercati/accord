@@ -4,6 +4,18 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Added
+
+- **Backups are now encrypted.** A `.accordbackup` archive used to be a plain
+  zip: the identity vault and database inside it stayed sealed, but every
+  **media file** you had exchanged (images, videos) sat in the clear — a backup
+  dropped on a cloud drive or USB stick exposed them. The whole archive is now
+  sealed under your passphrase (Argon2id + XChaCha20-Poly1305, streamed in 4 MiB
+  chunks so multi-gigabyte profiles never load into memory at once). Export and
+  import prompt for the passphrase; importing an older, unencrypted backup
+  (3.4 and earlier) still works by leaving the field blank. A wrong passphrase
+  is reported clearly and distinctly from a corrupted or truncated archive.
+
 ### Fixed
 
 - **LAN discovery now survives an mDNS daemon crash.** A malformed mDNS

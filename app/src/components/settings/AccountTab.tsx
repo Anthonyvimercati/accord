@@ -400,27 +400,51 @@ function BioSection() {
  * tronquée n'existe (écriture atomique) et le bandeau hors-ligne guide vers
  * une nouvelle tentative ou une déconnexion manuelle.
  */
+/** Détecte la « mauvaise phrase de passe » dans le message d'erreur de l'hôte. */
+function estMauvaisePhrase(erreur: unknown): boolean {
+  const message = erreur instanceof Error ? erreur.message : String(erreur);
+  return message.includes('secret de déverrouillage incorrect');
+}
+
 function BackupSection() {
   const t = useT();
   const toast = useUi((s) => s.toast);
   const closeModal = useUi((s) => s.closeModal);
   const lock = useSession((s) => s.lock);
   const [busy, setBusy] = useState(false);
+  // `null` = aucune saisie ouverte ; sinon on attend la phrase de passe pour
+  // l'action choisie (l'export exige une phrase, l'import l'accepte vide pour
+  // les anciennes sauvegardes non chiffrées).
+  const [mode, setMode] = useState<'export' | 'import' | null>(null);
+  const [phrase, setPhrase] = useState('');
+
+  const fermerSaisie = (): void => {
+    setMode(null);
+    setPhrase('');
+  };
 
   const doExport = async (): Promise<void> => {
+    if (phrase === '') {
+      toast('error', t.settings.backupPassphraseEmpty);
+      return;
+    }
     setBusy(true);
     try {
-      const statut = await backupExport();
+      const statut = await backupExport(phrase);
       // Sélecteur annulé : la commande n'a pas été invoquée, rien ne change.
       if (statut === null) return;
+      fermerSaisie();
       toast('info', t.settings.backupExportDone);
       // Le nœud est déjà arrêté côté hôte : ferme la modale (l'écran de
       // déverrouillage ne doit jamais rester sous une modale) puis aligne
       // l'état de session comme une déconnexion volontaire.
       closeModal();
       await lock();
-    } catch {
-      toast('error', t.errors.actionFailed);
+    } catch (e) {
+      toast(
+        'error',
+        estMauvaisePhrase(e) ? t.settings.backupWrongPassphrase : t.errors.actionFailed,
+      );
     } finally {
       setBusy(false);
     }
@@ -429,16 +453,22 @@ function BackupSection() {
   const doImport = async (): Promise<void> => {
     setBusy(true);
     try {
-      const compte = await backupImport();
+      const compte = await backupImport(phrase);
       // Sélecteur annulé : aucun compte créé.
       if (compte === null) return;
+      fermerSaisie();
       toast('info', t.settings.backupImportDone);
-    } catch {
-      toast('error', t.errors.actionFailed);
+    } catch (e) {
+      toast(
+        'error',
+        estMauvaisePhrase(e) ? t.settings.backupWrongPassphrase : t.errors.actionFailed,
+      );
     } finally {
       setBusy(false);
     }
   };
+
+  const valider = (): void => void (mode === 'export' ? doExport() : doImport());
 
   return (
     <SettingsSection title={t.settings.backupTitle} hint={t.settings.backupHint}>
@@ -446,24 +476,73 @@ function BackupSection() {
         <p className="mb-4 rounded-md border-l-4 border-yellow bg-rail/60 px-3 py-2 text-sm leading-relaxed text-muted">
           {t.settings.backupExportWarning}
         </p>
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void doExport()}
-            className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+        {mode === null ? (
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setMode('export')}
+              className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+            >
+              {t.settings.backupExport}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setMode('import')}
+              className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+            >
+              {t.settings.backupImport}
+            </button>
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              valider();
+            }}
           >
-            {t.settings.backupExport}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void doImport()}
-            className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
-          >
-            {t.settings.backupImport}
-          </button>
-        </div>
+            <label
+              htmlFor="backup-passphrase"
+              className="mb-1 block text-sm font-medium text-norm"
+            >
+              {mode === 'export'
+                ? t.settings.backupPassphrasePrompt
+                : t.settings.backupPassphraseImportPrompt}
+            </label>
+            <input
+              id="backup-passphrase"
+              type="password"
+              autoFocus
+              value={phrase}
+              disabled={busy}
+              onChange={(e) => setPhrase(e.target.value)}
+              className="w-full rounded-lg border border-input bg-input px-3 py-2 text-sm text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+            />
+            {mode === 'import' && (
+              <p className="mt-1 text-xs leading-relaxed text-faint">
+                {t.settings.backupPassphraseImportHint}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-3">
+              <button
+                type="submit"
+                disabled={busy}
+                className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+              >
+                {t.settings.backupConfirm}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={fermerSaisie}
+                className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+              >
+                {t.settings.backupCancel}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </SettingsSection>
   );

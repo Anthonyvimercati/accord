@@ -967,6 +967,14 @@ export const en: Dict = {
     backupExportDone: 'Backup exported. The session has been locked.',
     backupImport: 'Import a backup…',
     backupImportDone: 'Backup imported: the account appears in the account picker.',
+    backupPassphrasePrompt: 'Confirm your passphrase',
+    backupPassphraseImportPrompt: 'Backup passphrase',
+    backupPassphraseImportHint:
+      'Leave empty for an older, unencrypted backup (versions 3.4 and earlier).',
+    backupPassphraseEmpty: 'Enter your passphrase.',
+    backupWrongPassphrase: 'Wrong passphrase for this backup.',
+    backupConfirm: 'Confirm',
+    backupCancel: 'Cancel',
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logout: 'Log out',

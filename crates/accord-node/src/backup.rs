@@ -1,11 +1,14 @@
 //! Sauvegarde complète d'un profil : export/import d'une archive
-//! `.accordbackup` (zip).
+//! `.accordbackup` (zip scellé).
 //!
-//! L'archive contient les fichiers du répertoire de profil TELS QUELS :
-//! coffre d'identité scellé (Argon2id), base SQLCipher, blobs. Rien n'est
-//! déchiffré ici — la phrase de passe n'entre jamais dans ce module — donc
-//! l'archive est exactement aussi protégée que le profil sur disque : sans la
-//! phrase de passe, ni l'identité ni la base ne s'ouvrent.
+//! L'archive zip contient les fichiers du répertoire de profil tels quels
+//! (coffre d'identité, base SQLCipher, blobs), puis le zip ENTIER est scellé
+//! sous la phrase de passe du profil (conteneur `accord_crypto::archive`,
+//! Argon2id + XChaCha20-Poly1305 par tranches, en flux — jamais l'archive
+//! entière en mémoire). Motif : les MÉDIAS du profil sont en clair sur disque ;
+//! sans ce scellement, une sauvegarde posée sur un cloud ou une clé USB
+//! exposerait toutes les images/vidéos échangées. À l'import, l'ancien format
+//! (zip en clair, sauvegardes ≤ 3.4) reste accepté pour compatibilité.
 //!
 //! Invariants :
 //! - **nœud arrêté** : l'appelant garantit qu'aucun nœud n'utilise le profil
@@ -22,9 +25,11 @@
 //!   (best-effort) pour ne jamais laisser un demi-profil sur disque.
 
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
+use accord_crypto::archive::{is_sealed_backup, BackupOpener, BackupSealer, CHUNK_LEN, TAG_LEN};
+use accord_crypto::vault::VaultParams;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
@@ -36,14 +41,17 @@ fn erreur_zip(e: zip::result::ZipError) -> NodeError {
     NodeError::Io(std::io::Error::other(e))
 }
 
-/// Exporte le profil `paths` dans l'archive `dest` (créée ou remplacée).
+/// Exporte le profil `paths` dans l'archive `dest` (créée ou remplacée),
+/// scellée sous `secret` (la phrase de passe du profil — l'appelant l'a
+/// vérifiée en déverrouillant le coffre juste avant).
 ///
-/// Copie ATOMIQUE : l'archive est d'abord écrite dans un fichier temporaire
-/// frère de `dest` (même système de fichiers), synchronisée sur disque, puis
-/// renommée — un échec en cours de route ne laisse jamais d'archive tronquée
-/// au chemin final. Exige un coffre d'identité présent : un profil sans coffre
-/// n'a rien à sauvegarder (et son import serait refusé de toute façon).
-pub fn export_backup(paths: &Paths, dest: &Path) -> Result<(), NodeError> {
+/// Copie ATOMIQUE : le zip intermédiaire puis le conteneur scellé sont écrits
+/// dans des fichiers temporaires frères de `dest` (même système de fichiers),
+/// synchronisés sur disque, puis le conteneur est renommé — un échec en cours
+/// de route ne laisse jamais d'archive tronquée au chemin final. Exige un
+/// coffre d'identité présent : un profil sans coffre n'a rien à sauvegarder
+/// (et son import serait refusé de toute façon).
+pub fn export_backup(paths: &Paths, dest: &Path, secret: &[u8]) -> Result<(), NodeError> {
     if !paths.has_identity() {
         return Err(NodeError::NotFound("coffre d'identité à sauvegarder"));
     }
@@ -60,25 +68,79 @@ pub fn export_backup(paths: &Paths, dest: &Path) -> Result<(), NodeError> {
     if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    // Fichier temporaire FRÈRE de la destination : le `rename` final reste sur
-    // le même système de fichiers, donc atomique.
+    // Fichiers temporaires FRÈRES de la destination : le `rename` final reste
+    // sur le même système de fichiers, donc atomique.
+    let mut nom_zip_tmp = nom.to_os_string();
+    nom_zip_tmp.push(".zip.tmp");
+    let zip_tmp = dest.with_file_name(nom_zip_tmp);
     let mut nom_tmp = nom.to_os_string();
     nom_tmp.push(".tmp");
     let tmp = dest.with_file_name(nom_tmp);
-    match ecrire_archive(&paths.root, &repertoires, &fichiers, &tmp) {
-        Ok(()) => {
-            std::fs::rename(&tmp, dest)?;
-            Ok(())
-        }
-        Err(e) => {
-            // Jamais de résidu temporaire après un échec (best-effort).
-            let _ = std::fs::remove_file(&tmp);
-            Err(e)
-        }
+
+    let resultat = ecrire_archive(&paths.root, &repertoires, &fichiers, &zip_tmp)
+        .and_then(|()| sceller_fichier(&zip_tmp, &tmp, secret))
+        .and_then(|()| std::fs::rename(&tmp, dest).map_err(NodeError::from));
+    // Jamais de résidu temporaire, succès comme échec (best-effort). Le zip
+    // intermédiaire contient les médias en clair : on le retire dans tous les
+    // cas.
+    let _ = std::fs::remove_file(&zip_tmp);
+    if resultat.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
+    resultat
+}
+
+/// Scelle le fichier `src` vers `dst` en flux (tranches de [`CHUNK_LEN`]),
+/// puis synchronise `dst` — prérequis du `rename` atomique de l'appelant.
+fn sceller_fichier(src: &Path, dst: &Path, secret: &[u8]) -> Result<(), NodeError> {
+    let sealer = BackupSealer::new(secret, VaultParams::default())?;
+    let mut lecture = BufReader::new(File::open(src)?);
+    let fichier = File::create(dst)?;
+    let mut sortie = BufWriter::new(fichier);
+    sortie.write_all(sealer.header())?;
+
+    // Une tranche d'avance pour connaître la dernière : `courante` n'est
+    // scellée qu'une fois la lecture suivante faite (0 octet lu = fin).
+    let mut courante = vec![0u8; CHUNK_LEN];
+    let mut longueur = remplir(&mut lecture, &mut courante)?;
+    let mut index: u64 = 0;
+    loop {
+        let mut suivante = vec![0u8; CHUNK_LEN];
+        let longueur_suivante = remplir(&mut lecture, &mut suivante)?;
+        let derniere = longueur_suivante == 0;
+        sortie.write_all(&sealer.seal_chunk(index, derniere, &courante[..longueur])?)?;
+        if derniere {
+            break;
+        }
+        courante = suivante;
+        longueur = longueur_suivante;
+        index += 1;
+    }
+    sortie.flush()?;
+    sortie.get_ref().sync_all()?;
+    Ok(())
+}
+
+/// Remplit `tampon` au maximum depuis `lecture` (boucle sur les lectures
+/// partielles) et rend le nombre d'octets lus (0 = fin de fichier).
+fn remplir(lecture: &mut impl Read, tampon: &mut [u8]) -> Result<usize, NodeError> {
+    let mut total = 0;
+    while total < tampon.len() {
+        let n = lecture.read(&mut tampon[total..])?;
+        if n == 0 {
+            break;
+        }
+        total += n;
+    }
+    Ok(total)
 }
 
 /// Importe l'archive `archive` dans `dest_dir` (créé si absent, VIDE exigé).
+///
+/// Formats acceptés : conteneur scellé (`ACCBKP01`, sauvegardes ≥ 3.5 —
+/// `secret` OBLIGATOIRE, `CryptoError::VaultWrongSecret` si la phrase ne
+/// correspond pas) et zip en clair (sauvegardes ≤ 3.4, compatibilité —
+/// `secret` ignoré).
 ///
 /// Protection zip-slip : TOUS les noms d'entrée sont validés avant la moindre
 /// écriture (une archive malveillante est rejetée en bloc, sans extraction
@@ -86,7 +148,11 @@ pub fn export_backup(paths: &Paths, dest: &Path) -> Result<(), NodeError> {
 /// (ceinture et bretelles). L'archive doit contenir le coffre d'identité :
 /// sans lui, le profil importé serait indéverrouillable et invisible du
 /// registre de comptes — refusé, et la destination est nettoyée.
-pub fn import_backup(archive: &Path, dest_dir: &Path) -> Result<(), NodeError> {
+pub fn import_backup(
+    archive: &Path,
+    dest_dir: &Path,
+    secret: Option<&[u8]>,
+) -> Result<(), NodeError> {
     if dest_dir.exists() {
         if !dest_dir.is_dir() {
             return Err(NodeError::Invalid(
@@ -99,6 +165,97 @@ pub fn import_backup(archive: &Path, dest_dir: &Path) -> Result<(), NodeError> {
             ));
         }
     }
+
+    // Détection de format par la signature, pas par l'extension : un conteneur
+    // scellé est d'abord déchiffré en flux vers un zip temporaire frère de la
+    // destination (même volume, retiré dans tous les cas).
+    let mut entete = [0u8; 8];
+    let lus = remplir(&mut File::open(archive)?, &mut entete)?;
+    let zip_dechiffre = if is_sealed_backup(&entete[..lus]) {
+        let Some(secret) = secret else {
+            return Err(NodeError::Invalid(
+                "phrase de passe requise pour une sauvegarde chiffrée",
+            ));
+        };
+        let tmp = chemin_tmp_frere(dest_dir)?;
+        if let Err(e) = ouvrir_fichier_scelle(archive, &tmp, secret) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+        Some(tmp)
+    } else {
+        None
+    };
+    let source_zip = zip_dechiffre.as_deref().unwrap_or(archive);
+    let resultat = importer_zip(source_zip, dest_dir);
+    if let Some(tmp) = zip_dechiffre {
+        // Le zip déchiffré contient les médias en clair : jamais de résidu.
+        let _ = std::fs::remove_file(&tmp);
+    }
+    resultat
+}
+
+/// Chemin temporaire FRÈRE de `dest_dir` (même volume), au nom improbable.
+fn chemin_tmp_frere(dest_dir: &Path) -> Result<PathBuf, NodeError> {
+    let parent = dest_dir
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or(NodeError::Invalid("destination d'import sans parent"))?;
+    std::fs::create_dir_all(parent)?;
+    let Some(nom) = dest_dir.file_name() else {
+        return Err(NodeError::Invalid("destination d'import sans nom"));
+    };
+    let mut nom_tmp = nom.to_os_string();
+    nom_tmp.push(".import.zip.tmp");
+    Ok(parent.join(nom_tmp))
+}
+
+/// Déchiffre en flux le conteneur scellé `src` vers le zip `dst`.
+fn ouvrir_fichier_scelle(src: &Path, dst: &Path, secret: &[u8]) -> Result<(), NodeError> {
+    let mut lecture = BufReader::new(File::open(src)?);
+    let mut intro = vec![0u8; BackupOpener::INTRO_LEN];
+    if remplir(&mut lecture, &mut intro)? != intro.len() {
+        return Err(accord_crypto::CryptoError::VaultCorrupt.into());
+    }
+    let opener = BackupOpener::new(&intro, secret)?;
+    let mut sortie = BufWriter::new(File::create(dst)?);
+    let mut index: u64 = 0;
+    loop {
+        let mut tete = [0u8; 5];
+        if remplir(&mut lecture, &mut tete)? != tete.len() {
+            // Fin d'entrée sans tranche « fin » vue : conteneur tronqué.
+            return Err(accord_crypto::CryptoError::VaultCorrupt.into());
+        }
+        let longueur = u32::from_be_bytes(tete[..4].try_into().expect("taille fixe")) as usize;
+        let fin = match tete[4] {
+            0 => false,
+            1 => true,
+            _ => return Err(accord_crypto::CryptoError::VaultCorrupt.into()),
+        };
+        if !(TAG_LEN..=CHUNK_LEN + TAG_LEN).contains(&longueur) {
+            return Err(accord_crypto::CryptoError::VaultCorrupt.into());
+        }
+        let mut tranche = vec![0u8; longueur];
+        if remplir(&mut lecture, &mut tranche)? != longueur {
+            return Err(accord_crypto::CryptoError::VaultCorrupt.into());
+        }
+        sortie.write_all(&opener.open_chunk(index, fin, &tranche)?)?;
+        if fin {
+            // Rien ne doit suivre la tranche finale.
+            let mut reste = [0u8; 1];
+            if lecture.read(&mut reste)? != 0 {
+                return Err(accord_crypto::CryptoError::VaultCorrupt.into());
+            }
+            sortie.flush()?;
+            return Ok(());
+        }
+        index += 1;
+    }
+}
+
+/// Extrait le zip `archive` (déjà en clair) dans `dest_dir` — cœur historique
+/// de l'import, commun aux deux formats.
+fn importer_zip(archive: &Path, dest_dir: &Path) -> Result<(), NodeError> {
     let mut zip = ZipArchive::new(BufReader::new(File::open(archive)?)).map_err(erreur_zip)?;
     for nom in zip.file_names() {
         if !nom_archive_sur(nom) {
@@ -305,9 +462,9 @@ mod tests {
         let archive = sortie.path().join("compte.accordbackup");
 
         // Act : export puis import dans une destination neuve.
-        export_backup(&paths, &archive).unwrap();
+        export_backup(&paths, &archive, b"phrase-de-passe-test").unwrap();
         let dest = sortie.path().join("importe");
-        import_backup(&archive, &dest).unwrap();
+        import_backup(&archive, &dest, Some(b"phrase-de-passe-test")).unwrap();
 
         // Assert : mêmes contenus, arborescence préservée, profil utilisable.
         let importe = Paths::new(&dest);
@@ -326,8 +483,58 @@ mod tests {
         assert!(dest.join("vide").is_dir(), "répertoire vide préservé");
         // Le profil importé se déverrouille avec la phrase de passe d'ORIGINE.
         assert!(crate::identity::unlock(&importe, "phrase-de-passe-test").is_ok());
-        // Aucun résidu temporaire d'export (écriture atomique).
+        // Aucun résidu temporaire d'export (écriture atomique, zip + conteneur).
         assert!(!sortie.path().join("compte.accordbackup.tmp").exists());
+        assert!(!sortie.path().join("compte.accordbackup.zip.tmp").exists());
+        // L'archive est bien SCELLÉE : ni le pseudo de la base ni un blob ne
+        // doivent apparaître en clair dans les octets exportés.
+        let octets = std::fs::read(&archive).unwrap();
+        assert!(is_sealed_backup(&octets), "archive non scellée");
+        assert!(
+            !octets.windows(b"blob-1".len()).any(|f| f == b"blob-1"),
+            "média en clair dans l'archive scellée"
+        );
+    }
+
+    #[test]
+    fn import_refuse_une_mauvaise_phrase_de_passe() {
+        let source = tempfile::tempdir().unwrap();
+        let paths = profil_de_test(source.path());
+        let sortie = tempfile::tempdir().unwrap();
+        let archive = sortie.path().join("compte.accordbackup");
+        export_backup(&paths, &archive, b"phrase-de-passe-test").unwrap();
+        let dest = sortie.path().join("importe");
+
+        let erreur = import_backup(&archive, &dest, Some(b"mauvaise-phrase"));
+
+        assert!(matches!(
+            erreur,
+            Err(NodeError::Crypto(
+                accord_crypto::CryptoError::VaultWrongSecret
+            ))
+        ));
+        // Rien n'a été extrait : pas de profil à moitié importé.
+        assert!(!dest.exists(), "aucune extraction sur mauvaise phrase");
+        assert!(!sortie.path().join("importe.import.zip.tmp").exists());
+    }
+
+    #[test]
+    fn import_accepte_l_ancien_zip_en_clair_sans_phrase() {
+        // Compatibilité : une sauvegarde ≤ 3.4 est un zip en clair, importable
+        // sans phrase de passe (la protection venait alors du coffre interne).
+        let source = tempfile::tempdir().unwrap();
+        let paths = profil_de_test(source.path());
+        let sortie = tempfile::tempdir().unwrap();
+        let zip_clair = sortie.path().join("ancienne.accordbackup");
+        let mut fichiers = Vec::new();
+        let mut repertoires = Vec::new();
+        collecter(&paths.root, &paths.root, &mut fichiers, &mut repertoires).unwrap();
+        ecrire_archive(&paths.root, &repertoires, &fichiers, &zip_clair).unwrap();
+
+        let dest = sortie.path().join("importe");
+        import_backup(&zip_clair, &dest, None).unwrap();
+
+        assert!(crate::identity::unlock(&Paths::new(&dest), "phrase-de-passe-test").is_ok());
     }
 
     #[cfg(unix)]
@@ -340,9 +547,9 @@ mod tests {
         let sortie = tempfile::tempdir().unwrap();
         let archive = sortie.path().join("compte.accordbackup");
 
-        export_backup(&paths, &archive).unwrap();
+        export_backup(&paths, &archive, b"phrase-de-passe-test").unwrap();
         let dest = sortie.path().join("importe");
-        import_backup(&archive, &dest).unwrap();
+        import_backup(&archive, &dest, Some(b"phrase-de-passe-test")).unwrap();
 
         // Le coffre reste privé (0600, voir `identity::write_private`).
         let mode = std::fs::metadata(Paths::new(&dest).vault())
@@ -357,7 +564,11 @@ mod tests {
         let vide = tempfile::tempdir().unwrap();
         let archive = vide.path().join("x.accordbackup");
 
-        let erreur = export_backup(&Paths::new(vide.path().join("profil-absent")), &archive);
+        let erreur = export_backup(
+            &Paths::new(vide.path().join("profil-absent")),
+            &archive,
+            b"phrase-de-passe-test",
+        );
 
         assert!(matches!(erreur, Err(NodeError::NotFound(_))));
         assert!(!archive.exists(), "aucune archive vide ne doit apparaître");
@@ -370,12 +581,12 @@ mod tests {
         let paths = profil_de_test(source.path());
         let sortie = tempfile::tempdir().unwrap();
         let archive = sortie.path().join("compte.accordbackup");
-        export_backup(&paths, &archive).unwrap();
+        export_backup(&paths, &archive, b"phrase-de-passe-test").unwrap();
         let dest = tempfile::tempdir().unwrap();
         std::fs::write(dest.path().join("deja-la.txt"), b"precieux").unwrap();
 
         // Act
-        let erreur = import_backup(&archive, dest.path());
+        let erreur = import_backup(&archive, dest.path(), Some(b"phrase-de-passe-test"));
 
         // Assert : refus net, et le contenu préexistant est INTACT (le
         // nettoyage d'échec ne s'applique qu'à une destination vide).
@@ -395,7 +606,7 @@ mod tests {
         let dest = sortie.path().join("importe");
 
         // Act
-        let erreur = import_backup(&archive, &dest);
+        let erreur = import_backup(&archive, &dest, None);
 
         // Assert : rejet en bloc AVANT toute écriture — rien n'a fui hors de
         // la destination, et la destination n'a même pas été créée.
@@ -411,7 +622,7 @@ mod tests {
         archive_forgee(&archive, &["notes.txt"]);
         let dest = sortie.path().join("importe");
 
-        let erreur = import_backup(&archive, &dest);
+        let erreur = import_backup(&archive, &dest, None);
 
         assert!(matches!(erreur, Err(NodeError::Invalid(_))));
         assert!(!dest.exists(), "le demi-profil extrait doit être nettoyé");

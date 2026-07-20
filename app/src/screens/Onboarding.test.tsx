@@ -78,6 +78,7 @@ describe('Onboarding — import de sauvegarde', () => {
     render(<Onboarding />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
     await waitFor(() => expect(goToWelcome).toHaveBeenCalledTimes(1));
     expect(backupImport).toHaveBeenCalledTimes(1);
@@ -90,11 +91,10 @@ describe('Onboarding — import de sauvegarde', () => {
     render(<Onboarding />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Importer une sauvegarde' }),
-      ).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Confirmer' })).toBeEnabled(),
     );
     expect(goToWelcome).not.toHaveBeenCalled();
     expect(useUi.getState().toasts).toHaveLength(0);
@@ -105,11 +105,10 @@ describe('Onboarding — import de sauvegarde', () => {
     render(<Onboarding />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }));
 
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Importer une sauvegarde' }),
-      ).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Confirmer' })).toBeEnabled(),
     );
     expect(
       useUi
