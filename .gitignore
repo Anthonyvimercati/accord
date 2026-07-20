@@ -24,6 +24,10 @@ session.json
 # Prompts de délégation internes (coordination, jamais publiés)
 /PROMPT_LOT_*.md
 
+# Vitrine personnelle (hébergée à part, hors du dépôt applicatif)
+/website/
+/scripts/deploy-site.sh
+
 # Demo mode — local only (screenshots), never published
 /app/src/lib/demo.ts
 /app/src/assets/demo/
