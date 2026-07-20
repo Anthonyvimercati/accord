@@ -2,6 +2,7 @@
 //! horloge de Lamport persistante et métadonnées (SPEC §2.6).
 
 mod contacts;
+mod ephemeral;
 mod files;
 mod groups;
 mod invites;
@@ -9,6 +10,7 @@ mod mentions;
 mod messages;
 mod outbox;
 mod search;
+mod stats;
 
 pub use contacts::{Contact, ContactState};
 pub use files::{FetchIntent, FileEntry};
@@ -17,6 +19,7 @@ pub use invites::IncomingInvite;
 pub use mentions::{MentionEntry, MentionScope};
 pub use messages::{DmRecord, GroupMsgRecord};
 pub use outbox::OutboxItem;
+pub use stats::StorageStats;
 
 use crate::error::CoreError;
 use rusqlite::Connection;
@@ -28,7 +31,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -182,6 +185,16 @@ impl Db {
                 "ALTER TABLE outbox ADD COLUMN mailboxed_day INTEGER NOT NULL DEFAULT 0;",
             )?;
         }
+        // Migration v11 (Lot E1): per-contact manual identity verification.
+        // Nullable, additive — existing rows stay unverified. The pubkey seen
+        // at verification time is stored so a later key substitution can be
+        // detected ("verification broken" warning).
+        if self.has_column("contacts", "node_id")? && !self.has_column("contacts", "verified_at")? {
+            self.conn.execute_batch(
+                "ALTER TABLE contacts ADD COLUMN verified_at INTEGER;
+                 ALTER TABLE contacts ADD COLUMN verified_pubkey BLOB;",
+            )?;
+        }
         self.conn.execute_batch(
             "BEGIN;
              CREATE TABLE IF NOT EXISTS meta (
@@ -189,12 +202,14 @@ impl Db {
                value BLOB NOT NULL
              );
              CREATE TABLE IF NOT EXISTS contacts (
-               node_id      BLOB PRIMARY KEY,
-               pubkey       BLOB NOT NULL,
-               display_name TEXT NOT NULL DEFAULT '',
-               state        INTEGER NOT NULL,
-               added_ms     INTEGER NOT NULL,
-               last_seen_ms INTEGER NOT NULL DEFAULT 0
+               node_id         BLOB PRIMARY KEY,
+               pubkey          BLOB NOT NULL,
+               display_name    TEXT NOT NULL DEFAULT '',
+               state           INTEGER NOT NULL,
+               added_ms        INTEGER NOT NULL,
+               last_seen_ms    INTEGER NOT NULL DEFAULT 0,
+               verified_at     INTEGER,
+               verified_pubkey BLOB
              );
              CREATE TABLE IF NOT EXISTS dm_messages (
                msg_id   BLOB PRIMARY KEY,
@@ -371,7 +386,14 @@ impl Db {
                last_ms    INTEGER NOT NULL,
                PRIMARY KEY (group_id, channel_id, author)
              );
-             PRAGMA user_version = 10;
+             -- Lot E2: per-conversation disappearing-message timer, honoured
+             -- LOCALLY only (no wire negotiation). `scope` is the peer pubkey
+             -- (32 bytes, DM) or the group_id (16 bytes); no row = disabled.
+             CREATE TABLE IF NOT EXISTS conversation_ephemeral (
+               scope    BLOB PRIMARY KEY,
+               ttl_secs INTEGER NOT NULL
+             );
+             PRAGMA user_version = 11;
              COMMIT;",
         )?;
         Ok(())
@@ -590,6 +612,56 @@ mod tests {
         // Réouverture idempotente (version déjà à jour) : rien ne casse.
         drop(db);
         assert!(Db::open(&path, &db_key).is_ok());
+    }
+
+    #[test]
+    fn migration_v11_adds_verification_columns_to_existing_contacts() {
+        // Simulates a v10 database: `contacts` without the verification
+        // columns, with one row already persisted.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(9);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+                .unwrap();
+            conn.execute_batch(
+                "BEGIN;
+                 CREATE TABLE contacts (
+                   node_id      BLOB PRIMARY KEY,
+                   pubkey       BLOB NOT NULL,
+                   display_name TEXT NOT NULL DEFAULT '',
+                   state        INTEGER NOT NULL,
+                   added_ms     INTEGER NOT NULL,
+                   last_seen_ms INTEGER NOT NULL DEFAULT 0
+                 );
+                 PRAGMA user_version = 10;
+                 COMMIT;",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO contacts (node_id, pubkey, display_name, state, added_ms)
+                 VALUES (?1, ?2, 'ami', 2, 7)",
+                rusqlite::params![[1u8; 32], [2u8; 32]],
+            )
+            .unwrap();
+        }
+        // Reopening with the current binary adds the columns; the old row
+        // reads back unverified and can then be verified.
+        let db = Db::open(&path, &db_key).unwrap();
+        let c = db.contact(&[1u8; 32]).unwrap().unwrap();
+        assert_eq!((c.verified_at, c.verified_pubkey), (None, None));
+        db.set_contact_verified(&[1u8; 32], Some((9, [2u8; 32])))
+            .unwrap();
+        assert_eq!(
+            db.contact(&[1u8; 32]).unwrap().unwrap().verified_pubkey,
+            Some([2u8; 32])
+        );
+        // The ephemeral table from the same migration exists and works.
+        db.set_conversation_ttl(&[2u8; 32], Some(3600)).unwrap();
+        assert_eq!(db.conversation_ttl(&[2u8; 32]).unwrap(), Some(3600));
     }
 
     #[test]

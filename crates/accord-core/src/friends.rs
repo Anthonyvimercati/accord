@@ -160,6 +160,8 @@ fn new_contact(pubkey: [u8; 32], display_name: &str, state: ContactState, now_ms
         state,
         added_ms: now_ms,
         last_seen_ms: now_ms,
+        verified_at: None,
+        verified_pubkey: None,
     }
 }
 

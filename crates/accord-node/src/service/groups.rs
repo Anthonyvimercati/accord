@@ -1047,6 +1047,18 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             node.group_mark_read(&gid, &cid, lamport)?;
             Ok(json!({ "ok": true }))
         }
+        "groups.set_ephemeral" => {
+            // Local-only disappearing-message timer (E2), group scope: same
+            // contract as `dm.set_ephemeral`, keyed by group_id.
+            let gid = param_id16(params, "group_id")?;
+            let ttl = param_opt_u32(params, "ttl_secs")?.map(u64::from);
+            node.set_conversation_ephemeral(&gid, ttl)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.ephemeral" => {
+            let gid = param_id16(params, "group_id")?;
+            Ok(json!({ "ttl_secs": node.conversation_ephemeral(&gid)? }))
+        }
         _ => Err(NodeError::Invalid("méthode inconnue")),
     }
 }

@@ -90,6 +90,9 @@ pub struct MaintenanceConfig {
     pub contacts_per_tick: usize,
     /// Tentatives directes échouées avant dépôt en boîte aux lettres DHT.
     pub mailbox_after_attempts: u32,
+    /// Interval of the disappearing-message purge (Lot E2, local-only).
+    /// The first pass runs at the common startup delay (≤ 2 s).
+    pub ephemeral_purge: Duration,
 }
 
 impl Default for MaintenanceConfig {
@@ -111,6 +114,7 @@ impl Default for MaintenanceConfig {
             outbox_batch: 64,
             contacts_per_tick: 32,
             mailbox_after_attempts: 2,
+            ephemeral_purge: Duration::from_secs(5 * 60),
         }
     }
 }
@@ -428,6 +432,20 @@ pub(crate) fn spawn_loops(rt: &Arc<Runtime>) {
     spawn_periodic(Arc::clone(rt), cfg.presence_publish, |r, c| {
         Box::pin(home_relay_tick(r, c))
     });
+    // Disappearing-message purge (Lot E2): purely local DB trim, first pass
+    // at the startup delay so expired messages vanish shortly after boot.
+    spawn_periodic(Arc::clone(rt), cfg.ephemeral_purge, |r, c| {
+        Box::pin(ephemeral_purge_tick(r, c))
+    });
+}
+
+/// Deletes expired messages of timed conversations (bounded per pass).
+async fn ephemeral_purge_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
+    match rt.node().purge_ephemeral() {
+        Ok(0) => {}
+        Ok(purged) => tracing::debug!(purged, "éphémères : messages expirés supprimés"),
+        Err(e) => tracing::debug!(erreur = %e, "éphémères : purge impossible"),
+    }
 }
 
 /// Reconnecte les pairs d'amorçage injoignables (backoff par pair géré par le

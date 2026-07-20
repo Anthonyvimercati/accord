@@ -41,6 +41,7 @@ fn fast_maintenance() -> MaintenanceConfig {
         outbox_batch: 16,
         contacts_per_tick: 8,
         mailbox_after_attempts: 2,
+        ephemeral_purge: Duration::from_secs(3600),
     }
 }
 

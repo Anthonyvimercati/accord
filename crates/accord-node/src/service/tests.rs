@@ -3574,3 +3574,215 @@ async fn diagnostics_sans_reseau_rend_indisponible() {
     let err = s.call("diagnostics.counters", json!({})).await.unwrap_err();
     assert!(err.message.contains("indisponible"));
 }
+
+// ---- JSON boundary: Lot E (safety numbers, ephemeral, privacy report) ----
+
+#[tokio::test]
+async fn friends_safety_number_shape_and_verified_roundtrip() {
+    let (s, peer) = service_with_friend();
+    let v = s
+        .call("friends.safety_number", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(
+        sorted_keys(&v),
+        ["digits", "emoji", "key_changed", "verified"]
+    );
+    let digits = v["digits"].as_str().unwrap();
+    assert_eq!(digits.len(), 60);
+    assert!(digits.bytes().all(|b| b.is_ascii_digit()));
+    assert_eq!(v["emoji"].as_array().unwrap().len(), 8);
+    assert_eq!(v["verified"], json!(false));
+    assert_eq!(v["key_changed"], json!(false));
+
+    // Same number on repeated calls (deterministic derivation).
+    let again = s
+        .call("friends.safety_number", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(again["digits"], v["digits"]);
+    assert_eq!(again["emoji"], v["emoji"]);
+
+    // Verify, observe the flag everywhere, then unverify.
+    s.call(
+        "friends.set_verified",
+        json!({ "pubkey": peer, "verified": true }),
+    )
+    .await
+    .unwrap();
+    let v = s
+        .call("friends.safety_number", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(v["verified"], json!(true));
+    assert_eq!(v["key_changed"], json!(false));
+    let list = s.call("friends.list", json!({})).await.unwrap();
+    assert_eq!(list["contacts"][0]["verified"], json!(true));
+    assert_eq!(list["contacts"][0]["key_changed"], json!(false));
+    s.call(
+        "friends.set_verified",
+        json!({ "pubkey": peer, "verified": false }),
+    )
+    .await
+    .unwrap();
+    let list = s.call("friends.list", json!({})).await.unwrap();
+    assert_eq!(list["contacts"][0]["verified"], json!(false));
+}
+
+#[tokio::test]
+async fn friends_set_verified_validates_at_the_boundary() {
+    let (s, peer) = service_with_friend();
+    // Missing/typed-wrong `verified` is refused.
+    let err = s
+        .call("friends.set_verified", json!({ "pubkey": peer }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // Unknown contact is refused (nothing to flag).
+    let unknown = Identity::generate_with_pow_bits(1);
+    let err = s
+        .call(
+            "friends.set_verified",
+            json!({ "pubkey": hex::encode(&unknown.public_key()), "verified": true }),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("introuvable"));
+}
+
+#[tokio::test]
+async fn friends_key_change_after_verification_is_flagged() {
+    let (node, peer) = node_with_friend();
+    let s = NodeService::new(Arc::clone(&node));
+    let peer_hex = hex::encode(&peer.public_key());
+    s.call(
+        "friends.set_verified",
+        json!({ "pubkey": peer_hex, "verified": true }),
+    )
+    .await
+    .unwrap();
+    // Models a key substitution AFTER verification: the stored verified
+    // pubkey no longer matches the contact's current key.
+    node.test_force_verified_pubkey(&peer.public_key(), &[7u8; 32])
+        .unwrap();
+    let v = s
+        .call("friends.safety_number", json!({ "pubkey": peer_hex }))
+        .await
+        .unwrap();
+    assert_eq!(v["verified"], json!(true));
+    assert_eq!(v["key_changed"], json!(true));
+    let list = s.call("friends.list", json!({})).await.unwrap();
+    assert_eq!(list["contacts"][0]["key_changed"], json!(true));
+}
+
+#[tokio::test]
+async fn dm_ephemeral_roundtrip_and_bounds() {
+    let (s, peer) = service_with_friend();
+    let v = s
+        .call("dm.ephemeral", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(v, json!({ "ttl_secs": null }));
+    s.call(
+        "dm.set_ephemeral",
+        json!({ "pubkey": peer, "ttl_secs": 3600 }),
+    )
+    .await
+    .unwrap();
+    let v = s
+        .call("dm.ephemeral", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(v, json!({ "ttl_secs": 3600 }));
+    // Disable via explicit null (or omission).
+    s.call(
+        "dm.set_ephemeral",
+        json!({ "pubkey": peer, "ttl_secs": null }),
+    )
+    .await
+    .unwrap();
+    let v = s
+        .call("dm.ephemeral", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(v, json!({ "ttl_secs": null }));
+    // Out-of-bounds TTL is refused at the boundary.
+    let err = s
+        .call("dm.set_ephemeral", json!({ "pubkey": peer, "ttl_secs": 5 }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+#[tokio::test]
+async fn groups_ephemeral_roundtrip() {
+    let (s, gid) = service_with_group().await;
+    let v = s
+        .call("groups.ephemeral", json!({ "group_id": gid }))
+        .await
+        .unwrap();
+    assert_eq!(v, json!({ "ttl_secs": null }));
+    s.call(
+        "groups.set_ephemeral",
+        json!({ "group_id": gid, "ttl_secs": 86400 }),
+    )
+    .await
+    .unwrap();
+    let v = s
+        .call("groups.ephemeral", json!({ "group_id": gid }))
+        .await
+        .unwrap();
+    assert_eq!(v, json!({ "ttl_secs": 86400 }));
+}
+
+#[tokio::test]
+async fn privacy_report_exact_shape_on_a_seeded_node() {
+    let (s, peer) = service_with_friend();
+    s.call("dm.send", json!({ "pubkey": peer, "text": "compté" }))
+        .await
+        .unwrap();
+    let v = s.call("privacy.report", json!({})).await.unwrap();
+    assert_eq!(sorted_keys(&v), ["counts", "egress", "storage"]);
+    assert_eq!(
+        sorted_keys(&v["counts"]),
+        [
+            "dm_messages",
+            "files",
+            "friends",
+            "group_messages",
+            "groups",
+            "pins"
+        ]
+    );
+    assert_eq!(
+        sorted_keys(&v["storage"]),
+        ["db_bytes", "db_encrypted_at_rest", "file_bytes"]
+    );
+    assert_eq!(
+        sorted_keys(&v["egress"]),
+        [
+            "available",
+            "bootstrap_peers",
+            "central_servers",
+            "connected_peers",
+            "dht_nodes",
+            "relay_circuits"
+        ]
+    );
+    assert_eq!(v["counts"]["friends"], json!(1));
+    assert_eq!(v["counts"]["dm_messages"], json!(1));
+    assert_eq!(v["storage"]["db_encrypted_at_rest"], json!(true));
+    // No network runtime in this fixture: egress unavailable, all zero.
+    assert_eq!(v["egress"]["available"], json!(false));
+    assert_eq!(v["egress"]["central_servers"], json!(0));
+}
+
+#[tokio::test]
+async fn privacy_report_reflects_the_network_runtime_when_up() {
+    let s = service_with_network();
+    let v = s.call("privacy.report", json!({})).await.unwrap();
+    assert_eq!(v["egress"]["available"], json!(true));
+    // FakeNetwork counted one opened relay circuit.
+    assert_eq!(v["egress"]["relay_circuits"], json!(1));
+    assert_eq!(v["egress"]["central_servers"], json!(0));
+}

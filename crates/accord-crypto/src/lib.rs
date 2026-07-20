@@ -25,6 +25,7 @@ pub mod friendcode;
 pub mod handshake;
 pub mod identity;
 pub mod mnemonic;
+pub mod safety;
 pub mod sealed;
 pub mod session;
 pub mod vault;
@@ -33,6 +34,7 @@ pub use error::CryptoError;
 pub use friendcode::{FriendCode, FRIENDCODE_PAYLOAD_LEN};
 pub use handshake::{respond, CookieJar, Established, Initiator, NonceCache};
 pub use identity::{node_id_of, verify_pow, verify_signature, Identity};
+pub use safety::{safety_number, SafetyNumber};
 pub use session::{SessionCrypto, SessionKeys};
 pub use vault::{open_vault, seal_vault, VaultParams};
 

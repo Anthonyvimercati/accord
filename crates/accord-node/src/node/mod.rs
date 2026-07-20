@@ -79,12 +79,14 @@ pub(super) fn group_mark_key(group_id: &[u8; 16], channel_id: &[u8; 16]) -> Stri
 pub(crate) mod diagnostics;
 pub(crate) mod discovery;
 mod dm;
+mod ephemeral;
 mod files;
 mod groups;
 pub(crate) mod holepunch;
 mod mentions;
 pub(crate) mod nat;
 pub(crate) mod network;
+pub(crate) mod privacy;
 pub(crate) mod relay;
 mod voice;
 
@@ -103,6 +105,7 @@ mod node_search;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use node_friends::verification_state;
 pub use node_profile::SelfProfile;
 
 /// Horloge murale en millisecondes (source unique du nœud).

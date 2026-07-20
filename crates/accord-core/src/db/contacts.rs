@@ -46,10 +46,26 @@ pub struct Contact {
     pub added_ms: u64,
     /// Dernière activité vue (ms).
     pub last_seen_ms: u64,
+    /// Manual identity verification timestamp (ms), `None` if never verified
+    /// (Lot E1, safety numbers). Local only, never sent on the wire.
+    pub verified_at: Option<u64>,
+    /// Public key seen at verification time: a later mismatch with `pubkey`
+    /// means the peer's key changed since verification ("verification
+    /// broken" warning in the UI).
+    pub verified_pubkey: Option<[u8; 32]>,
 }
 
 /// Colonnes brutes d'un contact, avant validation des tailles de blobs.
-type RawContact = (Vec<u8>, Vec<u8>, String, u8, u64, u64);
+type RawContact = (
+    Vec<u8>,
+    Vec<u8>,
+    String,
+    u8,
+    u64,
+    u64,
+    Option<u64>,
+    Option<Vec<u8>>,
+);
 
 fn row_to_contact(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawContact> {
     Ok((
@@ -59,6 +75,8 @@ fn row_to_contact(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawContact> {
         row.get(3)?,
         row.get(4)?,
         row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
     ))
 }
 
@@ -70,13 +88,18 @@ fn build(raw: RawContact) -> Result<Contact, CoreError> {
         state: ContactState::from_u8(raw.3)?,
         added_ms: raw.4,
         last_seen_ms: raw.5,
+        verified_at: raw.6,
+        verified_pubkey: raw.7.map(blob).transpose()?,
     })
 }
 
-const COLS: &str = "node_id, pubkey, display_name, state, added_ms, last_seen_ms";
+const COLS: &str =
+    "node_id, pubkey, display_name, state, added_ms, last_seen_ms, verified_at, verified_pubkey";
 
 impl Db {
-    /// Insère ou met à jour un contact.
+    /// Insère ou met à jour un contact. Les colonnes de vérification
+    /// manuelle (E1) ne sont volontairement PAS touchées : un rafraîchissement
+    /// de pseudo/état ne doit jamais effacer une vérification.
     pub fn upsert_contact(&self, c: &Contact) -> Result<(), CoreError> {
         self.conn().execute(
             "INSERT INTO contacts (node_id, pubkey, display_name, state, added_ms, last_seen_ms)
@@ -182,6 +205,27 @@ impl Db {
         Ok(())
     }
 
+    /// Records or clears the manual identity verification of a contact
+    /// (Lot E1): `Some((now_ms, pubkey_seen))` marks verified, `None` clears.
+    pub fn set_contact_verified(
+        &self,
+        node_id: &[u8; 32],
+        verification: Option<(u64, [u8; 32])>,
+    ) -> Result<(), CoreError> {
+        let (at, pk) = match verification {
+            Some((at, pk)) => (Some(at), Some(pk.to_vec())),
+            None => (None, None),
+        };
+        let n = self.conn().execute(
+            "UPDATE contacts SET verified_at = ?2, verified_pubkey = ?3 WHERE node_id = ?1",
+            params![node_id, at, pk],
+        )?;
+        if n == 0 {
+            return Err(CoreError::NotFound("contact"));
+        }
+        Ok(())
+    }
+
     /// Met à jour la dernière activité vue.
     pub fn touch_contact(&self, node_id: &[u8; 32], now_ms: u64) -> Result<(), CoreError> {
         self.conn().execute(
@@ -245,6 +289,8 @@ mod tests {
             state,
             added_ms: 1000,
             last_seen_ms: 0,
+            verified_at: None,
+            verified_pubkey: None,
         }
     }
 
@@ -295,6 +341,38 @@ mod tests {
             db.contact(&[5; 32]).unwrap().unwrap().state,
             ContactState::Blocked
         );
+    }
+
+    #[test]
+    fn verification_roundtrips_survives_upserts_and_clears() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        assert!(matches!(
+            db.set_contact_verified(&[9; 32], Some((1, [9; 32]))),
+            Err(CoreError::NotFound(_))
+        ));
+        db.upsert_contact(&contact(9, ContactState::Friend))
+            .unwrap();
+        assert_eq!(db.contact(&[9; 32]).unwrap().unwrap().verified_at, None);
+        db.set_contact_verified(&[9; 32], Some((42, [9; 32])))
+            .unwrap();
+        let c = db.contact(&[9; 32]).unwrap().unwrap();
+        assert_eq!(c.verified_at, Some(42));
+        assert_eq!(c.verified_pubkey, Some([9; 32]));
+        // A profile refresh (upsert) must never erase the verification.
+        db.upsert_contact(&contact(9, ContactState::Friend))
+            .unwrap();
+        let c = db.contact(&[9; 32]).unwrap().unwrap();
+        assert_eq!(c.verified_at, Some(42));
+        assert_eq!(c.verified_pubkey, Some([9; 32]));
+        // Storing a different pubkey than the current one models a key
+        // change after verification (key_changed at the API layer).
+        db.set_contact_verified(&[9; 32], Some((43, [7; 32])))
+            .unwrap();
+        let c = db.contact(&[9; 32]).unwrap().unwrap();
+        assert_ne!(c.verified_pubkey, Some(c.pubkey));
+        db.set_contact_verified(&[9; 32], None).unwrap();
+        let c = db.contact(&[9; 32]).unwrap().unwrap();
+        assert_eq!((c.verified_at, c.verified_pubkey), (None, None));
     }
 
     #[test]

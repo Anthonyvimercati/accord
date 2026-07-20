@@ -11,7 +11,8 @@ use crate::hex;
 use crate::node::Node;
 
 use super::helpers::{
-    dm_json, param_attachments, param_id16, param_limit, param_peer, param_str, param_u64,
+    dm_json, param_attachments, param_id16, param_limit, param_opt_u32, param_peer, param_str,
+    param_u64,
 };
 
 /// Sérialise une tranche d'historique direct en annotant chaque message de son
@@ -132,6 +133,18 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let lamport = param_u64(params, "lamport", 0);
             node.dm_mark_read(&peer, lamport)?;
             Ok(json!({ "ok": true }))
+        }
+        "dm.set_ephemeral" => {
+            // Local-only disappearing-message timer (E2): no wire byte, the
+            // TTL only trims this device's store. `ttl_secs: null` disables.
+            let peer = param_peer(params)?;
+            let ttl = param_opt_u32(params, "ttl_secs")?.map(u64::from);
+            node.set_conversation_ephemeral(&peer, ttl)?;
+            Ok(json!({ "ok": true }))
+        }
+        "dm.ephemeral" => {
+            let peer = param_peer(params)?;
+            Ok(json!({ "ttl_secs": node.conversation_ephemeral(&peer)? }))
         }
         "dm.set_read_receipts" => {
             let enabled = params

@@ -64,6 +64,13 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     // local-only note attached to this contact.
                     v["mention_count"] = json!(node.dm_mention_count(&c.pubkey)?);
                     v["note"] = json!(node.contact_note(&c.pubkey)?);
+                    // Manual identity verification (E1, additive fields):
+                    // `key_changed` warns that the key differs from the one
+                    // seen at verification time ("verification broken").
+                    let (verified, key_changed) =
+                        crate::node::verification_state(Some(c));
+                    v["verified"] = json!(verified);
+                    v["key_changed"] = json!(key_changed);
                     Ok(v)
                 })
                 .collect::<Result<Vec<_>, NodeError>>()?
@@ -106,6 +113,25 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             Ok(json!({ "ok": true }))
         }
         "friends.get_note" => Ok(json!({ "note": node.contact_note(&param_peer(params)?)? })),
+        "friends.safety_number" => {
+            let peer = param_peer(params)?;
+            let (number, verified, key_changed) = node.friend_safety_number(&peer)?;
+            Ok(json!({
+                "digits": number.digits,
+                "emoji": number.emoji,
+                "verified": verified,
+                "key_changed": key_changed,
+            }))
+        }
+        "friends.set_verified" => {
+            let peer = param_peer(params)?;
+            let verified = params
+                .get("verified")
+                .and_then(Value::as_bool)
+                .ok_or(NodeError::Invalid("verified booléen requis"))?;
+            node.friend_set_verified(&peer, verified)?;
+            Ok(json!({ "ok": true }))
+        }
         "friends.block" => {
             node.friend_block(&param_peer(params)?)?;
             Ok(json!({ "ok": true }))

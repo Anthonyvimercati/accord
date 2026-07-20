@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 
 use accord_core::db::Contact;
 use accord_core::{friends, peer_addr, presence};
-use accord_crypto::FriendCode;
+use accord_crypto::{node_id_of, FriendCode};
 use accord_proto::core_msg::CoreMsg;
 use serde_json::json;
 
@@ -210,6 +210,62 @@ impl Node {
     /// Lit la note privée locale d'une clé publique (`None` si aucune).
     pub fn contact_note(&self, pubkey: &[u8; 32]) -> Result<Option<String>, NodeError> {
         self.with_db(|db| Ok(db.contact_note(pubkey)?))
+    }
+
+    // ---- Safety numbers (Lot E1, local-only, no wire byte) ----
+
+    /// Safety number of the conversation with `peer_pubkey`, plus the local
+    /// verification state: `(number, verified, key_changed)`. `key_changed`
+    /// is true when the contact was verified against a different public key
+    /// than the current one ("verification broken").
+    pub fn friend_safety_number(
+        &self,
+        peer_pubkey: &[u8; 32],
+    ) -> Result<(accord_crypto::SafetyNumber, bool, bool), NodeError> {
+        let number = accord_crypto::safety_number(&self.identity.public_key(), peer_pubkey);
+        let contact = self.with_db(|db| Ok(db.contact(&node_id_of(peer_pubkey).0)?))?;
+        let (verified, key_changed) = verification_state(contact.as_ref());
+        Ok((number, verified, key_changed))
+    }
+
+    /// Test fixture: rewrites the pubkey stored at verification time, to
+    /// model a key substitution AFTER verification without simulating a
+    /// whole re-resolution flow. `#[cfg(test)]` only — never in a real
+    /// binary.
+    #[cfg(test)]
+    pub(crate) fn test_force_verified_pubkey(
+        &self,
+        peer_pubkey: &[u8; 32],
+        seen: &[u8; 32],
+    ) -> Result<(), NodeError> {
+        self.with_db(|db| {
+            Ok(db.set_contact_verified(&node_id_of(peer_pubkey).0, Some((now_ms(), *seen)))?)
+        })
+    }
+
+    /// Marks (or unmarks) the contact as manually verified. The public key
+    /// seen NOW is stored with the flag so a later key substitution is
+    /// detectable. Emits `event.friend_verified` for local UI refresh.
+    pub fn friend_set_verified(
+        &self,
+        peer_pubkey: &[u8; 32],
+        verified: bool,
+    ) -> Result<(), NodeError> {
+        let verification = verified.then(|| (now_ms(), *peer_pubkey));
+        self.with_db(|db| Ok(db.set_contact_verified(&node_id_of(peer_pubkey).0, verification)?))?;
+        self.emit(
+            "event.friend_verified",
+            json!({ "peer": hex::encode(peer_pubkey), "verified": verified }),
+        );
+        Ok(())
+    }
+}
+
+/// Verification state of a contact: `(verified, key_changed)`.
+pub(crate) fn verification_state(contact: Option<&Contact>) -> (bool, bool) {
+    match contact.and_then(|c| c.verified_pubkey.map(|vp| (c.pubkey, vp))) {
+        Some((current, seen)) => (true, current != seen),
+        None => (false, false),
     }
 }
 
