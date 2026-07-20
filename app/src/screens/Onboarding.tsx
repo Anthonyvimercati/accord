@@ -302,7 +302,7 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
   const copy = () => {
     copyToClipboard(
       body,
-      () => toast('info', t.onboarding.phraseCopied),
+      () => toast('success', t.onboarding.phraseCopied),
       () => toast('error', t.errors.actionFailed),
     );
   };

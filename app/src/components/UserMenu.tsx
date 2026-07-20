@@ -257,7 +257,7 @@ export function UserMenu({
   const copyFriendCode = (): void => {
     copyToClipboard(
       self.friend_code,
-      () => toast('info', t.app.copied),
+      () => toast('success', t.app.copied),
       () => toast('error', t.errors.actionFailed),
     );
   };

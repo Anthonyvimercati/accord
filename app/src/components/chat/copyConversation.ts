@@ -48,7 +48,7 @@ export function copyConversation(
   });
   copyToClipboard(
     markdown,
-    () => toast('info', t.transcript.copied),
+    () => toast('success', t.transcript.copied),
     () => toast('error', t.transcript.copyFailed),
   );
 }

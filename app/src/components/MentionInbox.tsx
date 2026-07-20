@@ -92,7 +92,7 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
       .then(() => {
         refreshBadges();
         setEntries((prev) => prev?.map((e) => ({ ...e, read: true })) ?? prev);
-        toast('info', t.mentions.allRead);
+        toast('success', t.mentions.allRead);
       })
       .catch(() => toast('error', t.errors.actionFailed));
   };

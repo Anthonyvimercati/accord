@@ -64,7 +64,11 @@ export function buildContactMenu(
 ): ContextMenuItem[] {
   const onError = (): void => useUi.getState().toast('error', t.errors.actionFailed);
   const copie = (valeur: string): void =>
-    copyToClipboard(valeur, () => useUi.getState().toast('info', t.app.copied), onError);
+    copyToClipboard(
+      valeur,
+      () => useUi.getState().toast('success', t.app.copied),
+      onError,
+    );
   const isFriend = contact.state === 'friend';
   const isBlocked = contact.state === 'blocked';
   const hasUnread = (contact.unread ?? 0) > 0;
@@ -174,7 +178,11 @@ export function buildOwnUserMenu(
 ): ContextMenuItem[] {
   const onError = (): void => useUi.getState().toast('error', t.errors.actionFailed);
   const copie = (valeur: string): void =>
-    copyToClipboard(valeur, () => useUi.getState().toast('info', t.app.copied), onError);
+    copyToClipboard(
+      valeur,
+      () => useUi.getState().toast('success', t.app.copied),
+      onError,
+    );
   const statut = (etat: OwnPresenceStatus): ContextMenuItem => ({
     label: t.profil[etat],
     checked: ownStatus === etat,

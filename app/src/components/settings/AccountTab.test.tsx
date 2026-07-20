@@ -104,7 +104,9 @@ describe('AccountTab — pseudo', () => {
     await waitFor(() => expect(setName).toHaveBeenCalledWith('Alexandra'));
     await waitFor(() => {
       expect(
-        useUi.getState().toasts.some((t) => t.kind === 'info' && /Pseudo/.test(t.text)),
+        useUi
+          .getState()
+          .toasts.some((t) => t.kind === 'success' && /Pseudo/.test(t.text)),
       ).toBe(true);
     });
   });
@@ -150,7 +152,7 @@ describe('AccountTab — bio', () => {
     await waitFor(() => expect(setBio).toHaveBeenCalledWith('fan de fromage'));
     await waitFor(() => {
       expect(
-        useUi.getState().toasts.some((t) => t.kind === 'info' && /Bio/.test(t.text)),
+        useUi.getState().toasts.some((t) => t.kind === 'success' && /Bio/.test(t.text)),
       ).toBe(true);
     });
   });
@@ -437,7 +439,9 @@ describe('AccountTab — pronoms', () => {
     await waitFor(() => expect(setPronouns).toHaveBeenCalledWith('il/lui'));
     await waitFor(() => {
       expect(
-        useUi.getState().toasts.some((t) => t.kind === 'info' && /Pronoms/.test(t.text)),
+        useUi
+          .getState()
+          .toasts.some((t) => t.kind === 'success' && /Pronoms/.test(t.text)),
       ).toBe(true);
     });
   });

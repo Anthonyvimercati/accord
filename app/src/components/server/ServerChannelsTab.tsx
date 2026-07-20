@@ -88,7 +88,7 @@ function ChannelPermsEditor({
     const allow = (current.allow & ~bit) | (choice === 'allow' ? bit : 0);
     const deny = (current.deny & ~bit) | (choice === 'deny' ? bit : 0);
     setChannelPerms(groupId, channel.channel_id, roleId, allow, deny)
-      .then(() => toast('info', t.serveur.channelPermsSaved))
+      .then(() => toast('success', t.serveur.channelPermsSaved))
       .catch((e: unknown) => toast('error', messageOf(e, t.errors.actionFailed)));
   };
 
@@ -187,7 +187,7 @@ function ChannelEditor({
         );
       }
       if (slowmodeDirty) await setSlowmode(groupId, channel.channel_id, slowmode);
-      toast('info', t.serveur.channelSaved);
+      toast('success', t.serveur.channelSaved);
     } catch (e) {
       toast('error', messageOf(e, t.errors.actionFailed));
     } finally {
@@ -331,7 +331,7 @@ function CategoryEditor({
     setBusy(true);
     try {
       await renameCategory(groupId, category.category_id, nameTrimmed);
-      toast('info', t.serveur.categorySaved);
+      toast('success', t.serveur.categorySaved);
     } catch (e) {
       toast('error', messageOf(e, t.errors.actionFailed));
     } finally {

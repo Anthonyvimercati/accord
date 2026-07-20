@@ -155,7 +155,7 @@ export function ServerSoundsTab({ groupId }: { groupId: string }) {
     setBusy(true);
     try {
       await addSound(groupId, name, son.mime, son.dataB64);
-      toast('info', t.soundboard.added);
+      toast('success', t.soundboard.added);
       setName('');
       setSon(null);
       setErreur(null);

@@ -70,7 +70,7 @@ export function ForwardPicker({ text, attachments, onClose }: ForwardPickerProps
     void target
       .send(text, attachments && attachments.length > 0 ? attachments : undefined)
       .then(() => {
-        toast('info', t.dm.forwarded);
+        toast('success', t.dm.forwarded);
         onClose();
       })
       .catch(() => {

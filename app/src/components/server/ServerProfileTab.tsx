@@ -164,7 +164,7 @@ function BannerColorSection({ groupId }: { groupId: string }) {
     setBusy(true);
     try {
       await setBannerColor(groupId, color);
-      toast('info', t.serveur.bannerColorSaved);
+      toast('success', t.serveur.bannerColorSaved);
     } catch (e) {
       toast('error', messageOf(e, t.errors.actionFailed));
     } finally {

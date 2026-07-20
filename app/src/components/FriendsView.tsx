@@ -247,7 +247,7 @@ function AddFriend() {
     if (!self) return;
     copyToClipboard(
       buildFriendLink(self.friend_code),
-      () => toast('info', t.friends.linkCopied),
+      () => toast('success', t.friends.linkCopied),
       () => toast('error', t.errors.actionFailed),
     );
   };

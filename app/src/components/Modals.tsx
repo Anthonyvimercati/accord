@@ -511,7 +511,7 @@ function ShareableLinkSection({ groupId }: { groupId: string }) {
     if (code === null) return;
     copyToClipboard(
       code,
-      () => toast('info', t.app.copied),
+      () => toast('success', t.app.copied),
       () => toast('error', t.errors.actionFailed),
     );
   };

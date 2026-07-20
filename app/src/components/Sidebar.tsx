@@ -511,7 +511,7 @@ function ChannelRow({
         onClick: () =>
           copyToClipboard(
             channel.channel_id,
-            () => toast('info', t.app.copied),
+            () => toast('success', t.app.copied),
             () => toast('error', t.errors.actionFailed),
           ),
       },
@@ -869,7 +869,7 @@ function ServerHeaderMenu({
     onClick: () =>
       copyToClipboard(
         groupId,
-        () => toast('info', t.app.copied),
+        () => toast('success', t.app.copied),
         () => toast('error', t.errors.actionFailed),
       ),
   });

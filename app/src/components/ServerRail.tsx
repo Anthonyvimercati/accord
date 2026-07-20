@@ -455,7 +455,7 @@ export function ServerRail() {
           onClick: () =>
             copyToClipboard(
               id,
-              () => toast('info', t.app.copied),
+              () => toast('success', t.app.copied),
               () => toast('error', t.errors.actionFailed),
             ),
         },

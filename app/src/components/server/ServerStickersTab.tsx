@@ -96,7 +96,7 @@ export function ServerStickersTab({ groupId }: { groupId: string }) {
     setBusy(true);
     try {
       await addSticker(groupId, name, image.dataB64, image.mime);
-      toast('info', t.serveur.stickerAdded);
+      toast('success', t.serveur.stickerAdded);
       setName('');
       setImage(null);
       setErreur(null);

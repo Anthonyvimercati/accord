@@ -292,7 +292,7 @@ function PronounsSection() {
     setBusy(true);
     try {
       await setPronouns(trimmed);
-      toast('info', t.settings.pronounsSaved);
+      toast('success', t.settings.pronounsSaved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -346,7 +346,7 @@ function BioSection() {
     setBusy(true);
     try {
       await setBio(trimmed);
-      toast('info', t.settings.bioSaved);
+      toast('success', t.settings.bioSaved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -629,7 +629,7 @@ export function AccountTab() {
     setBusy(true);
     try {
       await setName(trimmed);
-      toast('info', t.settings.pseudonymSaved);
+      toast('success', t.settings.pseudonymSaved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {

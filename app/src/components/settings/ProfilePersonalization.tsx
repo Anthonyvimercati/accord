@@ -51,7 +51,7 @@ export function ProfilePersonalization() {
     setBusy(kind);
     try {
       await action();
-      toast('info', DECORATION_UI_TEXT.saved[lang]);
+      toast('success', DECORATION_UI_TEXT.saved[lang]);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {

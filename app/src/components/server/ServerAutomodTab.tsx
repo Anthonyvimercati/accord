@@ -70,7 +70,7 @@ export function ServerAutomodTab({ groupId }: { groupId: string }) {
     try {
       // L'événement d'état (`event.group_state`) rafraîchit la liste affichée.
       await setAutomodWords(groupId, words);
-      toast('info', t.automod.saved);
+      toast('success', t.automod.saved);
     } catch (e) {
       toast('error', messageOf(e, t.errors.actionFailed));
     } finally {

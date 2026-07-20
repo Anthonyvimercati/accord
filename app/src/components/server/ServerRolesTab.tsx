@@ -91,7 +91,7 @@ function RoleEditor({
         ...(color !== role.color ? { color } : {}),
         ...(perms !== role.permissions ? { permissions: perms } : {}),
       });
-      toast('info', t.serveur.roleSaved);
+      toast('success', t.serveur.roleSaved);
     } catch (e) {
       toast('error', messageOf(e, t.errors.actionFailed));
     } finally {

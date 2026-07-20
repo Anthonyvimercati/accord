@@ -89,7 +89,7 @@ export function ServerEmojisTab({ groupId }: { groupId: string }) {
     setBusy(true);
     try {
       await addEmoji(groupId, name, image.dataB64, image.mime);
-      toast('info', t.serveur.emojiAdded);
+      toast('success', t.serveur.emojiAdded);
       setName('');
       setImage(null);
       setErreur(null);

@@ -158,7 +158,7 @@ export function MemberList({
       onClick: () =>
         copyToClipboard(
           pubkey,
-          () => toast('info', t.app.copied),
+          () => toast('success', t.app.copied),
           () => toast('error', t.errors.actionFailed),
         ),
     });
