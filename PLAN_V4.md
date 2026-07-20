@@ -33,7 +33,7 @@
 ### A.2 Typographie & iconographie
 - [ ] **A10** Choisir une **vraie paire de polices** (display + texte) auto-hébergée, sous-ensemblée, `font-display: swap`, préchargée (règles perf : max 2 familles).
 - [ ] **A11** Corriger l'**interlignage** et le `letter-spacing` des messages pour la lisibilité longue durée.
-- [ ] **A12** Chiffres tabulaires pour horodatages, compteurs, tailles de fichiers (`font-variant-numeric`).
+- [x] **A12** Chiffres tabulaires pour horodatages, compteurs, tailles de fichiers (`font-variant-numeric`).
 - [ ] **A13** Auditer le **jeu d'icônes** : trait, grille et taille homogènes ; migrer vers un set unique cohérent.
 - [ ] **A14** Optimiser les SVG d'icônes (viewBox, currentColor, pas de fill en dur) pour l'héritage de thème.
 - [ ] **A15** Rafraîchir `docs/accord-logo.svg` / `accord-icon.svg` et dériver toutes les tailles d'icône d'app depuis une source unique.
@@ -42,20 +42,20 @@
 - [ ] **A16** Auditer **chaque thème** (`customTheme.ts`, figurative-themes, theme-scenes) au contraste WCAG AA sur texte, texte atténué et horodatages.
 - [ ] **A17** Corriger les thèmes qui échouent l'AA (texte muté trop clair, mentions illisibles).
 - [ ] **A18** Palette de **coloration syntaxique** dédiée par thème clair/sombre (blocs de code lisibles partout).
-- [ ] **A19** Styliser les **barres de défilement** par thème (au lieu du natif incohérent).
-- [ ] **A20** Couleur de **sélection de texte** cohérente par thème.
+- [x] **A19** Styliser les **barres de défilement** par thème (au lieu du natif incohérent).
+- [x] **A20** Couleur de **sélection de texte** cohérente par thème.
 - [ ] **A21** Anneaux de **focus-visible** unifiés et visibles sur chaque thème.
 - [ ] **A22** Uniformiser les **pastilles** (mention, rôle, salon, `@everyone`) : forme, contraste, hover.
-- [ ] **A23** Export/import de thème utilisateur soigné (fichier `.accordtheme` lisible) — voir aussi C.
+- [x] **A23** Export/import de thème utilisateur soigné (fichier `.accordtheme` lisible) — voir aussi C.
 - [ ] **A24** Aperçu miniature de thème dans le sélecteur (vignette de conversation réelle, pas juste des pastilles).
 - [ ] **A25** Transition douce lors du **changement de thème** (pas de flash brutal).
 
 ### A.4 Surfaces de conversation
-- [ ] **A26** **Regroupement des messages** consécutifs du même auteur (une seule tête d'avatar/pseudo, horodatage au survol) — finition type Discord.
+- [x] **A26** **Regroupement des messages** consécutifs du même auteur (une seule tête d'avatar/pseudo, horodatage au survol) — finition type Discord.
 - [ ] **A27** Séparateurs de **date collants** (« Aujourd'hui », « Hier », date) élégants dans `MessageList`.
 - [ ] **A28** Soigner le séparateur « **nouveaux messages** » existant (couleur, animation d'apparition).
 - [ ] **A29** États **hover/focus/active** designés sur chaque ligne de message (barre d'actions flottante propre).
-- [ ] **A30** Barre de **réactions** repensée : compteur, tooltip « qui a réagi », bouton ajouter discret.
+- [x] **A30** Barre de **réactions** repensée : compteur, tooltip « qui a réagi », bouton ajouter discret.
 - [ ] **A31** Rendu des **citations/réponses** (MessageQuote) : ligne de rappel, avatar mini, clic → saut.
 - [ ] **A32** Rendu des **embeds/liens** (InviteEmbed, cartes fichier) unifié sous un composant Card commun.
 - [ ] **A33** Galerie d'**images multiples** (grille adaptative) + lightbox soignée (zoom, navigation, échap).
@@ -88,7 +88,7 @@
 - [x] **A54** **Squelettes de chargement** : historique de messages, liste de membres, avatars, liste de serveurs.
 - [x] **A55** **Toasts** (Toasts.tsx) repensés : succès/erreur/info, action inline, empilement, auto-dismiss.
 - [ ] **A56** **Bannière de mise à jour** (UpdateBanner) soignée + notes de version rendues (déjà Markdown) mises en forme.
-- [ ] **A57** **Bannière hors-ligne / reconnexion** claire (état réseau visible sans ouvrir NetworkPanel).
+- [x] **A57** **Bannière hors-ligne / reconnexion** claire (état réseau visible sans ouvrir NetworkPanel).
 - [ ] **A58** **Écran d'onboarding** (Onboarding) : illustrations, progression, moments de confiance (« aucun compte, aucune donnée envoyée »).
 - [ ] **A59** **Modal de réglages** : IA revue, en-têtes de section, recherche de réglage (voir B), cohérence des contrôles (controls.tsx).
 - [ ] **A60** **Popover/carte de profil** (ProfilePopover, ProfileBanner, ProfileCardPreview) : mise en page premium, bannière, badges, bio.
@@ -106,7 +106,7 @@
 - [ ] **A68** **ContextMenu** : style, séparateurs, icônes, sous-menus, danger rouge cohérents.
 - [ ] **A69** **QuickSwitcher** (Ctrl+K) : design de palette (voir B pour l'extension fonctionnelle).
 - [ ] **A70** **Avatars** : formes (cercle/carré), anneau de statut, repli initiales colorées déterministes.
-- [ ] **A71** **PresenceDot** : couleurs de statut distinguables aussi pour daltoniens (forme + couleur).
+- [x] **A71** **PresenceDot** : couleurs de statut distinguables aussi pour daltoniens (forme + couleur).
 - [ ] **A72** **Décorations de profil** (decorations*.tsx, 1900+ lignes) : audit qualité/poids, lazy-load, cohérence.
 - [ ] **A73** Vérifier le **rendu WKWebView packagé** de tous les nouveaux styles (pas seulement le dev server).
 
@@ -114,9 +114,9 @@
 - [ ] **A74** Style des **titres Markdown** (#, ##, ###) dans les messages (hiérarchie sans casser le flux).
 - [ ] **A75** Style des **listes** (à puces / numérotées) et **citations** (`>`) avec barre de rappel.
 - [ ] **A76** Rendu des **tableaux GFM** (bordures, zébrage, débordement scrollable).
-- [ ] **A77** **Blocs de code** : fond, gouttière, langue affichée, bouton copier designé.
-- [ ] **A78** **Code inline** : fond, rayon, contraste par thème.
-- [ ] **A79** **Spoilers** `||…||` : flou + animation de révélation.
+- [x] **A77** **Blocs de code** : fond, gouttière, langue affichée, bouton copier designé.
+- [x] **A78** **Code inline** : fond, rayon, contraste par thème.
+- [x] **A79** **Spoilers** `||…||` : flou + animation de révélation.
 - [ ] **A80** **Liens** : couleur, soulignement au survol, indicateur de lien externe.
 - [ ] **A81** **Émojis personnalisés** (CustomEmoji) : taille cohérente inline vs jumbo (message émoji seul).
 - [ ] **A82** Surlignage de **mention** (fond `@moi`) distinct et lisible sur tous les thèmes.
@@ -188,12 +188,12 @@
 - [ ] **B25** Flux de **création/rejoint de serveur** (JoinServerForm) : validation, aperçu, erreurs claires.
 - [ ] **B26** **Cartes d'invitation** en MP (InviteCard) : corriger l'état « expiré » affiché après redémarrage entre acceptation et admission (limitation connue v3.5).
 - [ ] **B27** **Deep-link** notification → salon exact + surlignage du message concerné.
-- [ ] **B28** **Recherche** : puces de filtres (`from:`/`in:`/`has:`/`before:`), recherches récentes, saut au résultat.
+- [x] **B28** **Recherche** : puces de filtres (`from:`/`in:`/`has:`/`before:`), recherches récentes, saut au résultat.
 - [ ] **B29** **Réglages** : champ de recherche filtrant les onglets/sections.
 - [ ] **B30** **Aperçu Markdown** basculable dans le compositeur (MessageInput/MessageEditor).
 - [ ] **B31** **Brouillons** : indicateur visuel de brouillon existant par salon/DM (déjà persistés).
 - [ ] **B32** **Glisser-déposer** de fichiers (useDeposeFichiers) : zone de dépôt claire, multi-fichiers, aperçus avant envoi.
-- [ ] **B33** **Statut personnalisé** : éditeur (texte + émoji + expiration) soigné.
+- [x] **B33** **Statut personnalisé** : éditeur (texte + émoji + expiration) soigné.
 - [ ] **B34** **Mute granulaire** (serveur/salon/DM + durée) : UI cohérente et lisible partout.
 
 ### B.5 Décomposition & qualité du code front
@@ -223,7 +223,7 @@
 - [ ] **B53** **Confirmation des actions destructrices** (supprimer serveur, quitter, vider, bloquer) — modale claire.
 - [ ] **B54** **UI optimiste + rollback** visible sur envoi/édition/réaction (règle patterns).
 - [ ] **B55** **File d'attente hors-ligne** visible + « réessayer tout ».
-- [ ] **B56** **Copier** message / lien / identifiant depuis le menu contextuel (contactMenu, messageMenus).
+- [x] **B56** **Copier** message / lien / identifiant depuis le menu contextuel (contactMenu, messageMenus).
 - [ ] **B57** Audit **clic droit partout** (message, salon, serveur, membre, avatar, lien).
 - [ ] **B58** Raccourcis d'action rapides : répondre, éditer (↑ déjà), réagir, épingler, supprimer.
 - [ ] **B59** **Aller aux non-lus** + « marquer comme lu » / « tout marquer lu » (markServerRead).
@@ -239,7 +239,7 @@
 ### B.8 Système & plateforme (côté UI)
 - [ ] **B68** UX de **demande de permission** notifications (NotificationsTab) claire, testable.
 - [ ] **B69** UX **démarrage auto** (plugin autostart) + **minimiser dans le tray** (tray.rs) expliquée.
-- [ ] **B70** **Mode Ne pas déranger** basculable rapidement (barre d'état/palette).
+- [x] **B70** **Mode Ne pas déranger** basculable rapidement (barre d'état/palette).
 - [x] **B71** **Détection de langue OS** au premier lancement (défaut i18n).
 - [ ] **B72** **Import/export des réglages** (hors identité) en fichier.
 - [ ] **B73** **Temps relatifs vivants** (« il y a 2 min ») qui se mettent à jour sans re-render coûteux.
