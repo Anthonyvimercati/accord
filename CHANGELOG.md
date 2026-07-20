@@ -4,6 +4,20 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [4.1.0] — 2026-07-20
+
+### Added
+
+- **Connection panel.** The network panel (Settings → Add a friend) now shows,
+  for each friend, whether your link is **Direct** or through a **Relay** (and
+  which one), plus its **latency** — reusing the existing keep-alive, so nothing
+  extra goes on the wire. A new **Diagnostics** section reports your **NAT type**
+  and runs a bounded **self-test** that verdicts your reachability (direct /
+  hole-punching / relay), probing your bootstrap peers and a candidate relay,
+  alongside local counters (hole-punching, relay circuits, reconnections,
+  mailbox deposits/pickups). Everything is computed **on-device** — nothing is
+  sent anywhere.
+
 ## [4.0.0] — 2026-07-20
 
 ### Added
