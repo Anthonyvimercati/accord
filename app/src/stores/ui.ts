@@ -49,7 +49,7 @@ export type Modal =
 
 export interface Toast {
   id: number;
-  kind: 'error' | 'info';
+  kind: 'error' | 'info' | 'success';
   text: string;
   /** En cours de sortie : joue l'animation de disparition avant le retrait. */
   leaving?: boolean;

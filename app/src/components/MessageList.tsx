@@ -202,7 +202,7 @@ export function MessageList({
   const copyWithToast = (value: string, successText: string): void => {
     copyToClipboard(
       value,
-      () => toast('info', successText),
+      () => toast('success', successText),
       () => toast('error', t.errors.actionFailed),
     );
   };

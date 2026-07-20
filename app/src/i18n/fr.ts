@@ -467,7 +467,7 @@ export const fr = {
     // Émojis.
     emojiTitle: 'Ajouter un émoji',
     emojiHint:
-      'Utilisables dans les messages (:{nom}:) et les réactions. Nom en minuscules, chiffres et « _ » (2 à 32). Image de 256 Kio au plus : PNG, JPEG, WebP ou GIF.',
+      'Utilisables dans les messages (:nom:) et les réactions. Nom en minuscules, chiffres et « _ » (2 à 32). Image de 256 Kio au plus : PNG, JPEG, WebP ou GIF.',
     emojiNameLabel: 'Nom de l’émoji',
     emojiNamePlaceholder: 'nom_emoji',
     emojiChooseImage: 'Choisir une image',
@@ -1043,6 +1043,10 @@ export const fr = {
     sendMessageLabel: 'Envoyer le message',
     newLineLabel: 'Nouvelle ligne dans le message',
     keyEnter: 'Entrée',
+    interfaceSection: 'Interface',
+    zoomInLabel: 'Agrandir l’interface',
+    zoomOutLabel: 'Réduire l’interface',
+    zoomResetLabel: 'Réinitialiser le zoom',
   },
   recadreur: {
     titreAvatar: 'Recadrer l’avatar',

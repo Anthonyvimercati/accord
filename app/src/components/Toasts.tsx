@@ -1,6 +1,6 @@
 /** Notifications éphémères en bas de l'écran. */
 
-import { useUi } from '../stores/ui';
+import { useUi, type Toast } from '../stores/ui';
 
 /** Icône d'alerte (toast d'erreur) — voir ICON SPEC, styles/global.css. */
 function ErrorToastIcon() {
@@ -44,6 +44,33 @@ function InfoToastIcon() {
   );
 }
 
+/** Icône de confirmation (toast de succès) — coche cerclée. */
+function SuccessToastIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <path d="m9 11 3 3L22 4" />
+    </svg>
+  );
+}
+
+/** Couleur et icône par nature de toast (une seule source de vérité). */
+const TOAST_STYLE: Record<Toast['kind'], { color: string; Icon: () => JSX.Element }> = {
+  error: { color: 'text-red', Icon: ErrorToastIcon },
+  success: { color: 'text-green', Icon: SuccessToastIcon },
+  info: { color: 'text-blurple', Icon: InfoToastIcon },
+};
+
 export function Toasts() {
   const toasts = useUi((s) => s.toasts);
   const dismiss = useUi((s) => s.dismissToast);
@@ -56,26 +83,30 @@ export function Toasts() {
       role="status"
       aria-live="polite"
     >
-      {toasts.map((toast) => (
-        <button
-          key={toast.id}
-          type="button"
-          onClick={() => dismiss(toast.id)}
-          className={`glass-strong pointer-events-auto flex min-h-11 w-full items-center gap-2.5 rounded-lg px-4 py-2.5 text-left text-sm font-medium text-norm shadow-2 transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98] ${
-            toast.leaving === true ? 'toast-leaving' : 'toast-enter'
-          }`}
-        >
-          <span
-            aria-hidden
-            className={`flex h-4 w-4 shrink-0 items-center justify-center ${
-              toast.kind === 'error' ? 'text-red' : 'text-blurple'
+      {toasts.map((toast) => {
+        const { color, Icon } = TOAST_STYLE[toast.kind];
+        return (
+          <button
+            key={toast.id}
+            type="button"
+            // Une erreur est annoncée en priorité (assertif) même si le
+            // conteneur est poli ; succès/info restent dans le flux poli.
+            role={toast.kind === 'error' ? 'alert' : undefined}
+            onClick={() => dismiss(toast.id)}
+            className={`glass-strong pointer-events-auto flex min-h-11 w-full items-center gap-2.5 rounded-lg px-4 py-2.5 text-left text-sm font-medium text-norm shadow-2 transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98] ${
+              toast.leaving === true ? 'toast-leaving' : 'toast-enter'
             }`}
           >
-            {toast.kind === 'error' ? <ErrorToastIcon /> : <InfoToastIcon />}
-          </span>
-          <span className="min-w-0 flex-1 break-words text-pretty">{toast.text}</span>
-        </button>
-      ))}
+            <span
+              aria-hidden
+              className={`flex h-4 w-4 shrink-0 items-center justify-center ${color}`}
+            >
+              <Icon />
+            </span>
+            <span className="min-w-0 flex-1 break-words text-pretty">{toast.text}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

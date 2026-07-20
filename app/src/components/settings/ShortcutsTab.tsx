@@ -9,11 +9,16 @@ import { isMacPlatform } from '../../lib/quickSwitch';
 import { useT } from '../../stores/ui';
 import { SettingsSection } from './controls';
 
-/** Une combinaison de touches, rendue en pastilles façon clavier. */
+/**
+ * Une combinaison de touches, rendue en pastilles façon clavier. Sépare sur
+ * `|` quand ce caractère est présent (pour une combo contenant un `+` littéral,
+ * ex. le zoom `Ctrl|+`), sinon sur `+` (forme historique `Ctrl+K`).
+ */
 function Kbd({ combo }: { combo: string }) {
+  const keys = combo.includes('|') ? combo.split('|') : combo.split('+');
   return (
     <span className="flex shrink-0 items-center gap-1">
-      {combo.split('+').map((key, i) => (
+      {keys.map((key, i) => (
         <kbd
           key={i}
           className="rounded-sm border border-rail bg-input px-1.5 py-0.5 font-mono text-[11px] font-medium text-norm"
@@ -45,6 +50,11 @@ export function ShortcutsTab() {
         <ShortcutRow label={t.shortcuts.prevChannelLabel} combo="Alt+↑" />
         <ShortcutRow label={t.shortcuts.nextChannelLabel} combo="Alt+↓" />
         <ShortcutRow label={t.shortcuts.closeLabel} combo={t.settings.escKey} />
+      </SettingsSection>
+      <SettingsSection title={t.shortcuts.interfaceSection}>
+        <ShortcutRow label={t.shortcuts.zoomInLabel} combo={`${mod}|+`} />
+        <ShortcutRow label={t.shortcuts.zoomOutLabel} combo={`${mod}|-`} />
+        <ShortcutRow label={t.shortcuts.zoomResetLabel} combo={`${mod}|0`} />
       </SettingsSection>
       <SettingsSection title={t.shortcuts.messagingSection}>
         <ShortcutRow label={t.shortcuts.toggleMuteLabel} combo={`${mod}+⇧+M`} />

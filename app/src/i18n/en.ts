@@ -465,7 +465,7 @@ export const en: Dict = {
     // Emojis.
     emojiTitle: 'Add an emoji',
     emojiHint:
-      'Usable in messages (:{name}:) and reactions. Lowercase name, digits and “_” (2 to 32). Image up to 256 KiB: PNG, JPEG, WebP or GIF.',
+      'Usable in messages (:name:) and reactions. Lowercase name, digits and “_” (2 to 32). Image up to 256 KiB: PNG, JPEG, WebP or GIF.',
     emojiNameLabel: 'Emoji name',
     emojiNamePlaceholder: 'emoji_name',
     emojiChooseImage: 'Choose an image',
@@ -1027,6 +1027,10 @@ export const en: Dict = {
     sendMessageLabel: 'Send the message',
     newLineLabel: 'New line in the message',
     keyEnter: 'Enter',
+    interfaceSection: 'Interface',
+    zoomInLabel: 'Zoom the interface in',
+    zoomOutLabel: 'Zoom the interface out',
+    zoomResetLabel: 'Reset zoom',
   },
   recadreur: {
     titreAvatar: 'Crop avatar',
