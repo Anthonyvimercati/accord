@@ -2,7 +2,7 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [4.2.0] — 2026-07-21
 
 ### Added
 
