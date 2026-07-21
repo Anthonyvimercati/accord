@@ -528,6 +528,8 @@ interface UiState {
   jump: JumpRequest | null;
   /** Carte de profil ouverte (clic sur un pseudo/avatar), ou `null`. */
   profile: CibleProfil | null;
+  /** Identity-verification modal target (safety numbers, E1), or `null`. */
+  verifyTarget: string | null;
   /**
    * Mention à insérer dans le composeur actif (menu contextuel « Mentionner »
    * sur un message ou un membre) ; `nonce` rejoue l'insertion même pour un
@@ -626,6 +628,9 @@ interface UiState {
     surface?: ProfileSurface,
   ) => void;
   closeProfile: () => void;
+  /** Opens the identity-verification modal for a contact (safety numbers). */
+  openVerify: (pubkey: string) => void;
+  closeVerify: () => void;
   /** Demande l'insertion de `@name` dans le composeur actif (voir `mentionInsert`). */
   requestMentionInsert: (name: string) => void;
   /** Consomme la demande courante (traitée par `MessageInput`). */
@@ -717,6 +722,7 @@ export const useUi = create<UiState>((set, get) => {
     modal: null,
     jump: null,
     profile: null,
+    verifyTarget: null,
     mentionInsert: null,
     toasts: [],
     lang: initialLang(),
@@ -780,6 +786,8 @@ export const useUi = create<UiState>((set, get) => {
           : { profile: { pubkey, ancre, groupId, surface } },
       ),
     closeProfile: () => set({ profile: null }),
+    openVerify: (pubkey) => set({ verifyTarget: pubkey, profile: null }),
+    closeVerify: () => set({ verifyTarget: null }),
     requestMentionInsert: (name) =>
       set((s) => ({ mentionInsert: { name, nonce: (s.mentionInsert?.nonce ?? 0) + 1 } })),
     clearMentionInsert: () => set({ mentionInsert: null }),

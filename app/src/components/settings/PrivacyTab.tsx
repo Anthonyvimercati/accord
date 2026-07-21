@@ -10,6 +10,7 @@ import { api } from '../../lib/client';
 import { useFriends } from '../../stores/friends';
 import { useUi, useT, type StartupPresence } from '../../stores/ui';
 import { Avatar } from '../Avatar';
+import { PrivacyDashboard } from '../PrivacyDashboard';
 import { OptionPill, SettingsSection, ToggleRow } from './controls';
 
 export function PrivacyTab() {
@@ -146,6 +147,8 @@ export function PrivacyTab() {
           {t.settings.antiSpamHint}
         </p>
       </SettingsSection>
+
+      <PrivacyDashboard />
     </div>
   );
 }

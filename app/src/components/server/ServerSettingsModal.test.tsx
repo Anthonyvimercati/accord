@@ -42,6 +42,8 @@ vi.mock('../../lib/client', () => ({
     groupsRoleDel: vi.fn(),
     groupsRoleAssign: vi.fn(),
     groupsRoleUnassign: vi.fn(),
+    groupsGetEphemeral: vi.fn(() => Promise.resolve({ ttl_secs: null })),
+    groupsSetEphemeral: vi.fn(() => Promise.resolve({ ok: true })),
   },
 }));
 

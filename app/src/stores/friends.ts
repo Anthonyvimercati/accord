@@ -189,6 +189,17 @@ export const useFriends = create<FriendsState>((set, get) => ({
  * client RPC est un singleton, aucun désabonnement n'est nécessaire.
  */
 export function handleFriendsNodeEvent(method: string, params: unknown): void {
+  if (method === 'event.friend_verified') {
+    // Local verification flag changed: refresh the verified/key_changed
+    // fields folded into friends.list (shield badge).
+    void useFriends
+      .getState()
+      .load()
+      .catch(() => {
+        // Best effort: the list reloads on the next event.
+      });
+    return;
+  }
   if (method === 'event.friend_removed') {
     // Retrait local ou distant : la liste seule fait foi.
     void useFriends

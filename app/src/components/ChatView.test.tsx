@@ -25,6 +25,8 @@ vi.mock('../lib/client', () => ({
     groupsMarkRead: vi.fn(() => Promise.resolve({ ok: true })),
     groupsList: vi.fn(() => Promise.resolve({ unread: {}, mentions: {} })),
     groupsPurge: vi.fn(() => Promise.resolve({ deleted: 0 })),
+    dmGetEphemeral: vi.fn(() => Promise.resolve({ ttl_secs: null })),
+    dmSetEphemeral: vi.fn(() => Promise.resolve({ ok: true })),
   },
 }));
 

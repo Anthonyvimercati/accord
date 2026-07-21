@@ -14,6 +14,7 @@ import { AVATAR_OCTETS_MAX } from '../../lib/image';
 import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useUi, useT } from '../../stores/ui';
 import { AvatarCropper } from '../AvatarCropper';
+import { EphemeralPicker } from '../EphemeralPicker';
 import { ColorSwatchPicker, SettingsSection } from '../settings/controls';
 import { messageOf } from './controls';
 
@@ -344,6 +345,10 @@ export function ServerProfileTab({ groupId }: { groupId: string }) {
 
       <ServerBannerSection groupId={groupId} />
       <BannerColorSection groupId={groupId} />
+
+      <SettingsSection title={t.dm.ephemeralTitle}>
+        <EphemeralPicker scope={{ kind: 'group', groupId }} variant="section" />
+      </SettingsSection>
     </div>
   );
 }

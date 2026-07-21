@@ -19,6 +19,7 @@ import { useUi, useT } from '../../stores/ui';
 import { Avatar } from '../Avatar';
 import { buildContactMenu } from '../contactMenu';
 import { PhoneIcon } from '../ContextMenu';
+import { EphemeralPicker } from '../EphemeralPicker';
 import { MessageInput } from '../MessageInput';
 import { MessageList, type DisplayMessage } from '../MessageList';
 import { MessageListSkeleton } from '../Skeleton';
@@ -217,6 +218,7 @@ export function DmView({ peer }: { peer: string }) {
           )}
         </button>
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          <EphemeralPicker scope={{ kind: 'dm', peer }} variant="header" />
           {isFriend && (
             <HeaderIconButton
               label={callOngoing ? t.calls.callAlreadyOngoing : t.calls.startCall}

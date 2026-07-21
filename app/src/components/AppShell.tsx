@@ -41,6 +41,7 @@ import { DmView, GroupView } from './ChatView';
 import { ContextMenu } from './ContextMenu';
 import { ErrorBoundary } from './ErrorBoundary';
 import { FriendsView } from './FriendsView';
+import { FriendVerifyModal } from './FriendVerifyModal';
 import { IncomingCall } from './IncomingCall';
 import { Modals } from './Modals';
 import { ProfilePopover } from './ProfilePopover';
@@ -627,6 +628,7 @@ export function AppShell() {
       </main>
       <Modals />
       <ProfilePopover />
+      <FriendVerifyModal />
       <ContextMenu />
       <IncomingCall />
       <QuickSwitcher />

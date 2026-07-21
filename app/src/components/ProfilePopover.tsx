@@ -25,6 +25,7 @@ import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { api } from '../lib/client';
 import { Avatar } from './Avatar';
 import { CopyMenuIcon, EnvelopeMenuIcon } from './ContextMenu';
+import { ShieldIcon } from './FriendVerifyModal';
 import { MarkdownText } from './MarkdownText';
 import { PresenceDot } from './PresenceDot';
 import { ProfileBanner } from './ProfileBanner';
@@ -320,6 +321,11 @@ export function ProfilePopover() {
   };
 
   const canNote = !isSelf && contact !== undefined;
+  // Safety numbers (E1): shield badge + verification entry point for friends.
+  const canVerify = !isSelf && contact?.state === 'friend';
+  const isVerified = contact?.verified === true;
+  const keyChanged = contact?.key_changed === true;
+  const openVerify = useUi.getState().openVerify;
 
   return (
     <div
@@ -403,6 +409,19 @@ export function ProfilePopover() {
                       {t.groups.founder}
                     </span>
                   )}
+                  {isVerified && (
+                    <span
+                      title={
+                        keyChanged ? t.friends.verifyBrokenBadge : t.friends.verifiedBadge
+                      }
+                      aria-label={
+                        keyChanged ? t.friends.verifyBrokenBadge : t.friends.verifiedBadge
+                      }
+                      className={`shrink-0 ${keyChanged ? 'text-red' : 'text-green'}`}
+                    >
+                      <ShieldIcon size={15} />
+                    </span>
+                  )}
                 </div>
                 {pronouns !== null && pronouns !== '' && (
                   <p className="mt-0.5 truncate text-xs text-muted">{pronouns}</p>
@@ -470,6 +489,21 @@ export function ProfilePopover() {
                       })}
                     </div>
                   </>
+                )}
+
+                {canVerify && (
+                  <button
+                    type="button"
+                    onClick={() => openVerify(pubkey)}
+                    className={`mt-3 flex w-full items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98] ${
+                      keyChanged
+                        ? 'bg-red/15 text-red hover:bg-red/25'
+                        : 'bg-rail text-norm hover:bg-input'
+                    }`}
+                  >
+                    <ShieldIcon size={15} />
+                    {keyChanged ? t.friends.verifyBrokenBadge : t.friends.verify}
+                  </button>
                 )}
 
                 {canNote && (

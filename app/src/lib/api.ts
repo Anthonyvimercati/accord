@@ -94,6 +94,24 @@ export interface Contact {
    * lu ; absent = nœud plus ancien (aucun séparateur).
    */
   read_lamport?: number;
+  /** Manually verified identity (safety numbers, E1); absent = older node. */
+  verified?: boolean;
+  /**
+   * The contact's key changed since verification ("verification broken");
+   * absent = older node.
+   */
+  key_changed?: boolean;
+}
+
+/** Safety number of a conversation (`friends.safety_number`, local only). */
+export interface SafetyNumberInfo {
+  /** 60 ASCII digits, no separator (display as 12 groups of 5). */
+  digits: string;
+  /** 8-emoji quick rendering from a fixed table. */
+  emoji: string[];
+  verified: boolean;
+  /** True when the key changed since verification. */
+  key_changed: boolean;
 }
 
 /** Référence de pièce jointe (enveloppe des messages et `files.*`). */
@@ -612,6 +630,36 @@ export interface DiagnosticsSelftest {
   reachability: 'direct' | 'punch' | 'relay' | 'unknown';
 }
 
+/** Read-only privacy dashboard report (`privacy.report`, all local). */
+export interface PrivacyReport {
+  counts: {
+    friends: number;
+    dm_messages: number;
+    groups: number;
+    group_messages: number;
+    files: number;
+    pins: number;
+  };
+  storage: {
+    /** Size of the encrypted database file on disk, or `null` if unknown. */
+    db_bytes: number | null;
+    /** Declared total size of locally stored files (bytes). */
+    file_bytes: number;
+    /** Always true (SQLCipher at rest) — stated as data, not a slogan. */
+    db_encrypted_at_rest: boolean;
+  };
+  egress: {
+    /** False when the network runtime is not up (remaining fields zero). */
+    available: boolean;
+    bootstrap_peers: number;
+    dht_nodes: number;
+    connected_peers: number;
+    relay_circuits: number;
+    /** Always 0 by construction: the protocol has no central server. */
+    central_servers: number;
+  };
+}
+
 /** Phase de l'appel 1-à-1 courant (`calls.status`, voir VOICE_CALLS.md §1.3). */
 export type CallState = 'idle' | 'outgoing_ringing' | 'incoming_ringing' | 'active';
 
@@ -648,6 +696,7 @@ export type AccordEvent =
   | { method: 'event.dm_typing'; params: { peer: string } }
   | { method: 'event.friend_request'; params: { peer: string } }
   | { method: 'event.friend_response'; params: { peer: string; accepted: boolean } }
+  | { method: 'event.friend_verified'; params: { peer: string; verified: boolean } }
   | { method: 'event.group_op'; params: { group_id: string } }
   | { method: 'event.group_state'; params: { group_id: string } }
   | {
@@ -916,6 +965,20 @@ export class Api {
   }
 
   /**
+   * Safety number of the conversation with a contact (anti-MITM identity
+   * verification). Derived locally from both identity keys — both peers see
+   * the same number; nothing goes on the wire.
+   */
+  friendsSafetyNumber(pubkey: string): Promise<SafetyNumberInfo> {
+    return this.rpc.call('friends.safety_number', { pubkey });
+  }
+
+  /** Marks (or unmarks) a contact as manually verified (local flag). */
+  friendsSetVerified(pubkey: string, verified: boolean): Promise<{ ok: true }> {
+    return this.rpc.call('friends.set_verified', { pubkey, verified });
+  }
+
+  /**
    * Envoie un message direct, éventuellement avec des pièces jointes déjà
    * publiées (`files.share_bytes`) — texte vide admis si au moins une pièce.
    */
@@ -1030,6 +1093,19 @@ export class Api {
   /** État du réglage d'émission des accusés de lecture. */
   dmGetReadReceipts(): Promise<{ enabled: boolean }> {
     return this.rpc.call('dm.get_read_receipts');
+  }
+
+  /**
+   * Arms (or disarms with `null`) the local disappearing-message timer of a
+   * DM conversation. Purely local: only trims this device's store.
+   */
+  dmSetEphemeral(pubkey: string, ttlSecs: number | null): Promise<{ ok: true }> {
+    return this.rpc.call('dm.set_ephemeral', { pubkey, ttl_secs: ttlSecs });
+  }
+
+  /** Current disappearing-message timer of a DM (`null` = disabled). */
+  dmGetEphemeral(pubkey: string): Promise<{ ttl_secs: number | null }> {
+    return this.rpc.call('dm.ephemeral', { pubkey });
   }
 
   groupsCreate(name: string): Promise<{ group_id: string }> {
@@ -2153,5 +2229,30 @@ export class Api {
   /** Retire un pair d'amorçage ; rend l'état réseau à jour. */
   networkRemovePeer(addr: string): Promise<NetworkStatus> {
     return this.rpc.call('network.remove_peer', { addr });
+  }
+
+  /**
+   * Arms (or disarms with `null`) the local disappearing-message timer of a
+   * whole group (every channel). Same contract as `dmSetEphemeral`.
+   */
+  groupsSetEphemeral(groupId: string, ttlSecs: number | null): Promise<{ ok: true }> {
+    return this.rpc.call('groups.set_ephemeral', {
+      group_id: groupId,
+      ttl_secs: ttlSecs,
+    });
+  }
+
+  /** Current disappearing-message timer of a group (`null` = disabled). */
+  groupsGetEphemeral(groupId: string): Promise<{ ttl_secs: number | null }> {
+    return this.rpc.call('groups.ephemeral', { group_id: groupId });
+  }
+
+  /**
+   * Read-only privacy dashboard report: what this device stores (encrypted
+   * at rest) and the only endpoint kinds the node talks to — never a
+   * central server.
+   */
+  privacyReport(): Promise<PrivacyReport> {
+    return this.rpc.call('privacy.report');
   }
 }
