@@ -33,17 +33,15 @@ export type Modal =
   | null
   | { kind: 'createGroup' }
   | { kind: 'createChannel'; groupId: string }
+  | { kind: 'createCategory'; groupId: string }
   | { kind: 'invite'; groupId: string }
   | { kind: 'settings' }
   | {
       kind: 'serverSettings';
       groupId: string;
-      /**
-       * Onglet initial (menu du serveur → « Créer une catégorie » ;
-       * panneau soundboard vide → onglet Soundboard) ; défaut : Profil.
-       */
       initialTab?: 'channels' | 'soundboard' | 'members';
     }
+  | { kind: 'leaveServer'; groupId: string }
   | { kind: 'events'; groupId: string }
   | { kind: 'createPoll'; groupId: string; channelId: string };
 

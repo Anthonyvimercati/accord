@@ -103,10 +103,12 @@ const INVITE_SENT_RESET_MS = 2500;
 export function ModalFrame({
   title,
   hint,
+  role = 'dialog',
   children,
 }: {
   title: string;
   hint?: string;
+  role?: 'dialog' | 'alertdialog';
   children: React.ReactNode;
 }) {
   const t = useT();
@@ -161,7 +163,7 @@ export function ModalFrame({
     >
       <div
         ref={ref}
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
@@ -460,6 +462,74 @@ function CreateChannelModal({ groupId }: { groupId: string }) {
           className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50 active:scale-[0.98]"
         >
           {t.groups.addChannelAction}
+        </button>
+      </div>
+    </ModalFrame>
+  );
+}
+
+function CreateCategoryModal({ groupId }: { groupId: string }) {
+  const t = useT();
+  const addCategory = useGroups((state) => state.addCategory);
+
+  return (
+    <ModalFrame title={t.serveur.newCategoryTitle}>
+      <NameForm
+        placeholder={t.serveur.categoryNamePlaceholder}
+        action={t.serveur.createCategoryAction}
+        onSubmit={async (name) => {
+          await addCategory(groupId, name);
+        }}
+      />
+    </ModalFrame>
+  );
+}
+
+function LeaveServerModal({ groupId }: { groupId: string }) {
+  const t = useT();
+  const closeModal = useUi((state) => state.closeModal);
+  const setView = useUi((state) => state.setView);
+  const toast = useUi((state) => state.toast);
+  const state = useGroups((groups) => groups.states[groupId]);
+  const leave = useGroups((groups) => groups.leave);
+  const [busy, setBusy] = useState(false);
+
+  if (state === undefined) return null;
+
+  const confirmLeave = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await leave(groupId);
+      toast('info', t.serveur.left);
+      closeModal();
+      setView({ kind: 'friends' });
+    } catch (error) {
+      toast('error', messageOf(error, t.errors.actionFailed));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalFrame title={t.serveur.leave} role="alertdialog">
+      <p className="text-sm leading-relaxed text-norm">
+        {interpolate(t.serveur.leaveConfirm, { name: state.name })}
+      </p>
+      <div className="mt-5 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={closeModal}
+          className="rounded-sm px-4 py-2 text-sm font-medium text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+        >
+          {t.app.cancel}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void confirmLeave()}
+          className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-on-red transition-colors duration-fast hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-50 active:scale-[0.98]"
+        >
+          {t.app.confirm}
         </button>
       </div>
     </ModalFrame>
@@ -942,6 +1012,8 @@ export function Modals() {
       return <CreateGroupModal />;
     case 'createChannel':
       return <CreateChannelModal groupId={modal.groupId} />;
+    case 'createCategory':
+      return <CreateCategoryModal groupId={modal.groupId} />;
     case 'invite':
       return <InviteModal groupId={modal.groupId} />;
     case 'settings':
@@ -953,6 +1025,8 @@ export function Modals() {
           {...(modal.initialTab !== undefined ? { initialTab: modal.initialTab } : {})}
         />
       );
+    case 'leaveServer':
+      return <LeaveServerModal groupId={modal.groupId} />;
     case 'events':
       return <EventsModal groupId={modal.groupId} />;
     case 'createPoll':

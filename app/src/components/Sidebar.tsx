@@ -6,13 +6,12 @@
  * bandeau image façon Discord, nom et actions posés sur un scrim en bas.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { GroupChannel } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { profileCardGradient } from '../lib/color';
 import { draftKey } from '../lib/drafts';
-import { marquerServeurLu } from '../lib/markServerRead';
 import { hasDraft, useDrafts } from '../stores/drafts';
 import { lireFichier } from '../lib/files';
 import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
@@ -28,7 +27,7 @@ import {
   upcomingEvents,
   PERMISSIONS,
 } from '../stores/groups';
-import { channelLevel, serverLevel, useMute, type NotifLevel } from '../stores/mute';
+import { channelLevel, useMute, type NotifLevel } from '../stores/mute';
 import { sortPinnedFirst, usePinnedDms } from '../stores/pinnedDms';
 import { useSession } from '../stores/session';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
@@ -43,11 +42,7 @@ import {
   CopyMenuIcon,
   DeleteMenuIcon,
   EditMenuIcon,
-  EnvelopeMenuIcon,
-  GearMenuIcon,
-  LeaveMenuIcon,
   PhoneOffIcon,
-  PlusMenuIcon,
 } from './ContextMenu';
 import { MentionInbox } from './MentionInbox';
 import { SavedMessages } from './SavedMessages';
@@ -56,6 +51,7 @@ import { SearchBar } from './SearchBar';
 import { MentionBadge, UnreadBadge } from './UnreadBadge';
 import { UserPanel } from './UserPanel';
 import { VoiceSection } from './VoiceSection';
+import { ServerHeaderMenu } from './server/ServerHeaderMenu';
 
 /** Bouton d'action de l'en-tête, taille fixe (icon spec) : conteneur carré centré. */
 function HeaderIconButton({
@@ -396,28 +392,6 @@ function CalendarIcon() {
   );
 }
 
-/** Icône « calendrier » du jeu de menu (14 px, création d'événement — en-tête). */
-function EventMenuIcon() {
-  return (
-    <svg
-      width={14}
-      height={14}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect width="18" height="18" x="3" y="4" rx="2" />
-      <path d="M16 2v4" />
-      <path d="M8 2v4" />
-      <path d="M3 10h18" />
-    </svg>
-  );
-}
-
 /** Icône de cadenas (salon restreint par au moins un override de rôle), icon spec 14 px. */
 function LockIcon() {
   return (
@@ -683,359 +657,6 @@ function HeaderChevronIcon({
   );
 }
 
-function MenuChevronIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
-  );
-}
-
-interface ServerMenuItem {
-  label: string;
-  icon: React.ReactNode;
-  /** Action directe ; absente pour un item à sous-menu (voir `submenu`). */
-  onClick?: () => void;
-  danger?: boolean;
-  separatorBefore?: boolean;
-  /** Item à cocher (case) : rendu `menuitemcheckbox`, coche à droite si `true`. */
-  checked?: boolean;
-  /**
-   * Ouvre un sous-menu (menu contextuel générique) au lieu d'agir directement —
-   * réutilise `buildNotifLevelItems`. Le menu déroulant se ferme et le sous-menu
-   * s'ancre sur la ligne cliquée.
-   */
-  submenu?: () => ContextMenuItem[];
-}
-
-/**
- * Menu déroulant du nom de serveur (façon Discord), ancré sous l'en-tête et
- * large de la barre latérale (moins ses marges) — même langage visuel que
- * `ContextMenu`/`UserMenu` (`.glass-strong`, icônes partagées, danger rouge),
- * mais positionné en dropdown plutôt qu'au point de clic. Icônes en fin de
- * ligne (façon menu de serveur Discord). Items construits en réutilisant
- * exclusivement des actions déjà existantes des stores (modales, sourdine,
- * copie) ; le niveau de notification passe par le sous-menu générique et le
- * masquage des salons muets bascule une simple préférence locale.
- */
-function ServerHeaderMenu({
-  groupId,
-  name,
-  onClose,
-}: {
-  groupId: string;
-  name: string;
-  onClose: () => void;
-}) {
-  const t = useT();
-  const toast = useUi((s) => s.toast);
-  const openModal = useUi((s) => s.openModal);
-  const setView = useUi((s) => s.setView);
-  const hideMutedChannels = useUi((s) => s.hideMutedChannels);
-  const serverLevels = useMute((s) => s.serverLevels);
-  const state = useGroups((s) => s.states[groupId]);
-  const unreadByChannel = useGroups((s) => s.unread[groupId]);
-  const menuMentionCount = useGroups((s) => s.mentions[groupId]) ?? 0;
-  const self = useSession((s) => s.self);
-  const ref = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  // Fermeture au clic extérieur et à Échap (même approche que ContextMenu/UserMenu).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    const onDown = (e: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onDown);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onDown);
-    };
-  }, [onClose]);
-
-  useEffect(() => {
-    // Focus pris à l'ouverture, rendu au déclencheur (le bouton du nom de
-    // serveur) à la fermeture — sauf s'il a quitté le DOM entre-temps.
-    const precedent =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    itemRefs.current[0]?.focus();
-    return () => {
-      if (precedent !== null && precedent.isConnected) precedent.focus();
-    };
-  }, []);
-
-  if (state === undefined) return null;
-
-  const myPerms = state.my_permissions;
-  const isFounder = self !== null && state.founder === self.pubkey;
-  // Même garde que le menu contextuel du rail (ServerRail) : le fondateur ne
-  // peut pas quitter tant que d'autres membres restent (règle du contrat).
-  const founderBlocked = isFounder && state.members.length > 1;
-
-  const canManageChannels = hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS);
-  const serverHasUnread =
-    menuMentionCount > 0 || Object.values(unreadByChannel ?? {}).some((n) => n > 0);
-
-  const items: ServerMenuItem[] = [];
-  // Marquer comme lu — seulement si le serveur a des non-lus (jamais un
-  // no-op), en tête comme Discord ; même boucle que le menu du rail.
-  if (serverHasUnread) {
-    items.push({
-      label: t.contextMenu.markAsRead,
-      icon: <CheckMenuIcon />,
-      onClick: () => {
-        void marquerServeurLu(groupId);
-      },
-    });
-  }
-  if (hasPerm(myPerms, PERMISSIONS.INVITE)) {
-    items.push({
-      label: t.groups.invitePeople,
-      icon: <EnvelopeMenuIcon />,
-      separatorBefore: items.length === 1,
-      onClick: () => openModal({ kind: 'invite', groupId }),
-    });
-  }
-  items.push({
-    label: t.serveur.settingsTitle,
-    icon: <GearMenuIcon />,
-    separatorBefore: items.length === 1,
-    onClick: () => openModal({ kind: 'serverSettings', groupId }),
-  });
-  if (canManageChannels) {
-    items.push({
-      label: t.groups.addChannel,
-      icon: <PlusMenuIcon />,
-      onClick: () => openModal({ kind: 'createChannel', groupId }),
-    });
-    // Pas de modale dédiée : réutilise le formulaire de création de
-    // catégorie déjà existant dans Paramètres du serveur → Salons
-    // (`ServerChannelsTab`, action `groups.addCategory`) plutôt que
-    // dupliquer sa logique dans une nouvelle modale.
-    items.push({
-      label: t.serveur.createCategoryAction,
-      icon: <PlusMenuIcon />,
-      onClick: () =>
-        openModal({ kind: 'serverSettings', groupId, initialTab: 'channels' }),
-    });
-    items.push({
-      label: t.groups.eventCreate,
-      icon: <EventMenuIcon />,
-      onClick: () => openModal({ kind: 'events', groupId }),
-    });
-  }
-  // Notifications : ouvre le sous-menu générique (mêmes trois niveaux que le
-  // rail, voir `stores/mute.ts`) plutôt qu'une modale — ce menu déroulant ne
-  // gère pas lui-même les items imbriqués.
-  items.push({
-    label: t.notifLevel.title,
-    icon: <BellOffMenuIcon />,
-    separatorBefore: true,
-    submenu: () =>
-      buildNotifLevelItems(
-        t.notifLevel,
-        serverLevel({ serverLevels, channelLevels: {} }, groupId),
-        (lvl) => useMute.getState().setServerLevel(groupId, lvl),
-      ),
-  });
-  items.push({
-    label: t.serveur.hideMutedChannels,
-    icon: <BellOffMenuIcon />,
-    checked: hideMutedChannels,
-    onClick: () => useUi.getState().toggleHideMutedChannels(),
-  });
-  // Profil de serveur (pseudo + avatar propres à ce serveur) : le formulaire
-  // vit dans Paramètres du serveur → Membres (ligne de soi) — pas de modale
-  // dédiée, on ouvre l'onglet directement.
-  items.push({
-    label: t.serveur.editServerProfile,
-    icon: <EditMenuIcon />,
-    separatorBefore: true,
-    onClick: () => openModal({ kind: 'serverSettings', groupId, initialTab: 'members' }),
-  });
-  items.push({
-    label: t.contextMenu.copyServerId,
-    icon: <CopyMenuIcon />,
-    separatorBefore: true,
-    onClick: () =>
-      copyToClipboard(
-        groupId,
-        () => toast('success', t.app.copied),
-        () => toast('error', t.errors.actionFailed),
-      ),
-  });
-  if (!founderBlocked) {
-    items.push({
-      label: t.serveur.leave,
-      icon: <LeaveMenuIcon />,
-      danger: true,
-      separatorBefore: true,
-      onClick: () => {
-        if (!window.confirm(interpolate(t.serveur.leaveConfirm, { name }))) return;
-        useGroups
-          .getState()
-          .leave(groupId)
-          .then(() => {
-            toast('info', t.serveur.left);
-            setView({ kind: 'friends' });
-          })
-          .catch(() => toast('error', t.errors.actionFailed));
-      },
-    });
-  }
-
-  const activate = (item: ServerMenuItem): void => {
-    onClose();
-    item.onClick?.();
-  };
-
-  /**
-   * Ouvre le sous-menu générique d'un item (notifications) ancré sur la ligne
-   * cliquée, après fermeture du menu déroulant — le sous-menu vit dans le
-   * `ContextMenu` global (monté dans `AppShell`).
-   */
-  const openSubmenu = (item: ServerMenuItem, trigger: HTMLElement): void => {
-    if (item.submenu === undefined) return;
-    const r = trigger.getBoundingClientRect();
-    onClose();
-    useContextMenu.getState().openMenu(r.right, r.top, item.submenu());
-  };
-
-  const moveActive = (next: number): void => {
-    if (items.length === 0) return;
-    const bounded = ((next % items.length) + items.length) % items.length;
-    setActiveIndex(bounded);
-    itemRefs.current[bounded]?.focus();
-  };
-
-  // Base des raccourcis clavier : l'élément réellement FOCALISÉ, jamais
-  // `activeIndex` seul — le survol le déplace sans bouger le focus, et les
-  // flèches (ou ArrowRight vers un sous-menu) agiraient alors depuis la ligne
-  // survolée au lieu de celle que l'anneau de focus désigne.
-  const focusedIndex = (): number => {
-    const i = itemRefs.current.findIndex(
-      (el) => el !== null && el === document.activeElement,
-    );
-    return i >= 0 ? i : activeIndex;
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      onClose();
-    } else if (e.key === 'Tab') {
-      onClose();
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      moveActive(focusedIndex() + 1);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      moveActive(focusedIndex() - 1);
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      moveActive(0);
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      moveActive(items.length - 1);
-    } else if (e.key === 'ArrowRight') {
-      const index = focusedIndex();
-      const item = items[index];
-      const trigger = itemRefs.current[index];
-      if (item?.submenu !== undefined && trigger !== null && trigger !== undefined) {
-        e.preventDefault();
-        openSubmenu(item, trigger);
-      }
-    }
-  };
-
-  return (
-    <div
-      ref={ref}
-      role="menu"
-      aria-label={t.serveur.serverMenu}
-      tabIndex={-1}
-      onKeyDown={onKeyDown}
-      className="server-menu-surface context-menu-enter absolute left-3 top-[calc(100%+6px)] z-50 w-[min(16.5rem,calc(100vw-6rem))] origin-top overflow-hidden rounded-lg focus:outline-none"
-    >
-      <div className="server-menu-scroll max-h-[calc(100dvh-9rem)] overflow-y-auto overscroll-contain p-1.5">
-        {items.map((item, i) => (
-          <div key={`${i}-${item.label}`}>
-            {item.separatorBefore === true && (
-              <div className="mx-1.5 my-1 h-px bg-input/70" role="separator" />
-            )}
-            <button
-              ref={(el) => {
-                itemRefs.current[i] = el;
-              }}
-              type="button"
-              role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
-              aria-checked={item.checked}
-              aria-haspopup={item.submenu !== undefined ? 'menu' : undefined}
-              tabIndex={i === activeIndex ? 0 : -1}
-              onMouseEnter={() => setActiveIndex(i)}
-              onFocus={() => setActiveIndex(i)}
-              onClick={(e) =>
-                item.submenu !== undefined
-                  ? openSubmenu(item, e.currentTarget)
-                  : activate(item)
-              }
-              className={`server-menu-item group flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none ${
-                item.danger === true ? 'server-menu-danger' : 'text-norm'
-              }`}
-            >
-              <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              {item.checked === undefined ? (
-                <span
-                  aria-hidden
-                  className={`flex shrink-0 items-center gap-1 ${
-                    item.danger === true
-                      ? ''
-                      : 'text-muted transition-colors duration-fast group-hover:text-white group-focus-visible:text-white'
-                  }`}
-                >
-                  <span className="flex h-5 w-5 items-center justify-center [&>svg]:h-[18px] [&>svg]:w-[18px]">
-                    {item.icon}
-                  </span>
-                  {item.submenu !== undefined && (
-                    <span className="flex h-4 w-3.5 items-center justify-center text-faint transition-colors duration-fast group-hover:text-white group-focus-visible:text-white">
-                      <MenuChevronIcon />
-                    </span>
-                  )}
-                </span>
-              ) : (
-                <span
-                  aria-hidden
-                  className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-xs border transition-colors duration-fast [&>svg]:h-3.5 [&>svg]:w-3.5 ${
-                    item.checked
-                      ? 'border-blurple bg-blurple text-white group-hover:border-white group-hover:bg-white group-hover:text-blurple group-focus-visible:border-white group-focus-visible:bg-white group-focus-visible:text-blurple'
-                      : 'border-faint/70 bg-transparent group-hover:border-white group-focus-visible:border-white'
-                  }`}
-                >
-                  {item.checked && <CheckMenuIcon />}
-                </span>
-              )}
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function GroupSidebar({ groupId }: { groupId: string }) {
   const t = useT();
   const view = useUi((s) => s.view);
@@ -1194,7 +815,6 @@ function GroupSidebar({ groupId }: { groupId: string }) {
           {serverMenuOpen && (
             <ServerHeaderMenu
               groupId={groupId}
-              name={state?.name ?? ''}
               onClose={() => setServerMenuOpen(false)}
             />
           )}

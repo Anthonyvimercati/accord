@@ -277,7 +277,7 @@ describe('Sidebar — menu du nom de serveur', () => {
     });
   });
 
-  it("ouvre le menu et n'affiche que les items permis sans permission", () => {
+  it('shows only member actions without management permissions', () => {
     useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
 
     render(<Sidebar />);
@@ -285,14 +285,14 @@ describe('Sidebar — menu du nom de serveur', () => {
 
     expect(screen.getByRole('menu', { name: 'Menu du serveur' })).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitem', { name: 'Paramètres du serveur' }),
-    ).toBeInTheDocument();
+      screen.queryByRole('menuitem', { name: 'Paramètres du serveur' }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole('menuitem', { name: 'Copier l’ID du serveur' }),
     ).toBeInTheDocument();
     const leave = screen.getByRole('menuitem', { name: 'Quitter le serveur' });
     expect(leave).toHaveClass('server-menu-danger');
-    expect(screen.getAllByRole('separator')).toHaveLength(4);
+    expect(screen.getAllByRole('separator')).toHaveLength(2);
     expect(
       screen.getByRole('menuitem', { name: 'Modifier mon profil de serveur' }),
     ).toBeInTheDocument();
@@ -350,7 +350,7 @@ describe('Sidebar — menu du nom de serveur', () => {
     expect(screen.getByRole('button', { name: 'Inviter' })).toBeInTheDocument();
   });
 
-  it('« Créer une catégorie » ouvre les paramètres du serveur sur l’onglet Salons', () => {
+  it('opens the dedicated create-category modal', () => {
     useGroups.setState({
       ids: ['g1'],
       states: { g1: groupState({ my_permissions: PERMISSIONS.MANAGE_CHANNELS }) },
@@ -360,11 +360,7 @@ describe('Sidebar — menu du nom de serveur', () => {
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Créer une catégorie' }));
 
-    expect(useUi.getState().modal).toEqual({
-      kind: 'serverSettings',
-      groupId: 'g1',
-      initialTab: 'channels',
-    });
+    expect(useUi.getState().modal).toEqual({ kind: 'createCategory', groupId: 'g1' });
   });
 
   it('affiche le crayon « brouillon » sur une conversation non active', () => {
@@ -405,10 +401,14 @@ describe('Sidebar — menu du nom de serveur', () => {
     });
   });
 
-  it('« Marquer comme lu » apparaît en tête quand le serveur a des non-lus', () => {
+  it('keeps quick actions ordered when the server has unread messages', () => {
     useGroups.setState({
       ids: ['g1'],
-      states: { g1: groupState() },
+      states: {
+        g1: groupState({
+          my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND | PERMISSIONS.INVITE,
+        }),
+      },
       unread: { g1: { c1: 3 } },
     });
 
@@ -416,7 +416,7 @@ describe('Sidebar — menu du nom de serveur', () => {
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
 
     const items = screen.getAllByRole('menuitem');
-    expect(items[0]).toHaveAccessibleName('Marquer comme lu');
+    expect(items[0]).toHaveAccessibleName('Inviter des personnes');
   });
 
   it('affiche « Créer un événement » avec MANAGE_CHANNELS et ouvre la modale', () => {
@@ -472,17 +472,19 @@ describe('Sidebar — menu du nom de serveur', () => {
     useMute.setState({ serverLevels: {} });
   });
 
-  it('« Quitter le serveur » demande confirmation puis appelle leave()', () => {
+  it('opens the in-app leave confirmation', () => {
     const original = useGroups.getState().leave;
     const leave = vi.fn(() => Promise.resolve());
     useGroups.setState({ ids: ['g1'], states: { g1: groupState() }, leave });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, 'confirm');
 
     render(<Sidebar />);
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Quitter le serveur' }));
 
-    expect(leave).toHaveBeenCalledWith('g1');
+    expect(useUi.getState().modal).toEqual({ kind: 'leaveServer', groupId: 'g1' });
+    expect(leave).not.toHaveBeenCalled();
+    expect(nativeConfirm).not.toHaveBeenCalled();
     vi.restoreAllMocks();
     useGroups.setState({ leave: original });
   });
@@ -512,17 +514,17 @@ describe('Sidebar — menu du nom de serveur', () => {
     render(<Sidebar />);
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
 
-    const settings = screen.getByRole('menuitem', { name: 'Paramètres du serveur' });
-    expect(settings).toHaveFocus();
+    const notifications = screen.getByRole('menuitem', { name: 'Notifications' });
+    expect(notifications).toHaveFocus();
 
-    fireEvent.keyDown(settings, { key: 'End' });
-    const leave = screen.getByRole('menuitem', { name: 'Quitter le serveur' });
-    expect(leave).toHaveFocus();
+    fireEvent.keyDown(notifications, { key: 'End' });
+    const copyId = screen.getByRole('menuitem', { name: 'Copier l’ID du serveur' });
+    expect(copyId).toHaveFocus();
 
-    fireEvent.keyDown(leave, { key: 'Home' });
-    expect(settings).toHaveFocus();
+    fireEvent.keyDown(copyId, { key: 'Home' });
+    expect(notifications).toHaveFocus();
 
-    fireEvent.keyDown(settings, { key: 'Tab' });
+    fireEvent.keyDown(notifications, { key: 'Tab' });
     expect(
       screen.queryByRole('menu', { name: 'Menu du serveur' }),
     ).not.toBeInTheDocument();
@@ -539,10 +541,7 @@ describe('Sidebar — menu du nom de serveur', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
 
-    const settings = screen.getByRole('menuitem', { name: 'Paramètres du serveur' });
-    expect(settings).toHaveFocus();
     const notifications = screen.getByRole('menuitem', { name: 'Notifications' });
-    fireEvent.keyDown(settings, { key: 'ArrowDown' });
     expect(notifications).toHaveFocus();
 
     fireEvent.mouseEnter(
@@ -552,6 +551,7 @@ describe('Sidebar — menu du nom de serveur', () => {
 
     fireEvent.keyDown(notifications, { key: 'ArrowRight' });
     expect(screen.getByRole('menuitemradio', { name: 'Rien' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemradio', { name: 'Tout' })).toHaveFocus();
   });
 });
 
