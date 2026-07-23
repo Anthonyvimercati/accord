@@ -146,6 +146,14 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let peer = param_peer(params)?;
             Ok(json!({ "ttl_secs": node.conversation_ephemeral(&peer)? }))
         }
+        "dm.schedule" => {
+            // Deferred local send (F1): stored now, routed through the normal
+            // send path when due. Zero wire byte at schedule time.
+            let peer = param_peer(params)?;
+            let body = param_str(params, "body")?;
+            let fire_at = super::schedule::param_fire_at_ms(params)?;
+            Ok(json!({ "id": node.schedule_dm(&peer, body, fire_at)? }))
+        }
         "dm.set_read_receipts" => {
             let enabled = params
                 .get("enabled")

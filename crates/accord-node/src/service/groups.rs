@@ -753,6 +753,15 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 "msg_id": node.group_send_with_attachments(&gid, &cid, text, reply_to, attachments)?
             }))
         }
+        "groups.schedule" => {
+            // Deferred local send (F1): stored now, routed through the normal
+            // send path when due. Zero wire byte at schedule time.
+            let gid = param_id16(params, "group_id")?;
+            let cid = param_id16(params, "channel_id")?;
+            let body = param_str(params, "body")?;
+            let fire_at = super::schedule::param_fire_at_ms(params)?;
+            Ok(json!({ "id": node.schedule_group(&gid, &cid, body, fire_at)? }))
+        }
         "groups.edit" => {
             let gid = param_id16(params, "group_id")?;
             let cid = param_id16(params, "channel_id")?;

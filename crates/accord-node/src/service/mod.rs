@@ -20,6 +20,7 @@ use crate::error::NodeError;
 use crate::node::Node;
 use crate::voice::VoiceHandle;
 
+mod backup_schedule;
 mod dm;
 mod files;
 mod friends;
@@ -29,6 +30,8 @@ mod mentions;
 mod network;
 mod privacy;
 mod profile;
+mod reminders;
+mod schedule;
 mod voice;
 
 #[cfg(test)]
@@ -184,6 +187,15 @@ fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeErro
     }
     if method.starts_with("privacy.") {
         return privacy::dispatch(node, method, params);
+    }
+    if method.starts_with("schedule.") {
+        return schedule::dispatch(node, method, params);
+    }
+    if method.starts_with("reminders.") {
+        return reminders::dispatch(node, method, params);
+    }
+    if method.starts_with("backup.") {
+        return backup_schedule::dispatch(node, method, params);
     }
     Err(NodeError::Invalid("méthode inconnue"))
 }

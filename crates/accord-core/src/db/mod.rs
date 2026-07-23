@@ -9,6 +9,8 @@ mod invites;
 mod mentions;
 mod messages;
 mod outbox;
+mod reminders;
+mod scheduled;
 mod search;
 mod stats;
 
@@ -19,6 +21,8 @@ pub use invites::IncomingInvite;
 pub use mentions::{MentionEntry, MentionScope};
 pub use messages::{DmRecord, GroupMsgRecord};
 pub use outbox::OutboxItem;
+pub use reminders::Reminder;
+pub use scheduled::ScheduledMessage;
 pub use stats::StorageStats;
 
 use crate::error::CoreError;
@@ -31,7 +35,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -393,7 +397,40 @@ impl Db {
                scope    BLOB PRIMARY KEY,
                ttl_secs INTEGER NOT NULL
              );
-             PRAGMA user_version = 11;
+             -- Lot F1: locally scheduled messages (deferred send). Purely
+             -- local — the maintenance loop routes a due row through the
+             -- normal send path (outbox covers offline peers), then deletes
+             -- it. `scope` is 'dm' or 'group'; `scope_id` the peer pubkey
+             -- (32) or group_id (16); `channel_id` the group channel (16),
+             -- NULL for a DM.
+             CREATE TABLE IF NOT EXISTS scheduled_messages (
+               id         BLOB PRIMARY KEY,
+               scope      TEXT NOT NULL,
+               scope_id   BLOB NOT NULL,
+               channel_id BLOB,
+               body       TEXT NOT NULL,
+               fire_at    INTEGER NOT NULL,
+               created_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS scheduled_by_fire
+               ON scheduled_messages(fire_at);
+             -- Lot F2: local reminders pinned on a message. Purely local — a
+             -- due row emits `event.reminder` once (`fired_at` set), the user
+             -- later dismisses it (row removed). `msg_ref` is the referenced
+             -- message id (16), NULL for a free-standing reminder.
+             CREATE TABLE IF NOT EXISTS reminders (
+               id         BLOB PRIMARY KEY,
+               scope      TEXT NOT NULL,
+               scope_id   BLOB NOT NULL,
+               msg_ref    BLOB,
+               note       TEXT NOT NULL DEFAULT '',
+               fire_at    INTEGER NOT NULL,
+               fired_at   INTEGER,
+               created_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS reminders_by_fire
+               ON reminders(fire_at);
+             PRAGMA user_version = 12;
              COMMIT;",
         )?;
         Ok(())

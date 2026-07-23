@@ -76,6 +76,7 @@ pub(super) fn group_mark_key(group_id: &[u8; 16], channel_id: &[u8; 16]) -> Stri
     )
 }
 
+pub(crate) mod backup_schedule;
 pub(crate) mod diagnostics;
 pub(crate) mod discovery;
 mod dm;
@@ -88,6 +89,8 @@ pub(crate) mod nat;
 pub(crate) mod network;
 pub(crate) mod privacy;
 pub(crate) mod relay;
+mod reminders;
+mod schedule;
 mod voice;
 
 // Les noms `friends` et `profile` sont déjà pris par les imports

@@ -3786,3 +3786,173 @@ async fn privacy_report_reflects_the_network_runtime_when_up() {
     assert_eq!(v["egress"]["relay_circuits"], json!(1));
     assert_eq!(v["egress"]["central_servers"], json!(0));
 }
+
+// ---- JSON boundary: Lot F (scheduled messages, reminders, backup) ----
+
+#[tokio::test]
+async fn dm_schedule_list_reschedule_and_cancel_roundtrip() {
+    let s = service();
+    let peer = hex::encode(&[9u8; 32]);
+    let id = s
+        .call(
+            "dm.schedule",
+            json!({ "pubkey": peer, "body": "à plus tard", "fire_at": 5_000 }),
+        )
+        .await
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // Frozen list shape.
+    let v = s.call("schedule.list", json!({})).await.unwrap();
+    let item = &v["scheduled"][0];
+    assert_eq!(
+        sorted_keys(item),
+        [
+            "channel_id",
+            "created_at",
+            "fire_at",
+            "id",
+            "preview",
+            "scope",
+            "scope_id"
+        ]
+    );
+    assert_eq!(item["scope"], json!("dm"));
+    assert_eq!(item["channel_id"], json!(null));
+    assert_eq!(item["preview"], json!("à plus tard"));
+    // Reschedule then cancel by id.
+    s.call("schedule.reschedule", json!({ "id": id, "fire_at": 9_000 }))
+        .await
+        .unwrap();
+    s.call("schedule.cancel", json!({ "id": id }))
+        .await
+        .unwrap();
+    let v = s.call("schedule.list", json!({})).await.unwrap();
+    assert_eq!(v["scheduled"].as_array().unwrap().len(), 0);
+    // Unknown id is refused on both verbs.
+    let err = s
+        .call("schedule.cancel", json!({ "id": id }))
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("inconnu"));
+    // Missing fire_at is refused.
+    let err = s
+        .call("dm.schedule", json!({ "pubkey": peer, "body": "x" }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+#[tokio::test]
+async fn groups_schedule_records_channel_scope() {
+    let (s, gid) = service_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({ "group_id": gid, "name": "annonces" }),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+    s.call(
+        "groups.schedule",
+        json!({ "group_id": gid, "channel_id": cid, "body": "annonce", "fire_at": 1_000 }),
+    )
+    .await
+    .unwrap();
+    let item = s.call("schedule.list", json!({})).await.unwrap()["scheduled"][0].clone();
+    assert_eq!(item["scope"], json!("group"));
+    assert_eq!(item["scope_id"], json!(gid));
+    assert_eq!(item["channel_id"], json!(cid));
+}
+
+#[tokio::test]
+async fn reminders_add_list_and_dismiss_roundtrip() {
+    let s = service();
+    let scope_id = hex::encode(&[9u8; 32]);
+    let msg_ref = hex::encode(&[3u8; 16]);
+    let id = s
+        .call(
+            "reminders.add",
+            json!({
+                "scope": "dm",
+                "scope_id": scope_id,
+                "msg_ref": msg_ref,
+                "note": "rappelle-moi",
+                "fire_at": 1_000,
+            }),
+        )
+        .await
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let item = s.call("reminders.list", json!({})).await.unwrap()["reminders"][0].clone();
+    assert_eq!(
+        sorted_keys(&item),
+        [
+            "created_at",
+            "fire_at",
+            "fired",
+            "id",
+            "msg_ref",
+            "note",
+            "scope",
+            "scope_id"
+        ]
+    );
+    assert_eq!(item["scope"], json!("dm"));
+    assert_eq!(item["msg_ref"], json!(msg_ref));
+    assert_eq!(item["fired"], json!(false));
+    // A 16-byte scope_id under the "dm" scope is refused.
+    let err = s
+        .call(
+            "reminders.add",
+            json!({ "scope": "dm", "scope_id": hex::encode(&[1u8; 16]), "fire_at": 1 }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // Dismiss removes it.
+    s.call("reminders.dismiss", json!({ "id": id }))
+        .await
+        .unwrap();
+    let v = s.call("reminders.list", json!({})).await.unwrap();
+    assert_eq!(v["reminders"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn backup_schedule_status_and_run_roundtrip() {
+    let s = service();
+    // Default: off, nothing due, exact shape.
+    let v = s.call("backup.status", json!({})).await.unwrap();
+    assert_eq!(
+        sorted_keys(&v),
+        ["cadence", "dir", "due", "last_backup_at", "next_due_at"]
+    );
+    assert_eq!(v["cadence"], json!("off"));
+    assert_eq!(v["next_due_at"], json!(null));
+    assert_eq!(v["due"], json!(false));
+    // Configure a weekly cadence with a folder.
+    s.call(
+        "backup.schedule",
+        json!({ "cadence": "weekly", "dir": "/tmp/accord-backups" }),
+    )
+    .await
+    .unwrap();
+    let v = s.call("backup.status", json!({})).await.unwrap();
+    assert_eq!(v["cadence"], json!("weekly"));
+    assert_eq!(v["dir"], json!("/tmp/accord-backups"));
+    // Just enabled: baselined, so not due yet.
+    assert_eq!(v["due"], json!(false));
+    // record_done and run_now are accepted.
+    s.call("backup.record_done", json!({})).await.unwrap();
+    s.call("backup.run_now", json!({})).await.unwrap();
+    // Unknown cadence is refused.
+    let err = s
+        .call("backup.schedule", json!({ "cadence": "hourly" }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}

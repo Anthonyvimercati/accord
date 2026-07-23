@@ -437,6 +437,31 @@ pub(crate) fn spawn_loops(rt: &Arc<Runtime>) {
     spawn_periodic(Arc::clone(rt), cfg.ephemeral_purge, |r, c| {
         Box::pin(ephemeral_purge_tick(r, c))
     });
+    // Local scheduled tasks (Lot F): due scheduled messages, due reminders and
+    // the backup-due nudge. Purely local computation on the same cadence as the
+    // other local due-signalling loops — reuses `event_check`, no extra knob.
+    spawn_periodic(Arc::clone(rt), cfg.event_check, |r, c| {
+        Box::pin(local_tasks_tick(r, c))
+    });
+}
+
+/// Fires the local scheduled tasks (Lot F). Each step is bounded and logs on
+/// error — a failure in one never aborts the others, and none ever panics.
+async fn local_tasks_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
+    let now = now_ms();
+    match rt.node().fire_due_scheduled(now) {
+        Ok(sent) if sent > 0 => tracing::debug!(sent, "programmés : messages dus envoyés"),
+        Ok(_) => {}
+        Err(e) => tracing::debug!(erreur = %e, "programmés : envoi impossible"),
+    }
+    match rt.node().fire_due_reminders(now) {
+        Ok(fired) if fired > 0 => tracing::debug!(fired, "rappels : échéances signalées"),
+        Ok(_) => {}
+        Err(e) => tracing::debug!(erreur = %e, "rappels : signalement impossible"),
+    }
+    if let Err(e) = rt.node().backup_check_due(now) {
+        tracing::debug!(erreur = %e, "sauvegarde : vérification d'échéance impossible");
+    }
 }
 
 /// Deletes expired messages of timed conversations (bounded per pass).
