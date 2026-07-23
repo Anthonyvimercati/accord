@@ -390,9 +390,19 @@
 }
 
 .glass-strong,
-.server-menu-surface,
 .accord-menu {
   background-color: var(--liquid-floating-strong);
+}
+
+/* A dense dropdown must stay opaque and readable: the liquid-glass frost is
+   meant for large modals, but over the channel list the blur is too weak and
+   the list bleeds through. Solid surface, no backdrop blur, keep the rim and
+   shadow. */
+.server-menu-surface {
+  background-image: none;
+  background-color: rgb(var(--color-modal));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .glass.overflow-y-auto,

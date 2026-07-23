@@ -2,6 +2,16 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [4.4.1] — 2026-07-23
+
+### Fixed
+
+- **Server menu is solid again.** The server header dropdown used a
+  translucent glass surface meant for large modals; over the dense channel
+  list the blur was too weak and the channel names bled through, making the
+  menu look unfinished. It is now an opaque panel — clean and readable, with
+  the same rim and shadow.
+
 ## [4.4.0] — 2026-07-21
 
 ### Changed
