@@ -2,6 +2,25 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- **Scheduled messages.** Write a direct message now and have it sent at a
+  chosen time — a clock button by the DM composer opens a small scheduler, and
+  a new Planning settings tab lists, reschedules or cancels pending sends.
+  Purely local: nothing leaves the network before the chosen time, then the
+  message follows the normal send path (the outbox covers an offline peer).
+- **Message reminders.** "Remind me" on any message pins a local reminder
+  (in 20 min / 1 h / 3 h / tomorrow / a custom time, with an optional note);
+  when it comes due a native notification fires, exactly once. Manage them from
+  the Planning tab. Nothing is sent to anyone.
+- **Scheduled backup.** Pick a weekly or monthly cadence and an optional folder
+  to be reminded to back up your encrypted profile, with the last and next
+  backup shown at a glance and a "back up now" button. The reminder is local;
+  the backup itself reuses the existing host export (passphrase-protected,
+  session-locking).
+
 ## [4.3.0] — 2026-07-21
 
 ### Changed

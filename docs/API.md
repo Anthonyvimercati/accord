@@ -210,6 +210,7 @@ note deletes it. The current note is also folded into `friends.list` (`note`).
 | `dm.get_read_receipts` | — | `{ enabled }` |
 | `dm.set_ephemeral` | `{ pubkey, ttl_secs? }` | `{ ok: true }` — **local** disappearing-message timer for this conversation (see "Disappearing messages"); `ttl_secs` integer in [60, 31 536 000], `null` or absent disables |
 | `dm.ephemeral` | `{ pubkey }` | `{ ttl_secs }` — integer∣`null` (`null` = disabled) |
+| `dm.schedule` | `{ pubkey, body, fire_at }` | `{ id }` — schedules a **local** deferred send (see "Planning"); `fire_at` wall-clock ms |
 
 `limit` bounded to [1, 200] (default 50). `messages` sorted from most recent to
 oldest: `{ msg_id, author, lamport, sent_ms, acked, deleted, pinned, delivery,
@@ -337,6 +338,7 @@ After each applied op (local or remote), the node emits
 | `groups.mark_read` | `{ group_id, channel_id, lamport }` | `{ ok: true }` — records our local read position in the channel (for `unread` in `groups.list`) |
 | `groups.set_ephemeral` | `{ group_id, ttl_secs? }` | `{ ok: true }` — **local** disappearing-message timer for the whole group (every channel); same contract as `dm.set_ephemeral` (see "Disappearing messages") |
 | `groups.ephemeral` | `{ group_id }` | `{ ttl_secs }` — integer∣`null` |
+| `groups.schedule` | `{ group_id, channel_id, body, fire_at }` | `{ id }` — schedules a **local** deferred send in a channel (see "Planning") |
 
 `groups.edit`, `groups.delete` (of one's own message) and `groups.react`
 travel as bodies encrypted with the group key, over the same path
@@ -737,6 +739,38 @@ proof behind "0 central server, 100 % local & encrypted":
   fallback links). `central_servers` is **0 by construction** and will stay 0.
   `available: false` (all counts zero) when the network runtime is not up.
 
+### Planning (local)
+
+Three purely-local features share one primitive — tasks persisted in the
+database and driven by the existing maintenance loop. **Nothing crosses the
+wire**: a scheduled message that fires reuses the normal send path (and the
+outbox for offline peers); a reminder and a backup nudge are local
+notifications only.
+
+| Method | Parameters | Result |
+|---------|-----------|----------|
+| `schedule.list` | — | `{ scheduled: [{ id, scope, scope_id, channel_id, fire_at, created_at, preview }] }` — soonest first; `scope` ∈ `dm`∣`group`, `channel_id` hex∣`null` |
+| `schedule.cancel` | `{ id }` | `{ ok: true }` — removes a scheduled message; rejected if unknown |
+| `schedule.reschedule` | `{ id, fire_at }` | `{ ok: true }` — moves the firing time; rejected if unknown |
+| `reminders.add` | `{ scope, scope_id, msg_ref?, note?, fire_at }` | `{ id }` — pins a local reminder; `scope` ∈ `dm`∣`group`, `scope_id` peer pubkey (32) or group id (16), `msg_ref` referenced message id∣`null`, `note` ≤ 500 chars |
+| `reminders.list` | — | `{ reminders: [{ id, scope, scope_id, msg_ref, note, fire_at, fired, created_at }] }` — soonest first; `fired` bool |
+| `reminders.dismiss` | `{ id }` | `{ ok: true }` — removes a reminder; rejected if unknown |
+| `backup.status` | — | `{ cadence, dir, last_backup_at, next_due_at, due }` — `cadence` ∈ `off`∣`weekly`∣`monthly`, `dir` string∣`null`, times ms∣`null`, `due` bool |
+| `backup.schedule` | `{ cadence, dir? }` | `{ ok: true }` — sets the cadence and optional destination folder (empty/absent `dir` = reminder only) |
+| `backup.record_done` | `{ at? }` | `{ ok: true }` — records a completed backup (advances `last_backup_at`; defaults to now) |
+| `backup.run_now` | — | `{ ok: true }` — re-emits `event.backup_due` so the UI runs the export path immediately |
+
+`dm.schedule` / `groups.schedule` create the scheduled messages listed here. A
+due message is sent by the maintenance loop and its row dropped — `fire_at` is
+wall-clock ms, bounded to at most one year ahead.
+
+Reminders and the backup nudge fire as local notifications (`event.reminder`,
+`event.backup_due`). A reminder fires exactly once (a `fired_at` stamp guards
+against re-firing). The backup archive itself is **not** written by the node:
+`backup.*` only schedules and detects due windows; the sealed `.accordbackup`
+is produced by the host export flow (`backup_export`), which stops the node and
+re-verifies the passphrase, so a running node never touches it.
+
 ## Events (server → client notifications)
 
 Pushed to all authenticated clients, without `id`:
@@ -754,6 +788,8 @@ Pushed to all authenticated clients, without `id`:
 | `event.presence` | `{ pubkey, online, status, status_text }` — a **friend**'s presence changed: `online` `bool` (kept for backward compatibility, `status != "offline"`), `status` ∈ `online`∣`idle`∣`dnd`∣`offline`, `status_text` `string`∣`null`; see "Presence" |
 | `event.friend_removed` | `{ peer }` — a friendship was removed (by us via `friends.remove`, or by the peer via a `FRIEND_REMOVE` wire message): refresh `friends.list`; the DM history is kept |
 | `event.friend_verified` | `{ peer, verified }` — the manual verification flag of a contact changed locally (`friends.set_verified`): refresh the shield badge |
+| `event.reminder` | `{ id, scope, scope_id, msg_ref, note, fire_at }` — a local reminder came due (see "Planning"): show a notification. Fires exactly once |
+| `event.backup_due` | `{ auto, dir }` — a scheduled backup is due (see "Planning"): `auto` `bool` (a destination folder is configured), `dir` string∣`null`. The UI runs the host export flow |
 | `event.dm_read` | `{ peer, lamport }` — the peer's read receipt advanced: they have read our messages of the conversation up to `lamport` (same value as `peer_read_lamport` in `dm.history`) |
 | `event.profile` | `{ pubkey, name, bio, avatar, banner }` — a **friend**'s profile updated (`bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null`; nickname reflected in `friends.list`) |
 | `event.group_op` | `{ group_id }` — replicated group op |
