@@ -106,14 +106,16 @@ export function PrimaryButton({
   label,
   disabled,
   onClick,
+  type = 'button',
 }: {
   label: string;
   disabled?: boolean;
-  onClick: () => void;
+  onClick?: () => void;
+  type?: 'button' | 'submit';
 }) {
   return (
     <button
-      type="button"
+      type={type}
       disabled={disabled ?? false}
       onClick={onClick}
       className="onboarding-primary min-h-11 w-full rounded-lg bg-blurple py-2.5 font-medium text-white shadow-sm transition-[transform,background-color,box-shadow] duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:pointer-events-none disabled:opacity-50 active:translate-y-0 active:scale-[0.98]"

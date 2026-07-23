@@ -131,25 +131,28 @@ export function CreateForm({
           <p className="mt-1 text-sm text-muted">{t.onboarding.createHint}</p>
         </div>
       </div>
-      <Field label={t.onboarding.passphrase} value={pass} onChange={setPass} />
-      <Field
-        label={t.onboarding.passphraseConfirm}
-        value={confirm}
-        onChange={setConfirm}
-      />
-      <p className="mb-4 -mt-2 text-xs text-faint">{t.onboarding.passphraseHint}</p>
-      {tooShort && (
-        <p className="mb-3 text-sm text-red">{t.onboarding.passphraseTooShort}</p>
-      )}
-      {mismatch && (
-        <p className="mb-3 text-sm text-red">{t.onboarding.passphraseMismatch}</p>
-      )}
-      {error !== null && <p className="mb-3 text-sm text-red">{error}</p>}
-      <PrimaryButton
-        label={t.onboarding.create}
-        disabled={!ready}
-        onClick={() => void onSubmit(pass)}
-      />
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (ready) void onSubmit(pass);
+        }}
+      >
+        <Field label={t.onboarding.passphrase} value={pass} onChange={setPass} />
+        <Field
+          label={t.onboarding.passphraseConfirm}
+          value={confirm}
+          onChange={setConfirm}
+        />
+        <p className="mb-4 -mt-2 text-xs text-faint">{t.onboarding.passphraseHint}</p>
+        {tooShort && (
+          <p className="mb-3 text-sm text-red">{t.onboarding.passphraseTooShort}</p>
+        )}
+        {mismatch && (
+          <p className="mb-3 text-sm text-red">{t.onboarding.passphraseMismatch}</p>
+        )}
+        {error !== null && <p className="mb-3 text-sm text-red">{error}</p>}
+        <PrimaryButton label={t.onboarding.create} disabled={!ready} type="submit" />
+      </form>
       <button
         type="button"
         onClick={onRestore}
@@ -193,21 +196,24 @@ export function RestoreForm({
       <h1 className="mb-4 text-center text-2xl font-bold text-header">
         {t.onboarding.restoreTitle}
       </h1>
-      <Field
-        label={t.onboarding.recoveryPhrase}
-        type="text"
-        value={phrase}
-        onChange={setPhrase}
-        placeholder={t.onboarding.recoveryPhrasePlaceholder}
-      />
-      <Field label={t.onboarding.passphrase} value={pass} onChange={setPass} />
-      <p className="mb-4 -mt-2 text-xs text-faint">{t.onboarding.passphraseHint}</p>
-      {error !== null && <p className="mb-3 text-sm text-red">{error}</p>}
-      <PrimaryButton
-        label={t.onboarding.restore}
-        disabled={!ready}
-        onClick={() => void onSubmit(phrase, pass)}
-      />
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (ready) void onSubmit(phrase, pass);
+        }}
+      >
+        <Field
+          label={t.onboarding.recoveryPhrase}
+          type="text"
+          value={phrase}
+          onChange={setPhrase}
+          placeholder={t.onboarding.recoveryPhrasePlaceholder}
+        />
+        <Field label={t.onboarding.passphrase} value={pass} onChange={setPass} />
+        <p className="mb-4 -mt-2 text-xs text-faint">{t.onboarding.passphraseHint}</p>
+        {error !== null && <p className="mb-3 text-sm text-red">{error}</p>}
+        <PrimaryButton label={t.onboarding.restore} disabled={!ready} type="submit" />
+      </form>
       <button
         type="button"
         onClick={onBack}
@@ -240,15 +246,22 @@ function UnlockForm() {
       <h1 className="mb-6 text-center text-2xl font-bold text-header">
         {t.onboarding.unlockTitle}
       </h1>
-      <Field label={t.onboarding.passphrase} value={pass} onChange={setPass} />
-      {error !== null && (
-        <p className="mb-3 text-sm text-red">{t.onboarding.wrongPassphrase}</p>
-      )}
-      <PrimaryButton
-        label={t.onboarding.unlock}
-        disabled={pass.length === 0}
-        onClick={() => void unlock(pass)}
-      />
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (pass.length > 0) void unlock(pass);
+        }}
+      >
+        <Field label={t.onboarding.passphrase} value={pass} onChange={setPass} />
+        {error !== null && (
+          <p className="mb-3 text-sm text-red">{t.onboarding.wrongPassphrase}</p>
+        )}
+        <PrimaryButton
+          label={t.onboarding.unlock}
+          disabled={pass.length === 0}
+          type="submit"
+        />
+      </form>
       <button
         type="button"
         onClick={() => void goToWelcome()}

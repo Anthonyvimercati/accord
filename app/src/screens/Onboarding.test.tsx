@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { backupImport } from '../lib/bridge';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
@@ -47,6 +47,38 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
     'data:image/png;base64,QUJD',
   );
+});
+
+describe('Onboarding — déverrouillage', () => {
+  it('déverrouille en soumettant le formulaire (touche Entrée), pas seulement au clic', () => {
+    const unlock = vi.fn(async () => {});
+    useSession.setState({ phase: 'locked', error: null, unlock });
+    render(<Onboarding />);
+
+    const field = screen.getByLabelText('Phrase de passe');
+    fireEvent.change(field, { target: { value: 'mon secret' } });
+    const form = field.closest('form');
+    expect(form).not.toBeNull();
+    // Un bouton `type="submit"` dans le formulaire ⇒ Entrée le soumet nativement.
+    expect(
+      within(form as HTMLFormElement).getByRole('button', { name: 'Déverrouiller' }),
+    ).toHaveAttribute('type', 'submit');
+
+    fireEvent.submit(form as HTMLFormElement);
+
+    expect(unlock).toHaveBeenCalledWith('mon secret');
+  });
+
+  it('ignore la soumission quand la phrase est vide', () => {
+    const unlock = vi.fn(async () => {});
+    useSession.setState({ phase: 'locked', error: null, unlock });
+    render(<Onboarding />);
+
+    const form = screen.getByLabelText('Phrase de passe').closest('form');
+    fireEvent.submit(form as HTMLFormElement);
+
+    expect(unlock).not.toHaveBeenCalled();
+  });
 });
 
 describe('Onboarding — import de sauvegarde', () => {
